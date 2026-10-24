@@ -201,10 +201,16 @@ function drawSoldiers(B) {
   for (const sq of B.squads) {
     const sel = B.selected.has(sq);
     for (const s of sq.soldiers) {
-      const r = s.isLord ? 6 : s.isGeneral ? 5 : 3.4;
+      const r = (s.isLord ? 6 : s.isGeneral ? 5 : 3.4) * (s.type === 'cavalry' ? 1.3 : 1);
       if (sel) { ctx.fillStyle = 'rgba(107,220,143,0.45)'; ctx.beginPath(); ctx.arc(s.x, s.y, r + 2.5, 0, Math.PI * 2); ctx.fill(); }
       ctx.fillStyle = s.T.color;
-      ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      // 모양으로 병종 구분: 기병은 타원, 포병은 네모, 공병은 마름모
+      if (s.type === 'cavalry') ctx.ellipse(s.x, s.y, r + 1.5, r - 0.5, 0, 0, Math.PI * 2);
+      else if (s.type === 'artillery') ctx.rect(s.x - r, s.y - r, r * 2, r * 2);
+      else if (s.type === 'engineer') { ctx.moveTo(s.x, s.y - r - 1); ctx.lineTo(s.x + r + 1, s.y); ctx.lineTo(s.x, s.y + r + 1); ctx.lineTo(s.x - r - 1, s.y); ctx.closePath(); }
+      else ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fill();
       ctx.lineWidth = s.isGeneral || s.isLord ? 2 : 1;
       ctx.strokeStyle = s.isLord ? '#ffdf6b' : s.isGeneral ? '#e6b450' : '#1d2a4a';
       ctx.stroke();
@@ -249,6 +255,7 @@ function drawEnemies(B) {
     ctx.fillStyle = e.hitT > 0 ? '#fff' : e.T.color;
     ctx.beginPath();
     if (e.type === 'wolf') ctx.ellipse(e.x, e.y, e.r + 2, e.r - 1, 0, 0, Math.PI * 2);
+    else if (e.T.ranged) { ctx.moveTo(e.x, e.y - e.r - 2); ctx.lineTo(e.x + e.r + 1, e.y + e.r); ctx.lineTo(e.x - e.r - 1, e.y + e.r); ctx.closePath(); }  // 원거리 적은 세모
     else ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
     ctx.fill();
     // 상태 이상: 얼음은 파란 테두리, 둔화는 옅은 파랑, 화상은 주황 점
@@ -268,6 +275,14 @@ function drawProjectiles(B) {
     if (p.kind === 'fire') {
       ctx.fillStyle = 'rgba(255,150,60,0.35)'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else if (p.kind === 'boulder' || p.kind === 'rock') {
+      ctx.fillStyle = p.kind === 'rock' ? '#7a6a5a' : '#9aa0b0';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.kind === 'rock' ? 4 : 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.stroke();
+    } else if (p.kind === 'earrow') {
+      const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy) || 1;
+      ctx.strokeStyle = '#ff8a6a'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - dx / d * 7, p.y - dy / d * 7); ctx.stroke();
     } else if (p.kind === 'holy') {
       ctx.fillStyle = 'rgba(255,241,168,0.4)'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff1a8'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
@@ -287,6 +302,8 @@ function drawFx(B) {
     else if (f.kind === 'hit') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f.x, f.y, 6 * (1.5 - a), 0, Math.PI * 2); ctx.stroke(); }
     else if (f.kind === 'boom') { ctx.fillStyle = 'rgba(255,140,50,0.5)'; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.2 - a * 0.5), 0, Math.PI * 2); ctx.fill(); }
     else if (f.kind === 'heal') { ctx.fillStyle = '#7dff9a'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('+', f.x, f.y - 8 - (1 - a) * 10); }
+    else if (f.kind === 'repair') { ctx.fillStyle = '#ffd36b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('⚒', f.x, f.y - (1 - a) * 8); }
+    else if (f.kind === 'charge') { ctx.strokeStyle = '#ffb36b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, 14 * (1.4 - a), 0, Math.PI * 2); ctx.stroke(); }
     else if (f.kind === 'dust') { ctx.fillStyle = '#c8b89a'; ctx.beginPath(); ctx.arc(f.x, f.y, 4 * (1.6 - a), 0, Math.PI * 2); ctx.fill(); }
     ctx.globalAlpha = 1;
   }

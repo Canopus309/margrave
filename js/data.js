@@ -7,7 +7,7 @@ MG.CASTLE = { x: 1000, y: 700, R: 320, T: 30, gateHalf: 30, keepR: 60 };
 // 한 면 = 성벽 4조각 + 가운데 성문. 성문은 약한 요충지.
 MG.WALL_SEG_HP = 1200;
 MG.GATE_HP = 900;
-MG.GATE_TARGET = { goblin: 0.2, wolf: 0.1, orc: 0.6 };  // 성문을 노리는 비율
+MG.GATE_TARGET = { goblin: 0.2, wolf: 0.1, orc: 0.6, goblinArcher: 0, orcThrower: 0.3 };  // 성문을 노리는 비율
 MG.KEEP_HP = 3000;  // 성벽이 뚫린 뒤 병력을 돌릴 시간을 준다
 
 MG.SIDES = ['N', 'E', 'S', 'W'];
@@ -21,13 +21,25 @@ MG.UNIT_TYPES = {
   mage:     { name: '견습 마법사', color: '#d79bff', hp: 30, atk: 10, cd: 2.2, range: 150, speed: 50, kind: 'magic', splash: 35 },
   priest:   { name: '수련 사제',   color: '#fff1a8', hp: 30, atk: 10, cd: 1.6, range: 120, speed: 50, kind: 'heal' },
   guard:    { name: '근위병',     color: '#e8c070', hp: 80, atk: 10, cd: 1.0, range: 14,  speed: 55, kind: 'melee' },
+  // repair: 1초에 고치는 체력(1명당), perLead: 통솔 1당 병사 수
+  engineer: { name: '공병',       color: '#c8a060', hp: 45, atk: 5,  cd: 1.2, range: 14,  speed: 50, kind: 'melee', repair: 6, perLead: 5 },
+  // minRange: 너무 가까운 적은 못 쏜다
+  artillery:{ name: '포병',       color: '#9aa0b0', hp: 40, atk: 25, cd: 6.0, range: 330, speed: 30, kind: 'siege', splash: 35, minRange: 90, perLead: 3 },
+  // charge: 움직인 뒤 첫 타격 배율, noWall: 성벽 위에 못 올라감
+  cavalry:  { name: '기병',       color: '#d88a5a', hp: 110, atk: 12, cd: 1.0, range: 14, speed: 110, kind: 'melee', charge: 3, noWall: true },
 };
 
 MG.ENEMY_TYPES = {
   goblin: { name: '고블린',    color: '#7bc043', hp: 36, atk: 5,  cd: 1.0, speed: 45, r: 5, wallDmg: 5,  aggro: 45 },
   wolf:   { name: '늑대 기수', color: '#b08257', hp: 45,  atk: 7,  cd: 0.9, speed: 95, r: 6, wallDmg: 6,  aggro: 0 },  // 병력을 무시하고 성벽으로
   orc:    { name: '오크 전사', color: '#3f7d3a', hp: 140, atk: 14, cd: 1.2, speed: 35, r: 8, wallDmg: 12, aggro: 50 },
+  // ranged: 사거리. 성벽 밖에서 멈춰 쏜다. siege: 성벽을 겨냥해 돌을 던진다
+  goblinArcher: { name: '고블린 궁수',  color: '#b4d050', hp: 28, atk: 6,  cd: 1.6, speed: 42, r: 5, wallDmg: 2,  aggro: 0, ranged: 170 },
+  orcThrower:   { name: '오크 투석병',  color: '#6a8a40', hp: 90, atk: 10, cd: 3.5, speed: 30, r: 7, wallDmg: 40, aggro: 0, ranged: 220, siege: true },
 };
+MG.UPHILL_HIT = 0.5;      // 아래에서 성벽 위를 쏘면 명중률
+MG.RETREAT_AFTER = 60;    // 모든 적이 나온 뒤 이만큼(초) 적이 하나도 안 죽으면 남은 적은 물러난다
+MG.GARRISON_HP = 35;      // 직할 병사 한 명이 쓰러지는 데 드는 피해
 
 MG.GENERAL_MULT = { hp: 4, atk: 2.5 };
 MG.LEADER_DOWN_MULT = 0.8;   // 장수가 쓰러진 부대의 공격력
@@ -45,7 +57,7 @@ MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130
 MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
-MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8 };
+MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7 };
 MG.MAX_LEVEL = 15;
 MG.xpToNext = L => Math.round(60 * Math.pow(L, 1.4));
 MG.SURVIVE_XP = 20;
@@ -54,9 +66,9 @@ MG.HEAL_XP = 0.08;  // 회복량 1당 경험치
 MG.LEVEL_BONUS = { genHp: 0.08, genAtk: 0.06, squad: 0.02 };
 
 // 부대 능력 보정. 곱하는 값(atk, dmgTaken, range, cd, splash, heal, hp)과 큰 값을 쓰는 값으로 나뉜다.
-const MUL_KEYS = ['atk', 'dmgTaken', 'range', 'cd', 'splash', 'heal', 'hp'];
+const MUL_KEYS = ['atk', 'dmgTaken', 'range', 'cd', 'splash', 'heal', 'hp', 'repair', 'speed'];
 MG.combineMods = list => {
-  const m = { atk: 1, dmgTaken: 1, range: 1, cd: 1, splash: 1, heal: 1, hp: 1, burn: 0, slow: 0, crit: 0, multishot: 1,
+  const m = { atk: 1, dmgTaken: 1, range: 1, cd: 1, splash: 1, heal: 1, hp: 1, repair: 1, speed: 1, charge: 0, burn: 0, slow: 0, crit: 0, multishot: 1,
     freeze: 0, aura: 0, auraDef: 0, cleave: 0, healAoe: 0, tough: false, canAttack: false };
   for (const x of list) {
     if (!x) continue;
@@ -96,6 +108,24 @@ MG.CLASSES = {
     B: { name: '전투사제', desc: '공격 가능, 주변 아군 공격력 +10%', mods: { canAttack: true, aura: 0.10 },
          lv10: { name: '성기사', desc: '주변 아군 공격력 +15%, 부대 체력 +50%', mods: { canAttack: true, aura: 0.15, hp: 1.5 } } },
   },
+  engineer: {
+    A: { name: '축성기사', desc: '수리 속도 +50%', mods: { repair: 1.5 },
+         lv10: { name: '요새장인', desc: '수리 속도 +100%, 주변 아군이 받는 피해 -10%', mods: { repair: 2, auraDef: 0.1 } } },
+    B: { name: '전투공병', desc: '공격력 +40%, 체력 +20%', mods: { atk: 1.4, hp: 1.2 },
+         lv10: { name: '파쇄공병', desc: '공격력 +70%, 주변 적에게 절반 피해', mods: { atk: 1.7, hp: 1.2, cleave: 0.5 } } },
+  },
+  artillery: {
+    A: { name: '중포병', desc: '폭발 범위 +40%', mods: { splash: 1.4 },
+         lv10: { name: '공성포대', desc: '폭발 범위 +70%, 공격력 +30%', mods: { splash: 1.7, atk: 1.3 } } },
+    B: { name: '속사포병', desc: '공격 속도 +35%', mods: { cd: 0.74 },
+         lv10: { name: '화염포병', desc: '공격 속도 +45%, 맞은 적이 크게 불탐', mods: { cd: 0.69, burn: 6 } } },
+  },
+  cavalry: {
+    A: { name: '중기병', desc: '받는 피해 -25%, 돌격 4배', mods: { dmgTaken: 0.75, charge: 4 },
+         lv10: { name: '성전기사', desc: '받는 피해 -35%, 돌격 5배', mods: { dmgTaken: 0.65, charge: 5 } } },
+    B: { name: '경기병', desc: '이동 속도 +25%, 공격 속도 +20%', mods: { speed: 1.25, cd: 0.83 },
+         lv10: { name: '질풍기병', desc: '이동 속도 +40%, 주변 적에게 절반 피해', mods: { speed: 1.4, cd: 0.8, cleave: 0.5 } } },
+  },
 };
 
 // 무기는 장수만 든다. 등급 배율은 장수 공격력, 옵션은 부대 전체에 적용.
@@ -105,7 +135,8 @@ MG.WEAPON_GRADES = {
   heroic:    { name: '영웅', color: '#c77dff', atk: 1.45, opts: 2 },
   legendary: { name: '전설', color: '#ffb347', atk: 1.70, opts: 3 },
 };
-MG.WEAPON_KINDS = { infantry: ['검', '도끼', '창'], archer: ['활', '석궁'], mage: ['지팡이', '마도서'], priest: ['홀장', '성물'] };
+MG.WEAPON_KINDS = { infantry: ['검', '도끼', '창'], archer: ['활', '석궁'], mage: ['지팡이', '마도서'], priest: ['홀장', '성물'],
+  engineer: ['망치', '곡괭이'], artillery: ['투석기', '노포'], cavalry: ['기창', '장검'] };
 MG.WEAPON_OPTS = {
   fire:  { name: '화염',   desc: '맞은 적이 3초간 불탐',     mods: { burn: 3 } },
   frost: { name: '냉기',   desc: '맞은 적이 30% 느려짐',     mods: { slow: 0.3 } },
@@ -156,6 +187,10 @@ MG.buildWaves = function (level, dirs) {
     groups.push({ wave: 3, t: 90, dir: c, type: 'goblin', count: 20 + 6 * L },
                 { wave: 3, t: 92, dir: c, type: 'orc',    count: 2 * L });
   }
+  // 원거리 적: 3번째 전투부터 고블린 궁수, 5번째부터 오크 투석병
+  if (L >= 3) groups.push({ wave: 2, t: 46, dir: a, type: 'goblinArcher', count: 4 + 2 * L },
+                         { wave: 3, t: 89, dir: b, type: 'goblinArcher', count: 3 + 2 * L });
+  if (L >= 5) groups.push({ wave: 3, t: 92, dir: a, type: 'orcThrower', count: 1 + Math.floor(L / 2) });
   // 5번째 전투마다 대습격
   if (L % 5 === 0) {
     for (const g of groups) g.count = Math.round(g.count * 1.2);
@@ -189,6 +224,8 @@ MG.BUILDINGS = {
   hospital: { name: '병원',   w: 2, h: 2, hp: 600, color: '#d0d0d0', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `부상자 ${MG.HOSPITAL_PER_LEVEL * l}명 수용` },
   storage:  { name: '창고',   w: 2, h: 2, hp: 600, color: '#8a7050', cost: { gold: 40, wood: 100 },          max: 3, desc: l => `자원 보관 한도 +${1000 * l}` },
   market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}, 자원 거래 (한 달 ${150 * l}개, 파는 값 ${65 + 5 * l}%)` },
+  workshop: { name: '공방',   w: 2, h: 2, hp: 600, color: '#8a6a3a', cost: { gold: 100, wood: 120, iron: 40 }, max: 3, desc: l => `공병·포병 보충 가능, 포병 공격력 +${10 * l}%` },
+  stable:   { name: '마구간', w: 2, h: 2, hp: 500, color: '#9a7a50', cost: { gold: 120, wood: 100 },          max: 3, desc: l => `기병 보충 가능, 기병 체력 +${10 * l}%` },
   tavern:   { name: '주점',   w: 1, h: 1, hp: 400, color: '#a0603a', cost: { gold: 80, wood: 60 },           max: 3, desc: l => `떠돌이 장수가 찾아와요 (최대 ${l + 1}명, 레벨 최대 ${l * 2 + 1})` },
   watch:    { name: '감시탑', w: 1, h: 1, hp: 400, color: '#6a8aa0', cost: { gold: 50, wood: 60 },           max: 3, desc: l => l >= 2 ? '매달 습격 날짜·방향·구성을 알아냄' : '매달 습격 날짜·방향을 알아냄' },
 };

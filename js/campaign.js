@@ -289,7 +289,9 @@ MG.damageList = () => {
   return list;
 };
 MG.repairNeed = () => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().reduce((a, d) => a + d.max - d.hp, 0));
-MG.repairCost = () => ({ wood: Math.ceil(MG.repairNeed() * MG.REPAIR_WOOD_PER_HP) });
+// 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
+MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
+MG.repairCost = () => ({ wood: Math.ceil(MG.repairNeed() * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1)) });
 MG.actRepair = () => {
   if (!MG.repairNeed()) return '고칠 곳이 없어요';
   return act(MG.repairCost(), () => {
@@ -316,13 +318,15 @@ MG.recruitTargets = () => {
   const list = [];
   for (const g of MG.S.generals) {
     if (g.dead) continue;
-    if (g.type === 'mage' && !MG.bLevel('tower')) continue;
-    if (g.type === 'priest' && !MG.bLevel('temple')) continue;
+    if (!MG.canRefill(g.type)) continue;
     const need = MG.genCap(g) - g.healthy - g.wounded.length;
     if (need > 0) list.push({ g, need });
   }
   return list;
 };
+// 병종별로 보충에 필요한 건물
+MG.REFILL_BUILDING = { mage: 'tower', priest: 'temple', engineer: 'workshop', artillery: 'workshop', cavalry: 'stable' };
+MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0;
 MG.recruitAmount = () => Math.min(MG.recruitCap(), Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.RECRUIT_GOLD));
 MG.recruitCost = () => ({ gold: MG.recruitAmount() * MG.RECRUIT_GOLD });
 MG.recruitPlan = () => {
@@ -666,7 +670,8 @@ MG.endMonth = () => {
 // ---------- 장수 ----------
 const traitsOf = g => (g.traits || []).map(t => MG.TRAITS[t]);
 MG.genLead = g => g.baseLead + (g.level >= 5 ? 1 : 0) + (g.level >= 10 ? 1 : 0) + traitsOf(g).reduce((a, t) => a + (t.lead || 0), 0);
-MG.genCap = g => MG.genLead(g) * 10;
+// 통솔 1당 병사 수는 병종마다 다르다 (공병·포병은 5명)
+MG.genCap = g => MG.genLead(g) * (MG.UNIT_TYPES[g.type].perLead || 10);
 MG.genClass = g => (g.cls ? (g.adv ? MG.CLASSES[g.type][g.cls].lv10 : MG.CLASSES[g.type][g.cls]) : null);
 MG.genTitle = g => (MG.genClass(g) || MG.UNIT_TYPES[g.type]).name;
 MG.genMods = g => MG.combineMods([MG.genClass(g) && MG.genClass(g).mods, ...(g.weapon ? g.weapon.opts.map(o => MG.WEAPON_OPTS[o].mods) : []),
@@ -753,7 +758,8 @@ const newWound = sev => ({ sev, left: sev === 'light' ? 1 : randInt(3, 6) });
 MG.buildRoster = () => {
   const S = MG.S, squads = [];
   const train = 1 + 0.03 * MG.bLevel('training');
-  const typeMods = { mage: { atk: 1 + 0.1 * MG.bLevel('tower') }, priest: { heal: 1 + 0.1 * MG.bLevel('temple') } };
+  const typeMods = { mage: { atk: 1 + 0.1 * MG.bLevel('tower') }, priest: { heal: 1 + 0.1 * MG.bLevel('temple') },
+    artillery: { atk: 1 + 0.1 * MG.bLevel('workshop') }, cavalry: { hp: 1 + 0.1 * MG.bLevel('stable') } };
   for (const g of S.generals) {
     if (g.away) continue;  // 원정 간 부대는 성을 지킬 수 없다
     const withGeneral = !g.dead && g.deploy;

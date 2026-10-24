@@ -52,19 +52,22 @@ function wallOK(a, b, enemy) {
   if (w.hp <= 0) return true;
   return !enemy && w.gate;
 }
-// 건물 안으로는 못 들어간다 (이미 안에 있으면 빠져나오는 건 허용)
-function canStep(a, b, enemy) {
+// 멀쩡한 성벽 위(성문 제외): 기병은 여기로 못 올라간다
+const wallTop = p => { if (!onWall(p)) return false; const w = segAt(p); return w.hp > 0 && !w.gate; };
+// 건물 안으로는 못 들어간다 (이미 안에 있으면 빠져나오는 건 허용). noWall: 성벽 위 금지(기병)
+function canStep(a, b, enemy, noWall) {
   const bb = buildingAt(b);
   if (bb && bb !== buildingAt(a)) return false;
+  if (noWall && wallTop(b) && !wallTop(a)) return false;
   return wallOK(a, b, enemy);
 }
 
-function segOK(a, b, enemy) {
+function segOK(a, b, enemy, noWall) {
   const n = Math.max(1, Math.ceil(dist(a, b) / 6));
   let px = a.x, py = a.y;
   for (let i = 1; i <= n; i++) {
     const nx = a.x + (b.x - a.x) * i / n, ny = a.y + (b.y - a.y) * i / n;
-    if (!canStep({ x: px, y: py }, { x: nx, y: ny }, enemy)) return false;
+    if (!canStep({ x: px, y: py }, { x: nx, y: ny }, enemy, noWall)) return false;
     px = nx; py = ny;
   }
   return true;
@@ -94,9 +97,9 @@ function heapPop(h) {
 }
 
 // 아군 길찾기: 격자 A* 후, 곧게 갈 수 있는 구간은 이어 붙인다
-function planPath(a, b) {
-  if (segOK(a, b, false)) return [{ x: b.x, y: b.y }];
-  const goal = freeSpot(b), s = cellIdx(a), t = cellIdx(goal);
+function planPath(a, b, noWall) {
+  if (segOK(a, b, false, noWall)) return [{ x: b.x, y: b.y }];
+  const goal = freeSpot(b, noWall), s = cellIdx(a), t = cellIdx(goal);
   const g = new Float32Array(NN).fill(Infinity), prev = new Int32Array(NN).fill(-1), closed = new Uint8Array(NN);
   const tc = cellCenter(t), h = k => { const c = cellCenter(k), dx = Math.abs(c.x - tc.x), dy = Math.abs(c.y - tc.y); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) / NC; };
   const open = [];
@@ -115,7 +118,7 @@ function planPath(a, b) {
       if (closed[v] || B.bgrid[v]) continue;
       if (dx && dy && (B.bgrid[ux + dx + uy * NX] || B.bgrid[ux + (uy + dy) * NX])) continue;  // 모서리 끼어들기 금지
       const cv = cellCenter(v);
-      if (!wallOK(cu, cv, false)) continue;
+      if (!wallOK(cu, cv, false) || (noWall && wallTop(cv))) continue;
       const ng = g[u] + w;
       if (ng < g[v]) { g[v] = ng; prev[v] = u; heapPush(open, v, ng + h(v)); }
     }
@@ -128,19 +131,20 @@ function planPath(a, b) {
   let cur = a, i = 0;
   while (i < cells.length) {
     let j = cells.length - 1;
-    while (j > i && !segOK(cur, cells[j], false)) j--;
+    while (j > i && !segOK(cur, cells[j], false, noWall)) j--;
     out.push(cells[j]); cur = cells[j]; i = j + 1;
   }
   return out;
 }
 
-// 건물 안쪽 지점이면 가까운 빈 곳으로 옮긴다
-function freeSpot(p) {
-  if (!buildingAt(p)) return p;
+// 건물 안쪽(기병이면 성벽 위도) 지점이면 가까운 빈 곳으로 옮긴다
+function freeSpot(p, noWall) {
+  const bad = q => buildingAt(q) || (noWall && wallTop(q));
+  if (!bad(p)) return p;
   for (let r = 10; r <= 140; r += 10) {
     for (let k = 0; k < 16; k++) {
       const a = k / 16 * Math.PI * 2, q = { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-      if (!buildingAt(q) && cls(q) === cls(p)) return q;
+      if (!bad(q) && cls(q) === cls(p)) return q;
     }
   }
   return p;
@@ -183,16 +187,16 @@ function fieldNext(e) {
 }
 
 // 목표 쪽으로 한 걸음. 아군은 막히면 축 방향으로 미끄러져 본다.
-function stepToward(o, tx, ty, step, enemy) {
+function stepToward(o, tx, ty, step, enemy, noWall) {
   const dx = tx - o.x, dy = ty - o.y, d = Math.hypot(dx, dy);
   if (d < 0.01) return true;
   const k = Math.min(step, d) / d;
   const n = { x: o.x + dx * k, y: o.y + dy * k };
-  if (canStep(o, n, enemy)) { o.x = n.x; o.y = n.y; return true; }
+  if (canStep(o, n, enemy, noWall)) { o.x = n.x; o.y = n.y; return true; }
   if (enemy) return false;
   const nx = { x: n.x, y: o.y }, ny = { x: o.x, y: n.y };
-  if (Math.abs(dx) > 0.1 && canStep(o, nx, false)) { o.x = nx.x; return true; }
-  if (Math.abs(dy) > 0.1 && canStep(o, ny, false)) { o.y = ny.y; return true; }
+  if (Math.abs(dx) > 0.1 && canStep(o, nx, false, noWall)) { o.x = nx.x; return true; }
+  if (Math.abs(dy) > 0.1 && canStep(o, ny, false, noWall)) { o.y = ny.y; return true; }
   return false;
 }
 
@@ -352,12 +356,18 @@ MG.centroid = sq => {
 MG.orderMove = function (sq, tx, ty, facing, teleport) {
   const alive = sq.soldiers;
   if (!alive.length) return;
-  const wallSide = onWall({ x: tx, y: ty }) ? side({ x: tx, y: ty }) : null;
+  const noWall = !!(MG.UNIT_TYPES[sq.type] || {}).noWall;
+  let wallSide = onWall({ x: tx, y: ty }) ? side({ x: tx, y: ty }) : null;
+  // 기병은 성벽 위에 못 서니, 성벽을 누르면 그 바로 안쪽에 선다
+  if (wallSide && noWall && wallTop({ x: tx, y: ty })) {
+    const p = wallPoint(wallSide, C.R - C.T - 30, along({ x: tx, y: ty }, wallSide));
+    tx = p.x; ty = p.y; facing = MG.NORMAL[wallSide]; wallSide = null;
+  }
   const ordered = alive.slice().sort((a, b) => (b.isGeneral || b.isLord) - (a.isGeneral || a.isLord));
   const slots = formationSlots(ordered.length, tx, ty, facing, wallSide);
-  const via = teleport ? [] : (planPath(MG.centroid(sq), { x: tx, y: ty }, false) || [{ x: tx, y: ty }]).slice(0, -1);
+  const via = teleport ? [] : (planPath(MG.centroid(sq), { x: tx, y: ty }, noWall) || [{ x: tx, y: ty }]).slice(0, -1);
   ordered.forEach((s, i) => {
-    const slot = freeSpot(slots[i]);
+    const slot = freeSpot(slots[i], noWall);
     s.slotX = slot.x; s.slotY = slot.y;
     s.target = null; s.stuckT = 0;
     if (teleport) { s.x = s.slotX; s.y = s.slotY; s.path = []; s.moving = false; return; }
@@ -424,7 +434,7 @@ function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
   e.hp -= dmg; e.hitT = 0.1;
   if (e.hp <= 0) {
-    e.dead = true; B.stats.kills++;
+    e.dead = true; B.stats.kills++; B.lastKill = B.time;
     if (sq) { sq.kills++; sq.xp += MG.ENEMY_XP[e.type] || 1; }
     for (let i = 0; i < 6; i++) {
       const a = rand(0, Math.PI * 2), sp = rand(30, 90);
@@ -491,9 +501,9 @@ function pickTarget(s, eGrid) {
     }
     if (best || !m.canAttack) return best;
   }
-  const slot = { x: s.slotX, y: s.slotY };
+  const slot = { x: s.slotX, y: s.slotY }, minR = T.minRange || 0;
   if (f && !f.dead) {
-    if (T.kind === 'melee' ? dist(f, slot) < 300 : dist(s, f) <= effRange(s)) return f;
+    if (T.kind === 'melee' ? dist(f, slot) < 300 : dist(s, f) <= effRange(s) && dist(s, f) >= minR) return f;
   }
   if (s.moving) return null;
   const r = T.kind === 'melee' ? 90 : effRange(s);
@@ -501,7 +511,7 @@ function pickTarget(s, eGrid) {
   nearby(eGrid, s, r, e => {
     if (e.dead) return;
     const d = dist(s, e);
-    if (d > r) return;
+    if (d > r || d < minR) return;  // 포병은 너무 가까운 적을 못 쏜다
     // 근접병은 같은 쪽(성 안/밖)의 적을 쫓고, 성벽 너머 적은 손이 닿을 때만 친다
     if (T.kind === 'melee' && (dist(e, slot) > 150 || (cls(e) !== cls(s) && d > s.range + e.r))) return;
     const sc = m.tough && T.kind !== 'melee' ? -e.hp : d;  // 저격수는 체력 높은 적부터
@@ -527,17 +537,24 @@ function heal(s, t) {
   if (m.healAoe) for (const o of B.soldiers) if (o !== t && !o.dead && dist(o, t) < m.healAoe) o.hp = Math.min(o.max, o.hp + amt * 0.5);
 }
 
+// 기병 돌격: 40px 이상 달려온 뒤 첫 타격이 몇 배
+const CHARGE_RUN = 40;
 function attack(s, t) {
-  const T = s.T, sq = s.squad, m = sq.mods, dmg = s.atk * atkMult(s);
+  const T = s.T, sq = s.squad, m = sq.mods;
+  let dmg = s.atk * atkMult(s);
+  const charge = Math.max(m.charge || 0, T.charge || 0);
+  if (charge > 1 && s.run >= CHARGE_RUN) { dmg *= charge; B.fx.push({ kind: 'charge', x: t.x, y: t.y, t: 0.35, max: 0.35 }); }
+  s.run = 0;
   if (T.kind === 'melee') {
     hitEnemy(t, dmg, sq);
     B.fx.push({ kind: 'hit', x: t.x, y: t.y, t: 0.15, max: 0.15 });
     if (m.cleave) for (const o of B.enemies) if (o !== t && !o.dead && dist(o, t) < 22) hitEnemy(o, dmg * m.cleave, sq);
     return;
   }
-  const kind = T.kind === 'magic' ? 'fire' : T.kind === 'heal' ? 'holy' : 'arrow';
+  const kind = T.kind === 'magic' ? 'fire' : T.kind === 'heal' ? 'holy' : T.kind === 'siege' ? 'boulder' : 'arrow';
+  const speed = { fire: 260, holy: 380, boulder: 200, arrow: 520 }[kind];
   const shoot = e => B.projectiles.push({ x: s.x, y: s.y, target: e, tx: e.x, ty: e.y, kind, src: sq,
-    dmg: kind === 'holy' ? dmg * 0.6 : dmg, speed: kind === 'fire' ? 260 : kind === 'holy' ? 380 : 520, splash: s.splash });
+    dmg: kind === 'holy' ? dmg * 0.6 : dmg, speed, splash: s.splash });
   shoot(t);
   // 폭풍궁수: 다른 적에게 한 발 더
   for (let i = 1; i < m.multishot; i++) {
@@ -546,12 +563,55 @@ function attack(s, t) {
   }
 }
 
+// 공병 수리: 손이 닿는 성벽 조각·건물·본성 중 가장 상한 곳을 1초마다 고친다
+const REPAIR_REACH = 45;
+function repairNear(s) {
+  let best = null, bp = 1;
+  for (const w of B.walls) {
+    if (w.hp >= w.max) continue;
+    const a = Math.max(w.a0, Math.min(w.a1, along(s, w.side))), p = wallPoint(w.side, C.R - C.T / 2, a);
+    if (dist(s, p) - C.T / 2 > REPAIR_REACH) continue;
+    if (w.hp / w.max < bp) { bp = w.hp / w.max; best = { w }; }
+  }
+  for (const b of B.buildings) {
+    if (b.hp >= b.max) continue;
+    const dx = Math.max(b.x0 - s.x, 0, s.x - b.x1), dy = Math.max(b.y0 - s.y, 0, s.y - b.y1);
+    if (Math.hypot(dx, dy) > REPAIR_REACH || b.hp / b.max >= bp) continue;
+    bp = b.hp / b.max; best = { b };
+  }
+  if (B.keep.hp < B.keep.max && dist(s, C) < C.keepR + REPAIR_REACH && B.keep.hp / B.keep.max < bp) best = { keep: true };
+  return best;
+}
+function doRepair(s, t) {
+  const amt = s.T.repair * s.squad.mods.repair;
+  let x = s.x, y = s.y;
+  if (t.w) {
+    const was = t.w.hp;
+    t.w.hp = Math.min(t.w.max, t.w.hp + amt);
+    if (was <= 0 && t.w.hp > 0) { B.fieldDirty = true; log(`${MG.SIDE_NAME[t.w.side]}쪽 ${t.w.gate ? '성문' : '성벽'}을 다시 세웠어요!`, '#6bdc8f'); }
+  } else if (t.b) {
+    const was = t.b.hp;
+    t.b.hp = Math.min(t.b.max, t.b.hp + amt);
+    if (was <= 0 && t.b.hp > 0) { markBuilding(t.b, B.buildings.indexOf(t.b) + 1); B.fieldDirty = true; }
+    x = (t.b.x0 + t.b.x1) / 2; y = (t.b.y0 + t.b.y1) / 2;
+  } else B.keep.hp = Math.min(B.keep.max, B.keep.hp + amt);
+  s.squad.xp += amt * 0.05;
+  if (Math.random() < 0.25) B.fx.push({ kind: 'repair', x: x + rand(-6, 6), y: y + rand(-6, 6), t: 0.5, max: 0.5 });
+}
+
 function updateSoldier(s, dt, eGrid) {
-  const T = s.T;
+  const T = s.T, noWall = !!T.noWall;
   s.cdT -= dt; s.retT -= dt; s.replanT -= dt;
+  if (T.repair && !s.moving && (s.repT = (s.repT || 0) - dt) <= 0) {
+    s.repT = 1;
+    const r = repairNear(s);
+    if (r) doRepair(s, r);
+  }
   if (s.target && s.target.dead) s.target = null;
   if (s.retT <= 0) { s.retT = rand(0.25, 0.4); s.target = pickTarget(s, eGrid); }
-  const t = s.target, sp = T.speed * dt;
+  const t = s.target, sp = T.speed * s.squad.mods.speed * dt;
+  const x0 = s.x, y0 = s.y;
+  const moved = () => { s.run = (s.run || 0) + Math.hypot(s.x - x0, s.y - y0); };
   if (t) {
     const d = dist(s, t);
     if (t.squad) {
@@ -561,7 +621,7 @@ function updateSoldier(s, dt, eGrid) {
       return;
     } else if (T.kind === 'melee' && !s.moving) {
       const leash = s.squad.focus === t || dist(t, C) < C.keepR + 40 ? 320 : 170;
-      if (dist(t, { x: s.slotX, y: s.slotY }) < leash && stepToward(s, t.x, t.y, sp, false)) return;
+      if (dist(t, { x: s.slotX, y: s.slotY }) < leash && stepToward(s, t.x, t.y, sp, false, noWall)) { moved(); return; }
       s.target = null;
     }
   }
@@ -569,17 +629,18 @@ function updateSoldier(s, dt, eGrid) {
   if (s.path.length) {
     const p = s.path[0];
     if (dist(s, p) < 4) { s.path.shift(); s.stuckT = 0; }
-    else if (stepToward(s, p.x, p.y, sp, false)) s.stuckT = 0;
-    else if ((s.stuckT += dt) > 1) { s.path = planPath(s, { x: s.slotX, y: s.slotY }, false) || []; s.stuckT = 0; }
+    else if (stepToward(s, p.x, p.y, sp, false, noWall)) s.stuckT = 0;
+    else if ((s.stuckT += dt) > 1) { s.path = planPath(s, { x: s.slotX, y: s.slotY }, noWall) || []; s.stuckT = 0; }
     if (!s.path.length) s.moving = false;
   } else {
     s.moving = false;
     const slot = { x: s.slotX, y: s.slotY };
     if (dist(s, slot) > 5 && s.replanT <= 0) {
       s.replanT = 0.6;
-      s.path = planPath(s, slot, false) || [];
+      s.path = planPath(s, slot, noWall) || [];
     }
   }
+  moved();
 }
 
 function attackWall(e, w) {
@@ -647,6 +708,7 @@ function updateEnemy(e, dt, fGrid) {
   if (e.slowT > 0) e.slowT -= dt;
   if (e.frozenT > 0) { e.frozenT -= dt; return; }
   const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1);
+  if (T.ranged && updateRanged(e, dt, fGrid)) return;
   if (e.target && !reachable(e, e.target)) e.target = null;
   if (T.aggro > 0 && e.retT <= 0) {
     e.retT = rand(0.3, 0.45);
@@ -711,6 +773,55 @@ function updateEnemy(e, dt, fGrid) {
   if (!stepToward(e, tx, ty, sp, true)) attackWall(e, segAt(next));
 }
 
+// 원거리 적: 사거리 안의 아군(성벽 위 포함)을 쏘고, 투석병은 앞의 성벽을 친다.
+// 쏠 것이 없으면 false를 돌려줘 근접 적처럼 다가가게 한다.
+function updateRanged(e, dt, fGrid) {
+  const T = e.T;
+  const fire = p => { e.cdT = T.cd; e.idleT = 0; B.projectiles.push({ x: e.x, y: e.y, enemy: true, ...p }); };
+  if (T.siege && cls(e) === 'out') {
+    const wp = wallPoint(e.dir, C.R - C.T / 2, e.lane), w = segAt(wp);
+    if (w.hp > 0 && dist(e, wp) <= T.ranged) {
+      if (e.cdT <= 0) fire({ tx: wp.x, ty: wp.y, kind: 'rock', wall: w, dmg: T.wallDmg, speed: 200 });
+      return true;
+    }
+  }
+  if (e.retT <= 0) {
+    e.retT = rand(0.4, 0.6);
+    let best = null, bd = T.ranged;
+    nearby(fGrid, e, T.ranged, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
+    e.target = best;
+  }
+  const t = e.target && !e.target.dead && dist(e, e.target) <= T.ranged ? e.target : null;
+  if (t) {
+    // 아래에서 성벽 위를 쏘면 잘 안 맞는다
+    if (e.cdT <= 0) fire({ target: t, tx: t.x, ty: t.y, kind: 'earrow', dmg: T.atk, speed: 420, uphill: wallTop(t) && cls(e) === 'out' });
+    return true;
+  }
+  if (cls(e) === 'out') {
+    const s = side(e), g = B.garrison[s];
+    if (g.archer + g.infantry > 0 && cheb(e) - C.R <= T.ranged * 0.9) {
+      if (e.cdT <= 0) { const wp = wallPoint(s, C.R - 8, along(e, s)); fire({ tx: wp.x, ty: wp.y, kind: 'earrow', garrison: s, dmg: T.atk, speed: 420 }); }
+      return true;
+    }
+    // 사거리 끝에서 한동안 기다린다 (그래도 쏠 것이 없으면 다가간다)
+    e.idleT = (e.idleT || 0) + dt;
+    if (cheb(e) - C.R <= T.ranged * 0.7 && e.idleT < 12) return true;
+  }
+  return false;
+}
+
+// 성벽 위 직할 수비대가 맞으면 피해가 쌓여 한 명씩 쓰러진다
+function hitGarrison(s, dmg) {
+  const g = B.garrison[s];
+  g.hurt = (g.hurt || 0) + dmg;
+  while (g.hurt >= MG.GARRISON_HP && g.archer + g.infantry > 0) {
+    g.hurt -= MG.GARRISON_HP;
+    const kind = Math.random() < g.archer / (g.archer + g.infantry) ? 'archer' : 'infantry';
+    g[kind]--;
+    B.stats.fallen.push({ type: kind, squad: '직할 수비대', gid: null, garrison: true, general: false, lord: false, wound: null });
+  }
+}
+
 function separate(list, grid) {
   for (const a of list) {
     nearby(grid, a, 16, b => {
@@ -759,7 +870,14 @@ function updateProjectiles(dt) {
     const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy), step = p.speed * dt;
     if (d <= step + 3) {
       p.done = true;
-      if (p.kind === 'fire') {
+      if (p.enemy) {
+        // 적의 화살·돌
+        if (p.wall) {
+          if (p.wall.hp > 0) { p.wall.hp -= p.dmg; B.fx.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0.5, max: 0.5 }); if (p.wall.hp <= 0) breach(p.wall); }
+        } else if (p.garrison) {
+          if (Math.random() < MG.UPHILL_HIT) hitGarrison(p.garrison, p.dmg);
+        } else if (p.target && !p.target.dead && (!p.uphill || Math.random() < MG.UPHILL_HIT)) damageFriendly(p.target, p.dmg);
+      } else if (p.kind === 'fire' || p.kind === 'boulder') {
         B.fx.push({ kind: 'boom', x: p.tx, y: p.ty, r: p.splash, t: 0.3, max: 0.3 });
         for (const e of B.enemies) if (!e.dead && dist(e, { x: p.tx, y: p.ty }) <= p.splash) hitEnemy(e, p.dmg, p.src);
       } else if (p.target && !p.target.dead) hitEnemy(p.target, p.dmg, p.src);
@@ -775,6 +893,7 @@ MG.update = function (dt) {
     const q = B.spawnQueue.shift();
     if (q.wave > B.wave) { B.wave = q.wave; log(`제${q.wave}파 습격! (${MG.SIDE_NAME[q.dir]}쪽)`, '#ffd36b'); }
     spawnEnemy(q);
+    B.lastSpawn = B.time;
   }
   if (B.fieldDirty) computeField();
   const eGrid = buildGrid(B.enemies), fGrid = buildGrid(B.soldiers);
@@ -805,6 +924,12 @@ MG.update = function (dt) {
 
   if (B.keep.hp <= 0) { B.keep.hp = 0; finish(false); }
   else if (!B.spawnQueue.length && !B.enemies.length) finish(true);
+  else if (!B.spawnQueue.length && B.time - Math.max(B.lastKill || 0, B.lastSpawn || 0) > MG.RETREAT_AFTER) {
+    // 서로 닿지 않는 채로 버티면 남은 적은 물러난다 (끝나지 않는 전투 방지)
+    log(`남은 적 ${B.enemies.length}이(가) 물러났어요.`, '#6bdc8f');
+    B.enemies = [];
+    finish(true);
+  }
 };
 
 // 부상·경험치 같은 전투 후 처리는 캠페인이 맡는다 (MG.applyResult)

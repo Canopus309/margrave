@@ -203,8 +203,10 @@ function weaponBlock(g) {
 
 function genCard(g) {
   const cap = MG.genCap(g), need = g.level < MG.MAX_LEVEL ? MG.xpToNext(g.level) : 0;
-  const refill = (g.type === 'mage' && !MG.bLevel('tower')) || (g.type === 'priest' && !MG.bLevel('temple'))
-    ? `<div class="warn small">${g.type === 'mage' ? '마법탑' : '사원'}이 있어야 병사를 보충할 수 있어요</div>` : '';
+  const refill = !MG.canRefill(g.type)
+    ? `<div class="warn small">${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 병사를 보충할 수 있어요</div>` : '';
+  const role = { engineer: '전투 중 근처 성벽·건물·본성을 수리해요. 성에 있으면 수리 목재 -40%', artillery: '사거리가 아주 길지만 가까운 적은 못 쏴요',
+    cavalry: '움직인 뒤 첫 타격이 몇 배. 성벽 위에는 못 올라가요' }[g.type];
   if (g.dead) {
     return `<div class="gen dead"><div class="gtop"><b>${g.name}</b><span class="danger">세상을 떠남</span></div>
       <div class="muted">${MG.genTitle(g)} · Lv.${g.level}</div>
@@ -220,7 +222,7 @@ function genCard(g) {
     <div class="lv"><span>Lv.${g.level}</span><div class="bar"><div style="width:${pct(g.xp, need)}%;background:#6aa8ff"></div></div>
       <span class="small muted">${need ? `${Math.floor(g.xp)} / ${need}` : '최고 레벨'}</span></div>
     <div class="small">병사 ${g.healthy} / ${cap}${g.wounded.length ? ` · <span class="warn">부상 ${g.wounded.length}명 (${woundCounts(g.wounded)})</span>` : ''}</div>
-    ${refill}${classBlock(g)}${weaponBlock(g)}
+    ${role ? `<div class="muted small">${role}</div>` : ''}${refill}${classBlock(g)}${weaponBlock(g)}
     ${g.away ? '<div class="warn small">원정 중이라 습격이 와도 성을 지킬 수 없어요.</div>' : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
