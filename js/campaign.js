@@ -184,6 +184,16 @@ MG.actPromote = type => {
   });
   return why || `직할 ${MG.UNIT_TYPES[type].name} ${g.name}을(를) 장수로 발탁했어요.`;
 };
+// 해고: 가문 장수(후계 후보)는 내보낼 수 없다. 원정 중이면 돌아온 뒤에.
+MG.canDismiss = g => !g.dead && !g.blood && !g.away;
+MG.dismiss = g => {
+  if (g.blood) return '가문 장수는 해고할 수 없어요';
+  if (g.away) return '원정에서 돌아온 뒤에 해고할 수 있어요';
+  if (g.dead) return '이미 세상을 떠났어요';
+  disband(g);
+  save();
+  return `${g.name}을(를) 내보냈어요. 부대 병사는 직할로 갔어요.`;
+};
 MG.retire = g => {
   if (g.dead || g.age < 45) return '45세부터 은퇴할 수 있어요';
   disband(g);

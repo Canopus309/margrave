@@ -122,6 +122,7 @@ button.main.danger { background: var(--danger); color: #fff; }
 .trait { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #24384f; color: #bcd6ff; cursor: help; }
 .trait.bad { background: #4a2626; color: #ffc4c4; }
 .blood { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #6b5420; color: #ffe2a0; vertical-align: middle; }
+.genBtns { display: flex; flex-wrap: wrap; gap: 4px; }
 .hireRow { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .heirBtn { display: block; width: 100%; text-align: left; margin-bottom: 6px; font-weight: 400; }
 .heirBtn .traits { margin-top: 3px; }

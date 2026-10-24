@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const el = $('camp');
 const CELL_PX = 30;
 let resetArmed = false;
+let dismissArmed = null;  // 해고 확인 중인 장수 id
 let sel = null;   // { i, j } 빈 칸 또는 { b } 건물
 let msg = '';
 
@@ -224,7 +225,10 @@ function genCard(g) {
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
       <span class="warn">부상병 ${g.wounded.length}명 동원 (체력 감소, 또 쓰러지면 사망 위험 큼)</span></label>` : ''}
-    ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">은퇴시키기 (교관이 되어 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
+    <div class="genBtns">
+      ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">은퇴시키기 (교관이 되어 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
+      ${MG.canDismiss(g) ? `<button class="mini ${dismissArmed === g.id ? 'danger' : ''}" data-dismiss="${g.id}">${dismissArmed === g.id ? '정말 해고? 한 번 더 누르세요' : '해고'}</button>` : ''}
+    </div>
   </div>`;
 }
 
@@ -382,6 +386,12 @@ function bind() {
   q('[data-event]').forEach(b => b.onclick = () => run(MG.resolveEvent(+b.dataset.event)));
   q('[data-promote]').forEach(b => b.onclick = () => run(MG.actPromote(b.dataset.promote)));
   q('[data-retire]').forEach(b => b.onclick = () => run(MG.retire(gen(b.dataset.retire))));
+  q('[data-dismiss]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.dismiss;
+    if (dismissArmed !== id) { dismissArmed = id; render(); return; }
+    dismissArmed = null;
+    run(MG.dismiss(gen(id)));
+  });
   q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
   const nc = $('newCampBtn');
   if (nc) nc.onclick = () => { MG.resetCampaign(); render(); };
