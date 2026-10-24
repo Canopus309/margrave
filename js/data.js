@@ -238,6 +238,8 @@ MG.FIELDS = {
   farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 25 } },
   lumber: { name: '벌목장', color: '#6a8a4a', cost: { gold: 40 },            max: 3, prod: { wood: 25 } },
   mine:   { name: '광산',   color: '#7a7a7a', cost: { gold: 60, wood: 40 },  max: 3, prod: { iron: 15 } },
+  // 연대기 사건(황금 광맥)으로만 생긴다. 들판에 새로 지을 수는 없다
+  goldmine: { name: '금광', color: '#d8b040', cost: { gold: 60, wood: 40 }, max: 3, prod: { gold: 40 }, hidden: true },
 };
 MG.FIELD_SLOTS = 8;
 
@@ -308,6 +310,36 @@ MG.CROWN_WIN = 3;               // 습격을 막을 때마다
 MG.SUPPORT_COST = 15;           // 지원 요청 한 번에 관계 -
 MG.SUPPORT_MIN = 20;            // 이보다 낮으면 본국이 응하지 않는다
 MG.EVENT_CHANCE = 0.2;
+
+// ---------- C1: 명성과 해금, 연대기 ----------
+// 명성으로 해금하는 것: 한 번 해금하면 다음 캠페인부터 계속 고를 수 있다
+MG.DOMAINS = {
+  none:     { name: '평범한 변경', desc: '특별한 점이 없어요', cost: 0 },
+  mine:     { name: '광산 지대',   desc: '철 생산 +50%',        cost: 40 },
+  fertile:  { name: '비옥한 들판', desc: '식량 생산 +30%',      cost: 40 },
+  fortress: { name: '국경 요새',   desc: '성벽·성문 체력 +30%', cost: 50 },
+  trade:    { name: '상업 도시',   desc: '시장 골드 +50%',      cost: 40 },
+};
+MG.BONUSES = {
+  res:      { name: '넉넉한 창고', desc: '시작 자원 +50%',                 cost: 30 },
+  general:  { name: '객장',       desc: '시작 장수 +1 (병종 랜덤, 부대 가득)', cost: 50 },
+  workshop: { name: '공방',       desc: '공방을 짓고 시작',               cost: 30 },
+  stable:   { name: '마구간',     desc: '마구간을 짓고 시작',             cost: 30 },
+};
+// 포위 단계: 높을수록 적이 많고 튼튼하지만 명성을 더 받는다. 순서대로 해금
+MG.SIEGE_MAX = 5;
+MG.siegeCost = l => 40 * l;
+MG.siegeEnemyMul = l => 1 + 0.15 * l;
+MG.siegeRenownMul = l => 1 + 0.25 * l;
+MG.WALL_DOMAIN_MUL = 1.3;
+// 명성: 버틴 햇수×2 + 승리×3 + 함락한 거점×50 + 이어진 대×10, 포위 단계 배율
+MG.renownOf = S => {
+  const years = Math.floor((S.month - 2) / 12), outposts = (S.outposts || []).length;
+  const parts = { years: years * 2, wins: S.stats.wins * 3, outposts: outposts * 50, gens: S.lord.gen * 10 };
+  const base = parts.years + parts.wins + parts.outposts + parts.gens;
+  return { parts, base, total: Math.round(base * MG.siegeRenownMul(S.siege || 0)) };
+};
+MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
 
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {

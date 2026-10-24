@@ -61,14 +61,23 @@ function migrate(s) {
   if (s.retired == null) s.retired = 0;
   if (s.crown == null) s.crown = MG.CROWN_START;
   if (!s.sites) { MG.S = s; rollSites(); }
+  if (!s.chronicle) s.chronicle = [];
+  if (!s.lineage) s.lineage = [{ gen: s.lord.gen, name: s.lord.name, from: 2, to: null, cause: null }];
+  if (!s.domain) s.domain = 'none';
+  if (s.siege == null) s.siege = 0;
+  if (!s.effects) s.effects = [];
+  if (s.nextChronicle == null) s.nextChronicle = nextChronicleMonth(s.month);
 }
 
-MG.newCampaign = () => {
+// opts: { domain, bonuses: [...], siege } — 캠페인 준비 화면에서 고른 것
+MG.newCampaign = (opts = {}) => {
   const s = MG.S = {
     version: 2, level: 1, month: 2, nextId: 1, over: false, ap: MG.AP_PER_MONTH,
     generals: [], lord: { given: MG.FAMILY_NAME, name: MG.LORD.name, gen: 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false },
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
+    domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
+    lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
     garrison: { archer: MG.GARRISON.archer, infantry: MG.GARRISON.infantry, wounded: [] },
     res: { ...MG.START_RES }, pop: MG.START_POP, buildings: [], fields: [],
     walls: {}, keep: MG.KEEP_HP, nextAttack: null, report: [],
@@ -80,12 +89,43 @@ MG.newCampaign = () => {
   });
   for (const b of MG.START_BUILDINGS) placeBuilding(b.type, b.i, b.j);
   for (const f of MG.START_FIELDS) s.fields.push({ type: f, level: 1 });
+  // 명성으로 해금한 시작 보너스
+  const bonus = opts.bonuses || [];
+  if (bonus.includes('res')) for (const k of Object.keys(s.res)) s.res[k] = Math.round(s.res[k] * 1.5);
+  if (bonus.includes('general')) {
+    const g = newGeneral({ type: pick(Object.keys(MG.WEAPON_KINDS)), level: 2, age: randInt(24, 34) });
+    g.healthy = MG.genCap(g);
+    s.generals.push(g);
+  }
+  for (const t of ['workshop', 'stable']) {
+    if (!bonus.includes(t)) continue;
+    outer: for (let j = 1; j < MG.GRID.n; j++) for (let i = 1; i < MG.GRID.n; i++) if (MG.canPlace(t, i, j)) { placeBuilding(t, i, j); break outer; }
+  }
   MG.ensureMarket();
   scheduleAttack(4);
   rollSites();
+  s.nextChronicle = nextChronicleMonth(s.month);
+  const extra = [s.domain !== 'none' ? MG.DOMAINS[s.domain].name : '', ...bonus.map(b => MG.BONUSES[b].name), s.siege ? `포위 ${s.siege}단계` : ''].filter(Boolean);
+  MG.chron(`${MG.LORD.name}이(가) 변경의 전진 기지에 부임했어요.${extra.length ? ` (${extra.join(', ')})` : ''}`, 'lord');
   save();
   return s;
 };
+
+// ---------- 연대기 기록 ----------
+// kind: lord(성주·가문), battle, general, event(연대기 사건), etc
+MG.chron = (text, kind = 'etc') => {
+  const S = MG.S;
+  if (!S.chronicle) S.chronicle = [];
+  S.chronicle.push({ month: S.month, text, kind });
+};
+MG.monthLabel = m => `${1 + Math.floor(m / 12)}년차 ${m % 12 + 1}월`;
+function nextChronicleMonth(month) {
+  const [a, b] = MG.CHRONICLE_GAP, target = month + randInt(a, b);
+  return target + ((2 - (target % 12)) + 12) % 12;  // 그 해(또는 다음 해) 봄 3월로 맞춘다
+}
+// 지속 효과 (연대기 사건이 남기는 것): { type, until }
+MG.hasEffect = type => (MG.S.effects || []).some(e => e.type === type && e.until > MG.S.month);
+const addEffect = (type, months) => { MG.S.effects.push({ type, until: MG.S.month + months }); };
 
 // ---------- 가문과 후계 ----------
 // 후계 후보는 혈족뿐: 장수가 된 자녀와 아직 어린 자녀
@@ -104,10 +144,24 @@ function disband(g) {
 }
 
 function lordDied(rep, why) {
-  const S = MG.S;
+  const S = MG.S, cur = S.lineage[S.lineage.length - 1];
   rep.push(`${S.lord.name}이(가) ${why}`);
+  MG.chron(`${S.lord.name}이(가) ${why}`, 'lord');
+  if (cur && cur.to == null) { cur.to = S.month; cur.cause = why.replace(/(했|났)어요\.?$/, '').trim(); }
   if (MG.heirs().length) S.pendingSuccession = true;
-  else { S.over = true; S.overReason = '가문 단절'; rep.push('이을 혈족이 없어 가문이 끊겼어요.'); }
+  else { setOver('가문 단절'); rep.push('이을 혈족이 없어 가문이 끊겼어요.'); }
+}
+
+// 캠페인이 끝나면 명성을 한 번만 쌓는다
+function setOver(reason) {
+  const S = MG.S;
+  if (S.over) return;
+  S.over = true; S.overReason = reason;
+  const cur = S.lineage[S.lineage.length - 1];
+  if (cur && cur.to == null) { cur.to = S.month; cur.cause = reason; }
+  MG.chron(reason === '가문 단절' ? '이을 혈족이 없어 가문이 끊겼어요.' : '본성이 함락되어 변경 기지가 무너졌어요.', 'lord');
+  S.renown = MG.renownOf(S);
+  MG.awardRenown(S);
 }
 
 MG.chooseHeir = (kind, id) => {
@@ -124,6 +178,8 @@ MG.chooseHeir = (kind, id) => {
     S.family = S.family.filter(x => x !== c);
   }
   S.pendingSuccession = false;
+  S.lineage.push({ gen, name: S.lord.name, from: S.month, to: null, cause: null });
+  MG.chron(`${S.lord.name}이(가) ${gen}대 성주가 되었어요${S.lord.minor ? ` (${S.lord.age}세, 어린 성주)` : ''}.`, 'lord');
   // 본국이 계승을 인정하며 선물을 보낸다 (관계가 좋을수록 크다)
   const gift = 100 + 3 * S.crown;
   S.res.gold = Math.min(MG.storageCap(), S.res.gold + gift);
@@ -139,21 +195,26 @@ function newYear(rep) {
   if (L.minor && L.age >= MG.ADULT_AGE) { L.minor = false; rep.push(`${L.name}이(가) 성년이 되어 이제 전투에 나가요.`); }
   for (const g of S.generals) if (!g.dead) g.age++;
   for (const c of S.family) c.age++;
-  if (L.age >= 20 && L.age <= 45 && Math.random() < MG.BIRTH_CHANCE) {
+  // 혼담을 받아들였으면 3년 동안 출생 확률 2배
+  const birth = MG.BIRTH_CHANCE * (MG.hasEffect('marriage') ? 2 : 1);
+  if (L.age >= 20 && L.age <= 45 && Math.random() < birth) {
     const c = { id: S.nextId++, name: MG.randomName(), age: 0, traits: MG.rollTraits() };
     S.family.push(c);
     rep.push(`성주에게 아이가 태어났어요: ${c.name} (${c.traits.map(t => MG.TRAITS[t].name).join(', ')})`);
+    MG.chron(`성주에게 아이 ${c.name}이(가) 태어났어요.`, 'lord');
   }
   for (const c of S.family.filter(c => c.age >= MG.ADULT_AGE)) {
     const type = pick(Object.keys(MG.WEAPON_KINDS));
     S.generals.push(newGeneral({ name: c.name, type, lead: Math.random() < 0.3 ? 2 : 1, age: c.age, traits: c.traits, blood: true }));
     rep.push(`${c.name}이(가) 성년이 되어 장수가 되었어요 (${MG.UNIT_TYPES[type].name}).`);
+    MG.chron(`${c.name}이(가) 성년이 되어 장수가 되었어요.`, 'general');
   }
   S.family = S.family.filter(c => c.age < MG.ADULT_AGE);
   for (const g of S.generals) {
     if (g.dead || Math.random() >= MG.deathChance(g.age)) continue;
     g.dead = true; g.deploy = false; S.stats.generalsLost++;
     rep.push(`장수 ${g.name}이(가) ${g.age}세로 세상을 떠났어요.`);
+    MG.chron(`장수 ${g.name}이(가) ${g.age}세로 세상을 떠났어요.`, 'general');
   }
   if (!S.pendingSuccession && Math.random() < MG.deathChance(L.age)) lordDied(rep, `${L.age}세로 세상을 떠났어요.`);
 }
@@ -177,6 +238,7 @@ MG.hire = idx => {
   S.res.gold -= cost;
   S.generals.push(t.g);
   S.tavern.splice(idx, 1);
+  MG.chron(`떠돌이 장수 ${t.g.name}(${MG.UNIT_TYPES[t.g.type].name} Lv.${t.g.level})을(를) 고용했어요.`, 'general');
   save();
   return `${t.g.name}을(를) 고용했어요. 병사는 모집으로 채워요.`;
 };
@@ -189,6 +251,7 @@ MG.actPromote = type => {
     MG.S.garrison[type]--;
     g = newGeneral({ type, age: randInt(19, 30) });
     MG.S.generals.push(g);
+    MG.chron(`직할 ${MG.UNIT_TYPES[type].name} ${g.name}을(를) 장수로 발탁했어요.`, 'general');
   });
   return why || `직할 ${MG.UNIT_TYPES[type].name} ${g.name}을(를) 장수로 발탁했어요.`;
 };
@@ -222,8 +285,8 @@ function scheduleAttack(gap) {
 MG.isAttackMonth = () => MG.S.nextAttack && MG.S.month >= MG.S.nextAttack.month;
 // 다음 습격의 적 구성 (고블린 둥지를 소탕하면 줄어든다)
 MG.attackGroups = () => {
-  const A = MG.S.nextAttack, mul = A.mul || 1;
-  return MG.buildWaves(MG.S.level, A.dirs).groups.map(g => ({ ...g, count: Math.max(1, Math.round(g.count * mul)) }));
+  const S = MG.S, A = S.nextAttack, mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0);
+  return MG.buildWaves(S.level, A.dirs).groups.map(g => ({ ...g, count: Math.max(1, Math.round(g.count * mul)) }));
 };
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
@@ -285,11 +348,15 @@ MG.actField = type => act(MG.FIELDS[type].cost, () => (MG.S.fields.length < MG.F
 MG.fieldUpgradeCost = f => MG.costOf(MG.FIELDS[f.type].cost, f.level + 1);
 MG.actFieldUpgrade = f => (f.level >= MG.FIELDS[f.type].max ? '최고 단계예요' : act(MG.fieldUpgradeCost(f), () => { f.level++; }));
 
+// 성벽 조각 최대 체력 (국경 요새 영지면 +30%). id의 두 번째 글자 2는 성문
+MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1);
+MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul());
+
 // 수리: 성벽·성문·본성·건물을 피해가 큰 곳부터, 한 번에 일정량까지
 MG.damageList = () => {
   const S = MG.S, list = [];
   for (const [id, hp] of Object.entries(S.walls)) {
-    const max = id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP;
+    const max = MG.wallMax(id);
     if (hp < max) list.push({ kind: 'wall', id, hp, max });
   }
   if (S.keep < MG.KEEP_HP) list.push({ kind: 'keep', hp: S.keep, max: MG.KEEP_HP });
@@ -313,7 +380,7 @@ MG.actRepair = () => {
       else d.b.hp = d.hp + add;
       if (left <= 0) break;
     }
-    for (const [id, hp] of Object.entries(MG.S.walls)) if (hp >= (id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP)) delete MG.S.walls[id];
+    for (const [id, hp] of Object.entries(MG.S.walls)) if (hp >= MG.wallMax(id)) delete MG.S.walls[id];
   });
 };
 
@@ -598,20 +665,26 @@ MG.resolveEvent = i => {
 // 매달 수입·지출 내역. 식량은 병사와 주민이 똑같이 먹고, 병사에게는 급여가 나간다.
 MG.economy = () => {
   const S = MG.S, season = MG.SEASON(S.month), mul = MG.SEASON_PROD[season];
-  const made = { food: 0, wood: 0, iron: 0 };
+  const made = { gold: 0, food: 0, wood: 0, iron: 0 };
   for (const f of S.fields) for (const [k, v] of Object.entries(MG.FIELDS[f.type].prod)) made[k] += v * f.level * (mul[k] != null ? mul[k] : 1);
+  // 영지 특성
+  if (S.domain === 'mine') made.iron *= 1.5;
+  if (S.domain === 'fertile') made.food *= 1.3;
   const generals = S.generals.filter(g => !g.dead).length;
   const soldiers = S.generals.reduce((a, g) => a + g.healthy + g.wounded.length, 0)
     + S.garrison.archer + S.garrison.infantry + S.garrison.wounded.length + MG.LORD.guards;
+  // 연대기 사건의 지속 효과: 세금 감면, 혹한(겨울 식량 소비 1.5배)
+  const winterCold = MG.hasEffect('harshWinter') && season === '겨울';
   return {
-    tax: Math.floor(S.pop * MG.TAX_PER_POP), market: MG.bSum('market') * 40,
+    tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1)),
+    market: Math.round(MG.bSum('market') * 40 * (S.domain === 'trade' ? 1.5 : 1)),
     wages: Math.ceil(soldiers * MG.WAGE_SOLDIER + generals * MG.WAGE_GENERAL),
-    made, eat: Math.ceil((soldiers + generals + S.pop) * MG.FOOD_PER_PERSON), soldiers: soldiers + generals,
+    made, eat: Math.ceil((soldiers + generals + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
   };
 };
 MG.production = () => {
   const e = MG.economy();
-  return { gold: e.tax + e.market - e.wages, food: e.made.food - e.eat, wood: e.made.wood, iron: e.made.iron };
+  return { gold: Math.round(e.tax + e.market + e.made.gold - e.wages), food: e.made.food - e.eat, wood: e.made.wood, iron: e.made.iron };
 };
 
 MG.endMonth = () => {
@@ -670,6 +743,13 @@ MG.endMonth = () => {
   refreshTavern(rep);
   moveMarket();
   rollEvent(rep);
+  // 연대기 사건 (2~3년에 한 번, 봄)
+  if (!S.cevent && !S.pendingSuccession && S.month >= S.nextChronicle) {
+    rollChronicle();
+    S.nextChronicle = nextChronicleMonth(S.month);
+    if (S.cevent) rep.push(`연대기 사건: ${CHRONICLES[S.cevent.type].title}`);
+  }
+  S.effects = S.effects.filter(e => e.until > S.month);
   S.report = rep;
   save();
   return rep;
@@ -787,7 +867,8 @@ MG.buildRoster = () => {
     garrison: { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
-    dirs: S.nextAttack.dirs, waveMul: S.nextAttack.mul || 1,
+    dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1),
+    siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
 };
 
@@ -817,6 +898,7 @@ MG.applyResult = B => {
     if (fell && rs.general.injured) {
       g.dead = true; g.deploy = false; S.stats.generalsLost++;
       line.status = '전사';
+      MG.chron(`장수 ${g.name}이(가) 전투 ${B.level}에서 전사했어요.`, 'general');
     } else {
       if (fell) { g.injured = randInt(2, 4); g.deploy = false; line.status = `부상 (${g.injured}개월)`; }
       line.xp = Math.round((sq ? sq.xp : 0) + (fell ? 0 : MG.SURVIVE_XP));
@@ -862,13 +944,15 @@ MG.applyResult = B => {
 
   S.stats.battles++;
   S.stats.kills += B.stats.kills;
+  const big = B.level % 5 === 0 ? '대습격' : '습격';
+  MG.chron(`전투 ${B.level}(${big}): ${B.result.win ? '막아냈어요' : '본성이 함락됐어요'} · 처치 ${B.stats.kills}${sum.ruined.length ? ` · 부서진 건물 ${sum.ruined.length}` : ''}`, 'battle');
   if (!B.result.win) {
-    S.over = true;
-    S.overReason = '본성 함락';
+    setOver('본성 함락');
   } else if (!S.over) {
     S.stats.wins++;
     addCrown(MG.CROWN_WIN);
-    sum.gold = MG.battleGold(S.level);
+    // 마물 대이동이 있는 해에는 전리품 2배
+    sum.gold = MG.battleGold(S.level) * (MG.hasEffect('migration') ? 2 : 1);
     S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
     sum.weapon = rollWeapon(S.level);
     S.inventory.push(sum.weapon);
@@ -877,6 +961,144 @@ MG.applyResult = B => {
   }
   save();
   return sum;
+};
+
+// ---------- 연대기 사건 ----------
+// 2~3년에 한 번 봄에 오는 큰 사건. 대부분 선택이 있고, 지속 효과를 남긴다.
+const CHRONICLES = {
+  draft: {
+    title: '왕국 징집령', make: () => ({ n: 30 }),
+    text: e => `왕국이 다른 전선에 보낼 병사 ${e.n}명을 요구해요. 보내면 왕실과 가까워지고, 거절하면 크게 서운해해요.`,
+    choices: [
+      { label: e => `직할 병사 ${e.n}명 보내기`, ok: e => MG.S.garrison.archer + MG.S.garrison.infantry >= e.n,
+        run: e => { const g = MG.S.garrison; let n = e.n; while (n-- > 0) { if (g.infantry >= g.archer) g.infantry--; else g.archer--; } addCrown(15); return '병사를 보냈어요. 왕실 관계 +15'; } },
+      { label: () => '거절하기', run: () => { addCrown(-20); return '징집을 거절했어요. 왕실 관계 -20'; } },
+    ],
+  },
+  migration: {
+    title: '마물 대이동', make: () => ({}),
+    text: () => '변경 너머에서 마물 떼가 크게 움직이고 있어요. 앞으로 1년 동안 습격이 30% 커지지만, 승리 전리품도 2배가 돼요.',
+    choices: [{ label: () => '대비하자', run: () => { addEffect('migration', 12); return null; } }],
+  },
+  winter: {
+    title: '혹한의 조짐', make: () => ({ wood: 150 }),
+    text: e => `올겨울은 유난히 추울 거래요. 겨울 동안 식량을 1.5배 먹어요. 땔감(목재 ${e.wood})을 미리 마련하면 피할 수 있어요.`,
+    choices: [
+      { label: e => `목재 ${e.wood}로 땔감 마련`, ok: e => MG.S.res.wood >= e.wood, run: e => { MG.S.res.wood -= e.wood; return '땔감을 마련해 두었어요.'; } },
+      { label: () => '그냥 버티기', run: () => { addEffect('harshWinter', 12); return '겨울 동안 식량 소비가 늘어요.'; } },
+    ],
+  },
+  goldvein: {
+    title: '황금 광맥', when: () => MG.S.fields.some(f => f.type === 'mine'),
+    make: () => ({}),
+    text: () => '광부들이 광산 깊은 곳에서 금맥을 찾았어요. 광산 하나를 금광으로 바꾸면 철 대신 골드가 나와요.',
+    choices: [
+      { label: () => '금광으로 바꾸기', run: () => { const f = MG.S.fields.find(x => x.type === 'mine'); f.type = 'goldmine'; return '광산 하나가 금광이 되었어요.'; } },
+      { label: () => '철을 계속 캐기', run: () => '그대로 철을 캐요.' },
+    ],
+  },
+  pilgrims: {
+    title: '성지 순례단', make: () => ({ gold: 200 }),
+    text: e => `먼 길을 가는 순례단이 쉬어 가길 청해요. 받아들이면 헌금 골드 ${e.gold}을 받지만, 병을 옮길지도 몰라요(30%).`,
+    choices: [
+      { label: () => '받아들이기', run: e => {
+        MG.S.res.gold += e.gold;
+        if (Math.random() < 0.3) { let n = 0; for (const g of MG.S.generals) { const k = Math.floor(g.healthy * 0.1); g.healthy -= k; n += k; for (let i = 0; i < k; i++) g.wounded.push({ sev: 'light', left: 1 }); } return `헌금을 받았지만 병이 돌아 병사 ${n}명이 앓아누웠어요.`; }
+        return `헌금 골드 ${e.gold}을 받았어요.`;
+      } },
+      { label: () => '돌려보내기', run: () => '순례단이 다른 곳으로 떠났어요.' },
+    ],
+  },
+  marriage: {
+    title: '이웃 영주의 혼담', when: () => MG.S.lord.age >= 18 && MG.S.lord.age <= 45, make: () => ({ gold: 300 }),
+    text: e => `이웃 영주가 성주에게 혼담을 넣었어요. 받아들이면 혼례 비용 골드 ${e.gold}이 들지만, 3년 동안 아이가 태어날 확률이 2배가 돼요.`,
+    choices: [
+      { label: e => `골드 ${e.gold}으로 혼례 치르기`, ok: e => MG.S.res.gold >= e.gold, run: e => { MG.S.res.gold -= e.gold; addEffect('marriage', 36); return '혼례를 치렀어요.'; } },
+      { label: () => '정중히 거절', run: () => '혼담을 거절했어요.' },
+    ],
+  },
+  envoy: {
+    title: '마물의 사신', make: () => ({ gold: 300, food: 200 }),
+    text: e => `마물 쪽에서 사신이 왔어요. 공물(골드 ${e.gold}, 식량 ${e.food})을 내면 1년 동안 습격하지 않겠대요. 거절하면 다음 습격이 20% 커져요.`,
+    choices: [
+      { label: e => '공물 바치기', ok: e => MG.S.res.gold >= e.gold && MG.S.res.food >= e.food,
+        run: e => { const S = MG.S; S.res.gold -= e.gold; S.res.food -= e.food; S.nextAttack.month = Math.max(S.nextAttack.month, S.month + 12); return '1년 동안 습격이 없어요.'; } },
+      { label: () => '거절하기', run: () => { MG.S.nextAttack.mul = (MG.S.nextAttack.mul || 1) * 1.2; return '다음 습격이 커져요.'; } },
+    ],
+  },
+  unrest: {
+    title: '반란의 기미', make: () => ({}),
+    text: () => '무거운 세금에 주민들의 불만이 커졌어요. 세금을 낮추거나, 병사를 풀어 누를 수 있어요.',
+    choices: [
+      { label: () => '1년 동안 세금 -30%', run: () => { addEffect('lowtax', 12); return '세금을 낮췄어요.'; } },
+      { label: () => '병사로 진압', run: () => {
+        const S = MG.S, lost = Math.round(S.pop * 0.1); S.pop -= lost;
+        const n = Math.round((S.garrison.infantry) * 0.1); S.garrison.infantry -= n; for (let i = 0; i < n; i++) S.garrison.wounded.push({ type: 'infantry', sev: 'light', left: 1 });
+        return `진압했어요. 주민 ${lost}명이 떠나고 병사 ${n}명이 다쳤어요.`;
+      } },
+    ],
+  },
+};
+function rollChronicle() {
+  const pool = Object.entries(CHRONICLES).filter(([, c]) => !c.when || c.when());
+  const [type, c] = pool[(Math.random() * pool.length) | 0];
+  MG.S.cevent = { type, ...c.make() };
+}
+MG.chronicleView = () => {
+  const e = MG.S.cevent;
+  if (!e) return null;
+  const c = CHRONICLES[e.type];
+  return { title: c.title, text: c.text(e), choices: c.choices.map(ch => ({ label: ch.label(e), ok: !ch.ok || ch.ok(e) })) };
+};
+MG.resolveChronicle = i => {
+  const S = MG.S, e = S.cevent, ch = e && CHRONICLES[e.type].choices[i];
+  if (!ch || (ch.ok && !ch.ok(e))) return '고를 수 없어요';
+  const out = ch.run(e);
+  MG.chron(`${CHRONICLES[e.type].title}: ${ch.label(e)}${out ? ` — ${out}` : ''}`, 'event');
+  S.cevent = null;
+  save();
+  return out;
+};
+
+// ---------- 명성과 해금 (캠페인 바깥에 따로 저장) ----------
+const META_KEY = 'margrave_meta';
+MG.meta = () => {
+  if (MG._meta) return MG._meta;
+  let m = null;
+  try { m = JSON.parse(store.get(META_KEY)); } catch (e) { m = null; }
+  m = m || {};
+  m.renown = m.renown || 0;
+  m.unlocked = m.unlocked || {};
+  m.unlocked.domain = m.unlocked.domain || ['none'];
+  m.unlocked.bonus = m.unlocked.bonus || [];
+  m.unlocked.siege = m.unlocked.siege || 0;
+  m.history = m.history || [];
+  return (MG._meta = m);
+};
+const saveMeta = () => { try { store.set(META_KEY, JSON.stringify(MG.meta())); } catch (e) { /* 무시 */ } };
+MG.awardRenown = S => {
+  if (S.renownAwarded) return;
+  const m = MG.meta(), r = S.renown || MG.renownOf(S);
+  m.renown += r.total;
+  m.history.unshift({ endedAt: Date.now(), lord: S.lord.name, gens: S.lord.gen, years: Math.floor((S.month - 2) / 12), wins: S.stats.wins,
+    siege: S.siege || 0, reason: S.overReason, renown: r.total });
+  m.history = m.history.slice(0, 20);
+  S.renownAwarded = true;
+  saveMeta();
+};
+// kind: 'domain' | 'bonus' | 'siege'
+MG.unlockCost = (kind, id) => (kind === 'domain' ? MG.DOMAINS[id].cost : kind === 'bonus' ? MG.BONUSES[id].cost : MG.siegeCost(MG.meta().unlocked.siege + 1));
+MG.buyUnlock = (kind, id) => {
+  const m = MG.meta(), cost = MG.unlockCost(kind, id);
+  if (kind === 'siege' && m.unlocked.siege >= MG.SIEGE_MAX) return '이미 모두 해금했어요';
+  if ((kind === 'domain' && m.unlocked.domain.includes(id)) || (kind === 'bonus' && m.unlocked.bonus.includes(id))) return '이미 해금했어요';
+  if (m.renown < cost) return '명성이 모자라요';
+  m.renown -= cost;
+  if (kind === 'domain') m.unlocked.domain.push(id);
+  else if (kind === 'bonus') m.unlocked.bonus.push(id);
+  else m.unlocked.siege++;
+  saveMeta();
+  return null;
 };
 
 // ---------- 저장 슬롯 ----------
@@ -921,8 +1143,8 @@ MG.importSave = text => {
   return adopt(d.state) || '파일에서 불러왔어요.';
 };
 
-MG.resetCampaign = () => {
+MG.resetCampaign = opts => {
   try { store.remove(KEY); } catch (e) { /* 무시 */ }
-  return MG.newCampaign();
+  return MG.newCampaign(opts);
 };
 })();

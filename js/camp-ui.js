@@ -6,6 +6,9 @@ const CELL_PX = 30;
 let resetArmed = false;
 let dismissArmed = null;  // 해고 확인 중인 장수 id
 let saveOpen = false;     // 저장·불러오기 창
+let chronOpen = false;    // 연대기 창
+let setupOpen = false;    // 새 캠페인 준비 창
+let setup = { domain: 'none', bonuses: [], siege: 0 };
 let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
 let sel = null;   // { i, j } 빈 칸 또는 { b } 건물
 let msg = '';
@@ -36,8 +39,9 @@ function headerBlock() {
   if (A.mul && A.mul < 1) intel += ` <span class="ok small">(둥지 소탕으로 규모 -${Math.round((1 - A.mul) * 100)}%)</span>`;
   const attackNow = MG.isAttackMonth();
   return `<header>
-    <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주</div></div>
-    <div class="headRight"><button id="saveMenuBtn">저장·불러오기</button>
+    <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
+      ${effectTags()}</div></div>
+    <div class="headRight"><button id="chronBtn">연대기</button><button id="saveMenuBtn">저장·불러오기</button>
       <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(MG.AP_PER_MONTH - S.ap)}</div></div>
   </header>
   <div class="resBar">${res}
@@ -59,6 +63,13 @@ function headerBlock() {
   ${S.keep < MG.KEEP_HP * 0.5 ? `<div class="danger small">본성 체력이 ${Math.round(S.keep)} / ${MG.KEEP_HP}이에요. 이대로 습격을 받으면 금방 무너져요. 수리하세요.</div>` : ''}
   ${MG.damageList().some(d => d.kind === 'wall' && d.hp <= 0) ? '<div class="warn small">무너진 성벽이 그대로예요. 수리하지 않으면 다음 습격 때 뚫린 채로 싸워요.</div>' : ''}
   ${S.report && S.report.length ? `<div class="report small">${S.report.map(r => `<div>${r}</div>`).join('')}</div>` : ''}`;
+}
+
+// 연대기 사건이 남긴 지속 효과 표시
+function effectTags() {
+  const names = { migration: '마물 대이동(습격 +30%, 전리품 2배)', harshWinter: '혹한(겨울 식량 소비 1.5배)', marriage: '혼인(출생 확률 2배)', lowtax: '세금 감면(-30%)' };
+  return (MG.S.effects || []).filter(e => e.until > MG.S.month)
+    .map(e => ` <span class="effTag" title="${MG.monthLabel(e.until)}까지">${names[e.type] || e.type} · ${e.until - MG.S.month}개월</span>`).join('');
 }
 
 // ---------- 성 안 지도 ----------
@@ -150,7 +161,7 @@ function fieldsBlock() {
     return `<div class="actRow"><span><b>${d.name} ${f.level}</b> <span class="muted small">${prod}/월</span></span>
       ${f.level >= d.max ? '<span class="muted small">최고</span>' : `<button class="mini" data-fup="${idx}" ${ap && MG.canPay(cost) ? '' : 'disabled'}>강화 · ${MG.costText(cost)}</button>`}</div>`;
   }).join('');
-  const add = S.fields.length < MG.FIELD_SLOTS ? Object.entries(MG.FIELDS).map(([k, d]) =>
+  const add = S.fields.length < MG.FIELD_SLOTS ? Object.entries(MG.FIELDS).filter(([, d]) => !d.hidden).map(([k, d]) =>
     `<button class="mini" data-field="${k}" ${ap && MG.canPay(d.cost) ? '' : 'disabled'}>${d.name} 짓기 · ${MG.costText(d.cost)}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
   return `<section class="card"><h3>성 밖 들판 ${S.fields.length} / ${MG.FIELD_SLOTS} <span class="muted">(적이 부수지 않아요)</span></h3>
     ${list}<div class="fieldAdd">${add}</div>
@@ -317,11 +328,72 @@ function successionModal() {
       ${traitTags(h.traits)}</button>`).join('')}</div></div>`;
 }
 
-function overPanel() {
+// 성주 계보 표
+function lineageTable() {
   const S = MG.S;
-  return `<div class="overlay"><div class="panel"><h1>${S.overReason === '가문 단절' ? '가문이 끊겼어요' : '캠페인 종료'}</h1>
-    <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}, 처치한 적 ${S.stats.kills}.</p>
-    <div class="row"><button class="main" id="newCampBtn">새 캠페인 시작</button><button class="main alt" id="saveMenuBtn2">저장 불러오기</button></div></div></div>`;
+  return `<table class="lineage"><tr><th>대</th><th>성주</th><th>다스린 때</th><th>끝</th></tr>
+    ${S.lineage.map(l => `<tr><td>${l.gen}</td><td>${l.name}</td><td>${MG.monthLabel(l.from)} ~ ${l.to != null ? MG.monthLabel(l.to) : '지금'}</td>
+      <td>${l.cause || (l.to == null ? '다스리는 중' : '')}</td></tr>`).join('')}</table>`;
+}
+
+function overPanel() {
+  const S = MG.S, r = S.renown || MG.renownOf(S), m = MG.meta();
+  return `<div class="overlay"><div class="panel wide"><h1>${S.overReason === '가문 단절' ? '가문이 끊겼어요' : '변경 기지가 무너졌어요'}</h1>
+    <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}.</p>
+    <h3>성주 계보</h3>${lineageTable()}
+    <h3>얻은 명성 <b class="warn">+${r.total}</b></h3>
+    <div class="small muted">버틴 햇수 ${r.parts.years} · 승리 ${r.parts.wins} · 거점 ${r.parts.outposts} · 이어진 대 ${r.parts.gens}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
+    <p>모아 둔 명성: <b class="warn">${m.renown}</b> — 새 캠페인을 준비할 때 해금에 써요.</p>
+    <div class="row"><button class="main" id="newCampBtn">새 캠페인 준비</button><button class="main alt" id="chronBtn2">연대기 보기</button><button class="main alt" id="saveMenuBtn2">저장 불러오기</button></div></div></div>`;
+}
+
+// 연대기 창: 계보와 기록 (최근 것이 위)
+function chronPanel() {
+  const S = MG.S, icon = { lord: '👑', battle: '⚔', general: '🛡', event: '📜', etc: '·' };
+  const list = (S.chronicle || []).slice().reverse().map(c => `<li><span class="muted">${MG.monthLabel(c.month)}</span> ${icon[c.kind] || '·'} ${c.text}</li>`).join('');
+  return `<div class="overlay"><div class="panel wide"><h1>연대기</h1>
+    <h3>성주 계보</h3>${lineageTable()}
+    <h3>기록</h3><ul class="chronList">${list || '<li class="muted">아직 기록이 없어요</li>'}</ul>
+    <div class="row"><button class="main" id="chronCloseBtn">닫기</button></div></div></div>`;
+}
+
+function chronicleModal() {
+  const v = MG.chronicleView();
+  return `<div class="overlay"><div class="panel"><div class="muted small">연대기 사건</div><h1>📜 ${v.title}</h1><p>${v.text}</p>
+    <div class="row">${v.choices.map((c, i) => `<button class="main ${i ? 'alt' : ''}" data-chron="${i}" ${c.ok ? '' : 'disabled'}>${c.label}</button>`).join('')}</div></div></div>`;
+}
+
+// 새 캠페인 준비: 명성으로 해금하고, 영지 특성·시작 보너스·포위 단계를 고른다
+function setupPanel() {
+  const m = MG.meta(), u = m.unlocked;
+  const domain = Object.entries(MG.DOMAINS).map(([k, d]) => {
+    const have = u.domain.includes(k), on = setup.domain === k;
+    return `<div class="pick ${on ? 'on' : ''}"><div><b>${d.name}</b> <span class="small muted">${d.desc}</span></div>
+      ${have ? `<button class="mini" data-setdomain="${k}">${on ? '선택됨' : '고르기'}</button>`
+        : `<button class="mini" data-buy="domain,${k}" ${m.renown >= d.cost ? '' : 'disabled'}>해금 · 명성 ${d.cost}</button>`}</div>`;
+  }).join('');
+  const bonus = Object.entries(MG.BONUSES).map(([k, d]) => {
+    const have = u.bonus.includes(k), on = setup.bonuses.includes(k);
+    return `<div class="pick ${on ? 'on' : ''}"><div><b>${d.name}</b> <span class="small muted">${d.desc}</span></div>
+      ${have ? `<button class="mini" data-setbonus="${k}">${on ? '켜짐' : '꺼짐'}</button>`
+        : `<button class="mini" data-buy="bonus,${k}" ${m.renown >= d.cost ? '' : 'disabled'}>해금 · 명성 ${d.cost}</button>`}</div>`;
+  }).join('');
+  const sieges = [];
+  for (let l = 0; l <= MG.SIEGE_MAX; l++) {
+    const have = l <= u.siege, on = setup.siege === l;
+    sieges.push(have ? `<button class="mini ${on ? 'onBtn' : ''}" data-setsiege="${l}">${l ? `${l}단계` : '없음'}</button>` : '');
+  }
+  const nextSiege = u.siege < MG.SIEGE_MAX ? `<button class="mini" data-buy="siege,next" ${m.renown >= MG.siegeCost(u.siege + 1) ? '' : 'disabled'}>${u.siege + 1}단계 해금 · 명성 ${MG.siegeCost(u.siege + 1)}</button>` : '';
+  const hist = m.history.slice(0, 5).map(h => `<li>${h.lord} (${h.gens}대) · ${h.years}년 · 승리 ${h.wins}${h.siege ? ` · 포위 ${h.siege}` : ''} · ${h.reason} · 명성 +${h.renown}</li>`).join('');
+  return `<div class="overlay"><div class="panel wide"><h1>새 캠페인 준비</h1>
+    <p>모아 둔 명성: <b class="warn">${m.renown}</b> <span class="small muted">— 한 번 해금하면 다음 캠페인부터 계속 고를 수 있어요.</span></p>
+    <h3>영지 특성 (하나)</h3>${domain}
+    <h3>시작 보너스 (해금한 것은 켜고 끌 수 있어요)</h3>${bonus}
+    <h3>포위 단계 <span class="small muted">단계마다 적 수·체력 +15%, 얻는 명성 +25%</span></h3>
+    <div class="row">${sieges.join('')}${nextSiege}</div>
+    ${hist ? `<h3>지난 캠페인</h3><ul class="small">${hist}</ul>` : ''}
+    ${msg ? `<div class="msg small">${msg}</div>` : ''}
+    <div class="row"><button class="main" id="startCampBtn">이 조건으로 시작</button>${MG.S && !MG.S.over ? '<button class="main alt" id="setupCloseBtn">닫기 (지금 캠페인 계속)</button>' : ''}</div></div></div>`;
 }
 
 // 저장 슬롯 창: 덮어쓰기·불러오기·지우기는 두 번 눌러 확인
@@ -397,7 +469,8 @@ function render() {
         <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>
     </div>
   </div>
-  ${saveOpen ? savePanel() : S.over ? overPanel() : S.pendingSuccession ? successionModal() : S.event ? eventModal() : ''}`;
+  ${setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
+    : S.pendingSuccession ? successionModal() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
   bind();
 }
 
@@ -433,7 +506,11 @@ function bind() {
   });
   q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
   const nc = $('newCampBtn');
-  if (nc) nc.onclick = () => { MG.resetCampaign(); render(); };
+  if (nc) nc.onclick = () => MG.openSetup();
+  q('[data-chron]').forEach(b => b.onclick = () => run(MG.resolveChronicle(+b.dataset.chron)));
+  for (const id of ['chronBtn', 'chronBtn2']) { const b = $(id); if (b) b.onclick = () => { chronOpen = true; render(); }; }
+  if ($('chronCloseBtn')) $('chronCloseBtn').onclick = () => { chronOpen = false; render(); };
+  bindSetup();
   bindSave();
   q('[data-fup]').forEach(b => b.onclick = () => run(MG.actFieldUpgrade(S.fields[+b.dataset.fup])));
   q('[data-cls]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.cls.split(','); MG.chooseClass(gen(id), k); render(); });
@@ -456,8 +533,36 @@ function bind() {
   };
   $('resetBtn').onclick = () => {
     if (!resetArmed) { resetArmed = true; render(); return; }
-    resetArmed = false; sel = null; msg = ''; MG.resetCampaign(); render();
+    resetArmed = false; MG.openSetup();
   };
+}
+
+MG.openSetup = () => {
+  const u = MG.meta().unlocked;
+  // 지난번에 고른 것이 아직 해금 상태면 그대로 둔다
+  if (!u.domain.includes(setup.domain)) setup.domain = 'none';
+  setup.bonuses = setup.bonuses.filter(b => u.bonus.includes(b));
+  setup.siege = Math.min(setup.siege, u.siege);
+  setupOpen = true; saveOpen = false; chronOpen = false; msg = '';
+  render();
+};
+function bindSetup() {
+  if (!setupOpen) return;
+  const q = s => el.querySelectorAll(s);
+  q('[data-buy]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.buy.split(','); msg = MG.buyUnlock(k, id) || '해금했어요.'; render(); });
+  q('[data-setdomain]').forEach(b => b.onclick = () => { setup.domain = b.dataset.setdomain; render(); });
+  q('[data-setbonus]').forEach(b => b.onclick = () => {
+    const k = b.dataset.setbonus;
+    setup.bonuses = setup.bonuses.includes(k) ? setup.bonuses.filter(x => x !== k) : [...setup.bonuses, k];
+    render();
+  });
+  q('[data-setsiege]').forEach(b => b.onclick = () => { setup.siege = +b.dataset.setsiege; render(); });
+  $('startCampBtn').onclick = () => {
+    setupOpen = false; sel = null; msg = '';
+    MG.resetCampaign({ domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege });
+    render(); window.scrollTo(0, 0);
+  };
+  if ($('setupCloseBtn')) $('setupCloseBtn').onclick = () => { setupOpen = false; msg = ''; render(); };
 }
 
 function bindSave() {

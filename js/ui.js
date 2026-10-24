@@ -132,7 +132,7 @@ function showResult(B) {
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
     ${S.over ? `<p style="color:#ff6b6b">${S.overReason === '가문 단절' ? '가문이 끊겨' : '본성이 함락되어'} 캠페인이 끝났어요. ${S.stats.wins}번의 전투를 버텼어요.</p>` : ''}`;
-  $('contBtn').textContent = S.over ? '새 캠페인 시작' : '정비 화면으로';
+  $('contBtn').textContent = S.over ? '계보와 명성 보기' : '정비 화면으로';
   $('result').classList.remove('hidden');
 }
 
@@ -148,7 +148,8 @@ $('pauseBtn').onclick = ui.togglePause;
 $('speedBtn').onclick = () => { const B = MG.B; B.speed = B.speed === 1 ? 2 : B.speed === 2 ? 3 : 1; ui.refresh(); };
 // 습격이 있던 달은 전투가 끝나야 지나간다
 $('contBtn').onclick = () => {
-  if (MG.S.over) MG.resetCampaign(); else MG.endMonth();
+  // 끝났으면 내정 화면의 종료 창(계보·명성)으로 간다
+  if (!MG.S.over) MG.endMonth();
   MG.enterCamp();
 };
 })();

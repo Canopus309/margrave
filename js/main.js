@@ -20,7 +20,11 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-if (!MG.loadCampaign()) MG.newCampaign();
+// 이어할 캠페인이 없으면 새로 시작한다. 명성이나 해금이 있으면 준비 창부터 띄운다.
+const resumed = MG.loadCampaign();
+if (!resumed) MG.newCampaign();
 MG.enterCamp();
+const meta = MG.meta();
+if (!resumed && (meta.renown > 0 || meta.unlocked.domain.length > 1 || meta.unlocked.bonus.length || meta.unlocked.siege)) MG.openSetup();
 requestAnimationFrame(loop);
 })();

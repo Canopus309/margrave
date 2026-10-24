@@ -123,6 +123,14 @@ button.main.danger { background: var(--danger); color: #fff; }
 .trait.bad { background: #4a2626; color: #ffc4c4; }
 .blood { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #6b5420; color: #ffe2a0; vertical-align: middle; }
 .genBtns { display: flex; flex-wrap: wrap; gap: 4px; }
+.panel.wide { width: min(760px, 94%); }
+.panel h3 { margin: 14px 0 6px; font-size: 14px; }
+.lineage { font-size: 12px; }
+.chronList { max-height: 320px; overflow-y: auto; font-size: 12px; line-height: 1.7; padding-left: 16px; }
+.effTag { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #3a2e18; color: #ffd38a; margin-left: 4px; }
+.pick { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; }
+.pick.on { border-color: var(--ok); background: #1b2a22; }
+button.onBtn { border-color: var(--ok); color: var(--ok); }
 .headRight { display: flex; align-items: center; gap: 14px; }
 .slotRow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .slotBtns { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }

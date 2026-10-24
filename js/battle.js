@@ -240,7 +240,9 @@ function makeSquad(name, type, opts = {}) {
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
   const waves = MG.buildWaves(level, roster.dirs);
-  if (roster.waveMul && roster.waveMul !== 1) for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * roster.waveMul));
+  // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
+  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1);
+  if (countMul !== 1) for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * countMul));
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,
@@ -255,7 +257,7 @@ MG.createBattle = function (level, roster) {
   const prevWalls = roster.walls || {};
   for (const s of MG.SIDES) {
     B.wallBySide[s] = spans.map(([a0, a1], i) => {
-      const gate = i === 2, max = gate ? MG.GATE_HP : MG.WALL_SEG_HP, id = s + i;
+      const gate = i === 2, max = Math.round((gate ? MG.GATE_HP : MG.WALL_SEG_HP) * (roster.wallMul || 1)), id = s + i;
       const w = { id, side: s, a0, a1, gate, hp: prevWalls[id] != null ? prevWalls[id] : max, max };
       B.walls.push(w);
       return w;
@@ -299,7 +301,7 @@ MG.createBattle = function (level, roster) {
   lsq.initial = lsq.soldiers.length;
   MG.orderMove(lsq, lx, ly, { x: 0, y: -1 }, true);
 
-  const hpScale = Math.pow(1.1, level - 1);
+  const hpScale = Math.pow(1.1, level - 1) * (roster.siegeMul || 1);
   for (const g of B.waves) {
     const lane = rand(-C.R * 0.6, C.R * 0.6);
     for (let i = 0; i < g.count; i++) {
