@@ -20,7 +20,7 @@ const sign = v => (v >= 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
 
 // ---------- 머리말: 날짜, 자원, 습격 예고 ----------
 function headerBlock() {
-  const S = MG.S, prod = MG.production(), cap = MG.storageCap(), fc = MG.attackForecast(), A = S.nextAttack;
+  const S = MG.S, prod = MG.production(), eco = MG.economy(), cap = MG.storageCap(), fc = MG.attackForecast(), A = S.nextAttack;
   const res = Object.keys(MG.RES).map(k => `<div class="res"><span>${MG.RES[k]}</span><b>${Math.floor(S.res[k])}</b>
     <i class="${prod[k] < 0 ? 'danger' : 'muted'}">${sign(prod[k])}/월</i></div>`).join('');
   let intel = '';
@@ -39,6 +39,8 @@ function headerBlock() {
     <div class="res"><span>주민</span><b>${S.pop}</b><i class="muted">/ ${MG.popCap()}</i></div>
     <div class="res"><span>보관 한도</span><b>${cap}</b></div>
   </div>
+  <div class="ecoLine small muted">매달 골드: 세금 +${eco.tax}${eco.market ? ` · 시장 +${eco.market}` : ''} · 급여 <span class="${prod.gold < 0 ? 'danger' : ''}">-${eco.wages}</span> (병력 ${eco.soldiers}명)
+    · 식량: 생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})</div>
   <div class="attackBar ${attackNow ? 'now' : ''}">
     <div>다음 습격 (전투 ${S.level}${S.level % 5 === 0 ? ', 대습격' : ''}): <b>${fc.text}</b>${intel}
       ${A.scout < 2 ? '<span class="muted small"> · 정찰하면 더 알 수 있어요</span>' : ''}</div>
@@ -47,6 +49,8 @@ function headerBlock() {
       : '<button id="skipBtn">다음 습격까지 넘기기</button><button class="main" id="endBtn">한 달 마치기</button>'}</div>
   </div>
   ${S.starving ? '<div class="danger small">식량이 바닥났어요. 전투에서 공격력이 떨어지고 주민과 병사가 떠나요.</div>' : ''}
+  ${S.unpaid ? '<div class="danger small">급여가 밀렸어요. 전투에서 공격력이 떨어지고 병사가 탈영해요.</div>' : ''}
+  ${!S.unpaid && prod.gold < 0 && S.res.gold + prod.gold < 0 ? '<div class="warn small">이대로면 다음 달 급여를 다 못 줘요.</div>' : ''}
   ${S.keep < MG.KEEP_HP * 0.5 ? `<div class="danger small">본성 체력이 ${Math.round(S.keep)} / ${MG.KEEP_HP}이에요. 이대로 습격을 받으면 금방 무너져요. 수리하세요.</div>` : ''}
   ${MG.damageList().some(d => d.kind === 'wall' && d.hp <= 0) ? '<div class="warn small">무너진 성벽이 그대로예요. 수리하지 않으면 다음 습격 때 뚫린 채로 싸워요.</div>' : ''}
   ${S.report && S.report.length ? `<div class="report small">${S.report.map(r => `<div>${r}</div>`).join('')}</div>` : ''}`;

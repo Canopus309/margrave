@@ -199,31 +199,50 @@ MG.actCraft = () => {
 };
 
 // ---------- 한 달 마치기 ----------
-MG.production = () => {
-  const S = MG.S, season = MG.SEASON(S.month), mul = MG.SEASON_PROD[season], out = { gold: 0, food: 0, wood: 0, iron: 0 };
-  for (const f of S.fields) for (const [k, v] of Object.entries(MG.FIELDS[f.type].prod)) out[k] += v * f.level * (mul[k] != null ? mul[k] : 1);
-  out.gold += Math.floor(S.pop * MG.TAX_PER_POP) + MG.bSum('market') * 40;
-  const soldiers = S.generals.reduce((a, g) => a + (g.dead ? g.healthy : g.healthy + g.wounded.length + 1), 0)
+// 매달 수입·지출 내역. 식량은 병사와 주민이 똑같이 먹고, 병사에게는 급여가 나간다.
+MG.economy = () => {
+  const S = MG.S, season = MG.SEASON(S.month), mul = MG.SEASON_PROD[season];
+  const made = { food: 0, wood: 0, iron: 0 };
+  for (const f of S.fields) for (const [k, v] of Object.entries(MG.FIELDS[f.type].prod)) made[k] += v * f.level * (mul[k] != null ? mul[k] : 1);
+  const generals = S.generals.filter(g => !g.dead).length;
+  const soldiers = S.generals.reduce((a, g) => a + g.healthy + g.wounded.length, 0)
     + S.garrison.archer + S.garrison.infantry + S.garrison.wounded.length + MG.LORD.guards;
-  out.food -= Math.ceil(soldiers * MG.FOOD_PER_SOLDIER + S.pop * MG.FOOD_PER_POP);
-  return out;
+  return {
+    tax: Math.floor(S.pop * MG.TAX_PER_POP), market: MG.bSum('market') * 40,
+    wages: Math.ceil(soldiers * MG.WAGE_SOLDIER + generals * MG.WAGE_GENERAL),
+    made, eat: Math.ceil((soldiers + generals + S.pop) * MG.FOOD_PER_PERSON), soldiers: soldiers + generals,
+  };
+};
+MG.production = () => {
+  const e = MG.economy();
+  return { gold: e.tax + e.market - e.wages, food: e.made.food - e.eat, wood: e.made.wood, iron: e.made.iron };
 };
 
 MG.endMonth = () => {
   const S = MG.S, rep = [];
-  const prod = MG.production(), cap = MG.storageCap();
+  const prod = MG.production(), eco = MG.economy(), cap = MG.storageCap();
   for (const k of Object.keys(prod)) S.res[k] = Math.min(cap, S.res[k] + prod[k]);
-  rep.push(`수입: ${Object.entries(prod).map(([k, v]) => `${MG.RES[k]} ${v >= 0 ? '+' : ''}${Math.round(v)}`).join(' · ')}`);
+  rep.push(`골드 ${prod.gold >= 0 ? '+' : ''}${prod.gold} (세금 ${eco.tax}${eco.market ? ` · 시장 ${eco.market}` : ''} · 급여 -${eco.wages})`
+    + ` · 식량 ${prod.food >= 0 ? '+' : ''}${Math.round(prod.food)} · 목재 +${Math.round(prod.wood)} · 철 +${Math.round(prod.iron)}`);
+  // 병사 일부가 탈영한다 (굶주림·급여 체불)
+  const desert = rate => {
+    let n = 0;
+    for (const g of S.generals) if (g.healthy > 0) { const d = Math.ceil(g.healthy * rate); g.healthy -= d; n += d; }
+    for (const k of ['archer', 'infantry']) { const d = Math.ceil(S.garrison[k] * rate); S.garrison[k] -= d; n += d; }
+    return n;
+  };
   if (S.res.food < 0) {
     S.res.food = 0;
-    // 굶주림: 주민이 떠나고 병사 일부가 탈영한다
     const leave = Math.ceil(S.pop * 0.1);
     S.pop -= leave;
-    let desert = 0;
-    for (const g of S.generals) if (!g.dead && g.healthy > 0) { const d = Math.ceil(g.healthy * 0.05); g.healthy -= d; desert += d; }
-    rep.push(`식량이 바닥났어요! 주민 ${leave}명이 떠나고 병사 ${desert}명이 탈영했어요.`);
+    rep.push(`식량이 바닥났어요! 주민 ${leave}명이 떠나고 병사 ${desert(0.05)}명이 탈영했어요.`);
     S.starving = true;
   } else S.starving = false;
+  if (S.res.gold < 0) {
+    S.res.gold = 0;
+    rep.push(`급여를 다 주지 못했어요! 병사 ${desert(0.05)}명이 탈영했어요.`);
+    S.unpaid = true;
+  } else S.unpaid = false;
   const room = MG.popCap() - S.pop;
   if (room > 0 && !S.starving) {
     const grow = Math.min(room, Math.max(2, Math.round(S.pop * MG.POP_GROWTH)));
@@ -354,7 +373,7 @@ MG.buildRoster = () => {
   }
   return {
     squads, lord: { name: S.lord.name }, garrison: { archer: S.garrison.archer, infantry: S.garrison.infantry },
-    walls: { ...S.walls }, keep: S.keep, morale: S.starving ? MG.STARVE_MULT : 1,
+    walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs,
   };
@@ -435,6 +454,8 @@ MG.applyResult = B => {
     S.over = true;
   } else {
     S.stats.wins++;
+    sum.gold = MG.battleGold(S.level);
+    S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
     sum.weapon = rollWeapon(S.level);
     S.inventory.push(sum.weapon);
     S.level++;

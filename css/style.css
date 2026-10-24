@@ -84,6 +84,7 @@ button.mini { padding: 1px 6px; font-size: 11px; }
 .res span { color: var(--muted); }
 .res b { font-size: 16px; }
 .res i { font-style: normal; font-size: 11px; }
+.ecoLine { margin: -2px 0 8px; }
 .attackBar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; }
 .attackBar.now { border-color: var(--danger); background: #2a1616; }
 .attackBar .btns { display: flex; gap: 6px; }

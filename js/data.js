@@ -198,7 +198,7 @@ MG.HOSPITAL_PER_LEVEL = 20;
 
 // 성 밖 들판의 생산 시설. 적은 부수지 않는다.
 MG.FIELDS = {
-  farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 40 } },
+  farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 25 } },
   lumber: { name: '벌목장', color: '#6a8a4a', cost: { gold: 40 },            max: 3, prod: { wood: 25 } },
   mine:   { name: '광산',   color: '#7a7a7a', cost: { gold: 60, wood: 40 },  max: 3, prod: { iron: 15 } },
 };
@@ -208,9 +208,12 @@ MG.RES = { gold: '골드', food: '식량', wood: '목재', iron: '철' };
 MG.START_RES = { gold: 300, food: 400, wood: 200, iron: 100 };
 MG.STORAGE_BASE = 1000;
 MG.AP_PER_MONTH = 3;
-MG.TAX_PER_POP = 0.5;
-MG.FOOD_PER_SOLDIER = 0.5;
-MG.FOOD_PER_POP = 0.2;
+MG.TAX_PER_POP = 1;
+MG.FOOD_PER_PERSON = 0.25;  // 병사든 주민이든 똑같이 먹는다
+MG.WAGE_SOLDIER = 0.5;      // 병사 급여 (매달 골드)
+MG.WAGE_GENERAL = 3;
+MG.UNPAID_MULT = 0.85;      // 급여가 밀리면 전군 공격력
+MG.battleGold = level => 50 + level * 10;  // 승리 전리품
 MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
 MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
 MG.REPAIR_WOOD_PER_HP = 0.1;

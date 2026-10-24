@@ -128,6 +128,7 @@ function showResult(B) {
     </table>
     ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명을 잃었어요` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
     ${s.heir ? `<p style="color:#ff6b6b">${s.heir.old}이(가) 전사했어요. ${s.heir.name}이(가) 뒤를 이어요.</p>` : ''}
+    ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
     ${S.over ? `<p style="color:#ff6b6b">본성이 함락되어 캠페인이 끝났어요. ${S.stats.wins}번의 전투를 버텼어요.</p>` : ''}`;
