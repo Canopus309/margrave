@@ -125,6 +125,9 @@ button.main.danger { background: var(--danger); color: #fff; }
 .hireRow { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .heirBtn { display: block; width: 100%; text-align: left; margin-bottom: 6px; font-weight: 400; }
 .heirBtn .traits { margin-top: 3px; }
+.siteRow { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.siteGo { display: flex; gap: 4px; }
+.siteGo select { flex: 1; min-width: 0; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px; font: inherit; font-size: 12px; }
 .tradeRow { display: grid; grid-template-columns: 70px 1fr; gap: 2px 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .tradeRow .tbtns { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
 .fieldAdd { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }

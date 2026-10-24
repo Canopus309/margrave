@@ -232,6 +232,7 @@ function makeSquad(name, type, opts = {}) {
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
   const waves = MG.buildWaves(level, roster.dirs);
+  if (roster.waveMul && roster.waveMul !== 1) for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * roster.waveMul));
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,

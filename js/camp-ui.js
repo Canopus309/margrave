@@ -27,9 +27,10 @@ function headerBlock() {
   if (A.scout >= 1) intel += ` · ${A.dirs.map(d => `<span class="dirTag">${MG.SIDE_NAME[d]}</span>`).join('')}쪽`;
   if (A.scout >= 2) {
     const sum = {};
-    for (const g of MG.buildWaves(S.level, A.dirs).groups) sum[g.type] = (sum[g.type] || 0) + g.count;
+    for (const g of MG.attackGroups()) sum[g.type] = (sum[g.type] || 0) + g.count;
     intel += ` · ${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${n}`).join(', ')}`;
   }
+  if (A.mul && A.mul < 1) intel += ` <span class="ok small">(둥지 소탕으로 규모 -${Math.round((1 - A.mul) * 100)}%)</span>`;
   const attackNow = MG.isAttackMonth();
   return `<header>
     <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주</div></div>
@@ -208,7 +209,8 @@ function genCard(g) {
       <div class="muted">${MG.genTitle(g)} · Lv.${g.level}</div>
       <div class="muted small">남은 병사 ${g.healthy}명은 지휘관 없이 출전해요.</div></div>`;
   }
-  const status = g.injured ? `<span class="warn">부상 · ${g.injured}개월 남음</span>` : '<span class="ok">건강</span>';
+  const status = g.away ? `<span class="warn">원정 중 · ${g.away.months}개월 뒤 귀환</span>`
+    : g.injured ? `<span class="warn">부상 · ${g.injured}개월 남음</span>` : '<span class="ok">건강</span>';
   const old = MG.ageMul(g.age) < 1 ? ` <span class="warn">(노쇠 ${Math.round((1 - MG.ageMul(g.age)) * 100)}%)</span>` : '';
   return `<div class="gen ${g.injured ? 'hurt' : ''}">
     <div class="gtop"><b>${g.name}${g.blood ? ' <span class="blood">가문</span>' : ''}</b>${status}</div>
@@ -218,8 +220,8 @@ function genCard(g) {
       <span class="small muted">${need ? `${Math.floor(g.xp)} / ${need}` : '최고 레벨'}</span></div>
     <div class="small">병사 ${g.healthy} / ${cap}${g.wounded.length ? ` · <span class="warn">부상 ${g.wounded.length}명 (${woundCounts(g.wounded)})</span>` : ''}</div>
     ${refill}${classBlock(g)}${weaponBlock(g)}
-    <label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
-      ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>
+    ${g.away ? '<div class="warn small">원정 중이라 습격이 와도 성을 지킬 수 없어요.</div>' : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
+      ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
       <span class="warn">부상병 ${g.wounded.length}명 동원 (체력 감소, 또 쓰러지면 사망 위험 큼)</span></label>` : ''}
     ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">은퇴시키기 (교관이 되어 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
@@ -258,6 +260,44 @@ function tavernBlock() {
     <div class="muted small">고용한 장수의 부대는 빈 채로 시작해요. 모집으로 채워요.</div></section>`;
 }
 
+// ---------- 원정·본국 ----------
+function expeditionBlock() {
+  const S = MG.S, ready = S.generals.filter(MG.canExpedition), away = S.generals.filter(g => g.away);
+  const fc = MG.attackForecast(), left = S.nextAttack.month - S.month;
+  const sites = (S.sites || []).map(site => {
+    const d = MG.SITES[site.type];
+    const opts = ready.map(g => `<option value="${g.id}">${g.name} (${MG.UNIT_TYPES[g.type].name} · 병사 ${g.healthy} · 성공 ${Math.round(MG.expeditionChance(g, site) * 100)}%)</option>`).join('');
+    const risky = site.months >= left;
+    return `<div class="siteRow"><div><b>${d.name}</b> <span class="muted small">난이도 ${site.diff} · ${site.months}개월</span>
+      <div class="small">${d.desc}</div>${risky ? `<div class="warn small">다음 습격(${fc.text}) 전에 못 돌아올 수 있어요</div>` : ''}</div>
+      ${ready.length ? `<div class="siteGo"><select data-site-gen="${site.id}">${opts}</select>
+        <button class="mini" data-site="${site.id}" ${S.ap >= MG.EXPEDITION_AP ? '' : 'disabled'}>보내기 · 행동력 ${MG.EXPEDITION_AP}</button></div>` : ''}</div>`;
+  }).join('');
+  const awayList = away.map(g => `<li>${g.name} 부대 → ${MG.SITES[g.away.type].name} (${g.away.months}개월 뒤, 성공 ${Math.round(g.away.chance * 100)}%)</li>`).join('');
+  return `<section class="card"><h3>원정 <span class="muted">(계절마다 원정지가 바뀌어요)</span></h3>
+    ${sites || '<div class="muted small">이번 계절 원정지를 모두 썼어요.</div>'}
+    ${!ready.length ? '<div class="muted small">보낼 수 있는 부대가 없어요 (건강하고 병사가 있는 장수만).</div>' : ''}
+    ${awayList ? `<ul class="small">${awayList}</ul>` : ''}
+    <div class="muted small">전력 = 병사 수 + 장수 레벨×8 (전직·무기·특성 반영). 원정 간 부대는 돌아올 때까지 성을 못 지켜요.</div></section>`;
+}
+
+function crownBlock() {
+  const S = MG.S, c = S.crown;
+  const sup = S.support ? `<div class="ok small">지원이 오는 중이에요 (${S.support.months}개월 뒤)</div>` : '';
+  return `<section class="card"><h3>본국과의 관계 ${c} / 100</h3>
+    <div class="bar"><div style="width:${c}%;background:${c >= 70 ? '#6bdc8f' : c >= 40 ? '#e6b450' : '#ff6b6b'}"></div></div>
+    ${sup}
+    <div class="actRow"><button data-act="support" ${S.ap && !S.support && c >= MG.SUPPORT_MIN ? '' : 'disabled'}>지원 요청</button>
+      <span class="small muted">관계 -${MG.SUPPORT_COST} · 2~4개월 뒤 ${MG.supportKind()}${c < MG.SUPPORT_MIN ? ' (관계가 너무 나빠요)' : ''}</span></div>
+    <div class="muted small">습격을 막으면 +${MG.CROWN_WIN}, 왕실의 부탁을 들어주면 +10, 거절하면 -5. 관계가 좋을수록 지원이 좋고 계승 선물이 커요. 해임은 없어요.</div></section>`;
+}
+
+function eventModal() {
+  const v = MG.eventView();
+  return `<div class="overlay"><div class="panel"><h1>${v.title}</h1><p>${v.text}</p>
+    <div class="row">${v.choices.map((c, i) => `<button class="main ${i ? 'alt' : ''}" data-event="${i}" ${c.ok ? '' : 'disabled'}>${c.label}</button>`).join('')}</div></div></div>`;
+}
+
 // 성주가 세상을 떠나면 다른 것을 하기 전에 후계자를 고른다
 function successionModal() {
   const S = MG.S, heirs = MG.heirs();
@@ -292,12 +332,13 @@ function render() {
   const inv = S.inventory.slice().sort((a, b) => Object.keys(MG.WEAPON_GRADES).indexOf(b.grade) - Object.keys(MG.WEAPON_GRADES).indexOf(a.grade));
   el.innerHTML = `<div class="campWrap">
     ${headerBlock()}
-    <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${marketBlock()}${fieldsBlock()}</div></div>
+    <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${expeditionBlock()}${marketBlock()}${fieldsBlock()}</div></div>
     <h2>장수 ${S.generals.filter(g => !g.dead).length}명</h2>
     <section class="gens">${S.generals.map(genCard).join('')}</section>
     <div class="campRow">
       ${familyBlock()}
       ${tavernBlock()}
+      ${crownBlock()}
       <section class="card"><h3>성주 직할 병력 (성벽 위)</h3>
         <div class="stat"><span>궁수</span><b>${S.garrison.archer}</b></div>
         <div class="stat"><span>보병</span><b>${S.garrison.infantry}</b></div>
@@ -313,7 +354,7 @@ function render() {
         <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>
     </div>
   </div>
-  ${S.over ? overPanel() : S.pendingSuccession ? successionModal() : ''}`;
+  ${S.over ? overPanel() : S.pendingSuccession ? successionModal() : S.event ? eventModal() : ''}`;
   bind();
 }
 
@@ -328,11 +369,17 @@ function bind() {
   q('[data-upgrade]').forEach(b => b.onclick = () => run(MG.actUpgrade(sel.b)));
   q('[data-act]').forEach(b => b.onclick = () => {
     const a = b.dataset.act;
-    run(a === 'repair' ? MG.actRepair() : a === 'recruit' ? MG.actRecruit() : a === 'train' ? MG.actTrain() : a === 'scout' ? MG.actScout() : MG.actCraft());
+    run(a === 'repair' ? MG.actRepair() : a === 'recruit' ? MG.actRecruit() : a === 'train' ? MG.actTrain() : a === 'scout' ? MG.actScout()
+      : a === 'support' ? MG.actSupport() : MG.actCraft());
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
+  q('[data-site]').forEach(b => b.onclick = () => {
+    const sel = el.querySelector(`[data-site-gen="${b.dataset.site}"]`);
+    run(MG.actExpedition(+b.dataset.site, +sel.value));
+  });
+  q('[data-event]').forEach(b => b.onclick = () => run(MG.resolveEvent(+b.dataset.event)));
   q('[data-promote]').forEach(b => b.onclick = () => run(MG.actPromote(b.dataset.promote)));
   q('[data-retire]').forEach(b => b.onclick = () => run(MG.retire(gen(b.dataset.retire))));
   q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });

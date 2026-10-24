@@ -253,6 +253,25 @@ MG.SQUAD_SLOTS = [
   { x: -260, y: -170 }, { x: 260, y: -170 }, { x: -260, y: 170 }, { x: 260, y: 170 },
 ];
 
+// ---------- 3b-2: 원정, 이벤트, 본국 ----------
+// 원정지는 계절마다 3곳. 난이도는 전투 레벨에 따라 오른다. 전력 = 병사 수 + 장수 레벨×8 (부대 공격·체력 보정 반영)
+MG.SITES = {
+  nest:   { name: '고블린 둥지',  desc: '소탕하면 다음 습격 규모 -25%', diff: 1.2 },
+  mine:   { name: '버려진 광산',  desc: '철을 얻어요',                  diff: 0.9 },
+  escort: { name: '상인 호위',    desc: '골드를 얻어요',                diff: 0.8 },
+  ruins:  { name: '고대 유적',    desc: '좋은 무기를 얻을 수 있어요',    diff: 1.4 },
+};
+MG.EXPEDITION_AP = 2;
+MG.siteDifficulty = (level, mul) => Math.round((25 + 12 * level) * mul);
+MG.EXPEDITION_XP = 40;
+
+// 본국 관계 0~100 (해임은 없다)
+MG.CROWN_START = 50;
+MG.CROWN_WIN = 3;               // 습격을 막을 때마다
+MG.SUPPORT_COST = 15;           // 지원 요청 한 번에 관계 -
+MG.SUPPORT_MIN = 20;            // 이보다 낮으면 본국이 응하지 않는다
+MG.EVENT_CHANCE = 0.2;
+
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {
   base: { food: 1.0, wood: 1.5, iron: 3.0 },       // 사는 값 기준 (1개당 골드)
