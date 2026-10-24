@@ -170,15 +170,15 @@ function drawGarrison(B) {
   for (const s of MG.SIDES) {
     const g = B.garrison[s], live = B.wallBySide[s].filter(w => !w.gate && w.hp > 0);
     if (!live.length) continue;
-    const n = MG.NORMAL[s];
     const rows = [[g.archer, MG.UNIT_TYPES.archer.color, C.R - C.T * 0.3], [g.infantry, MG.UNIT_TYPES.infantry.color, C.R - C.T * 0.72]];
     for (const [count, color, depth] of rows) {
       ctx.fillStyle = color;
       for (let i = 0; i < count; i++) {
         const w = live[i % live.length], k = Math.floor(i / live.length), per = Math.ceil(count / live.length);
         const a = w.a0 + (w.a1 - w.a0) * (k + 0.5) / per;
+        const p = MG.wallPoint(s, depth, a);
         ctx.beginPath();
-        ctx.arc(C.x + n.x * depth - n.y * a, C.y + n.y * depth + n.x * a, 2.8, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 2.8, 0, Math.PI * 2);
         ctx.fill();
       }
     }

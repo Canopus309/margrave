@@ -18,11 +18,15 @@ const segAt = p => {
   const s = side(p), a = along(p, s), list = B.wallBySide[s];
   return list.find(w => a >= w.a0 && a <= w.a1) || (a < 0 ? list[0] : list[list.length - 1]);
 };
-const segMid = (w, depth) => {
-  const n = MG.NORMAL[w.side], m = (w.a0 + w.a1) / 2;
-  return { x: C.x + n.x * depth + -n.y * m, y: C.y + n.y * depth + n.x * m };
+// 성벽을 따라가는 방향. along()과 같은 축이어야 한다 (북·남은 +x, 동·서는 +y).
+const wallAxis = s => (s === 'N' || s === 'S' ? { x: 1, y: 0 } : { x: 0, y: 1 });
+// 성벽 위 한 지점: 바깥쪽으로 depth, 성벽을 따라 a
+const wallPoint = (s, depth, a) => {
+  const n = MG.NORMAL[s], ax = wallAxis(s);
+  return { x: C.x + n.x * depth + ax.x * a, y: C.y + n.y * depth + ax.y * a };
 };
-Object.assign(MG, { dist, cheb, cls, side, along, onWall, segAt, segMid });
+const segMid = (w, depth) => wallPoint(w.side, depth, (w.a0 + w.a1) / 2);
+Object.assign(MG, { dist, cheb, cls, side, along, onWall, segAt, segMid, wallAxis, wallPoint });
 
 // ---------- 길찾기 격자 (20px) ----------
 const NC = 20, NX = Math.ceil(MG.WORLD.w / NC), NY = Math.ceil(MG.WORLD.h / NC), NN = NX * NY;
@@ -310,15 +314,13 @@ MG.createBattle = function (level, roster) {
 function formationSlots(n, tx, ty, facing, wallSide) {
   const slots = [];
   if (wallSide) {
-    const nrm = MG.NORMAL[wallSide], perp = { x: -nrm.y, y: nrm.x };
     const rows = n > 12 ? 2 : 1, cols = Math.ceil(n / rows), sp = 10;
     const half = (cols - 1) / 2 * sp, lim = C.R - 8;
     const a0 = Math.max(-lim + half, Math.min(lim - half, along({ x: tx, y: ty }, wallSide)));
     const depth = [C.R - C.T * 0.3, C.R - C.T * 0.72];
     for (let i = 0; i < n; i++) {
       const r = Math.floor(i / cols), c = i % cols;
-      const a = Math.max(-lim, Math.min(lim, a0 + (c - (cols - 1) / 2) * sp));
-      slots.push({ x: C.x + nrm.x * depth[r] + perp.x * a, y: C.y + nrm.y * depth[r] + perp.y * a });
+      slots.push(wallPoint(wallSide, depth[r], Math.max(-lim, Math.min(lim, a0 + (c - (cols - 1) / 2) * sp))));
     }
     return slots;
   }
@@ -630,7 +632,8 @@ function breach(w) {
   const total = ar + inf;
   for (let i = 0; i < total; i++) {
     const p = segMid(w, C.R - C.T / 2), off = (i / Math.max(1, total - 1) - 0.5) * (w.a1 - w.a0) * 0.8;
-    makeSoldier(sq, i < inf ? 'infantry' : 'archer', p.x - n.y * off, p.y + n.x * off);
+    const ax = wallAxis(s);
+    makeSoldier(sq, i < inf ? 'infantry' : 'archer', p.x + ax.x * off, p.y + ax.y * off);
   }
   sq.initial = total;
   const to = segMid(w, C.R - C.T - 45);
@@ -702,8 +705,7 @@ function updateEnemy(e, dt, fGrid) {
     const nx = fieldNext(e);
     if (nx && go(nx.x, nx.y)) return;
   }
-  const n = MG.NORMAL[e.dir], perp = { x: -n.y, y: n.x };
-  const tx = C.x + n.x * (C.R - 5) + perp.x * e.lane, ty = C.y + n.y * (C.R - 5) + perp.y * e.lane;
+  const { x: tx, y: ty } = wallPoint(e.dir, C.R - 5, e.lane);
   const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy) || 1;
   const next = { x: e.x + dx / d * Math.max(sp, 2), y: e.y + dy / d * Math.max(sp, 2) };
   if (!stepToward(e, tx, ty, sp, true)) attackWall(e, segAt(next));
@@ -734,8 +736,8 @@ function updateGarrison(dt) {
       g.archT = MG.UNIT_TYPES.archer.cd;
       for (let i = 0; i < g.archer; i++) {
         const e = zone[(Math.random() * zone.length) | 0], w = live[i % live.length];
-        const p = segMid(w, C.R - 6), off = rand(-0.4, 0.4) * (w.a1 - w.a0), n = MG.NORMAL[s];
-        B.projectiles.push({ x: p.x - n.y * off, y: p.y + n.x * off,
+        const p = wallPoint(s, C.R - 6, (w.a0 + w.a1) / 2 + rand(-0.4, 0.4) * (w.a1 - w.a0));
+        B.projectiles.push({ x: p.x, y: p.y,
           target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult, kind: 'arrow', speed: 520, splash: 0 });
       }
     }
