@@ -103,13 +103,21 @@ function selBlock() {
 }
 
 // ---------- 행동 ----------
+function recruitNote() {
+  if (!MG.recruitCap()) return '병영이 필요해요 (부서졌으면 수리)';
+  if (MG.S.pop <= MG.MIN_POP) return '주민이 너무 적어요';
+  const p = MG.recruitPlan();
+  if (!p.total) return `골드가 모자라요 (1명당 ${MG.RECRUIT_GOLD})`;
+  const where = [p.squads ? `장수 부대 ${p.squads}` : '', p.garrison ? `직할 ${p.garrison}` : ''].filter(Boolean).join(' · ');
+  return `주민 ${p.total}명 → ${where} · ${MG.costText(MG.recruitCost())}`;
+}
+
 function actionsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const rows = [
     { id: 'repair', name: '수리', note: MG.repairNeed() ? `피해 ${Math.round(MG.damageList().reduce((a, d) => a + d.max - d.hp, 0))} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}` : '고칠 곳이 없어요',
       ok: MG.repairNeed() && MG.canPay(MG.repairCost()) },
-    { id: 'recruit', name: '모집', note: MG.recruitCap() ? `${MG.recruitAmount()}명 · ${MG.costText(MG.recruitCost())} (주민에서 뽑아요)` : '병영이 필요해요',
-      ok: MG.recruitAmount() && MG.canPay(MG.recruitCost()) },
+    { id: 'recruit', name: '모집', note: recruitNote(), ok: MG.recruitAmount() > 0 },
     { id: 'train', name: '훈련', note: MG.bLevel('training') ? `건강한 장수 모두 경험치 +${30 * MG.bLevel('training')}` : '훈련장이 필요해요', ok: MG.bLevel('training') },
     { id: 'scout', name: '정찰', note: S.nextAttack.scout >= 2 ? '다 알아냈어요' : `${S.nextAttack.scout ? '적 구성' : '날짜와 방향'}을 알아내요 · 골드 20`,
       ok: S.nextAttack.scout < 2 && S.res.gold >= 20 },
@@ -212,7 +220,7 @@ function render() {
       <section class="card"><h3>성주 직할 병력 (성벽 위)</h3>
         <div class="stat"><span>궁수</span><b>${S.garrison.archer}</b></div>
         <div class="stat"><span>보병</span><b>${S.garrison.infantry}</b></div>
-        <div class="muted small">모집하면 부족한 부대부터 채워요.</div></section>
+        <div class="muted small">모집하면 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 모두 직할로 와요. 직할 병력에는 상한이 없고 식량으로만 제한돼요.</div></section>
       <section class="card">${hospitalBlock()}</section>
       <section class="card"><h3>보유 무기 ${inv.length}</h3>
         <ul class="small inv">${inv.map(w => `<li>${gradeTag(w)} <span class="muted">${MG.UNIT_TYPES[w.type].name}용 · ${MG.weaponDesc(w)}</span></li>`).join('')

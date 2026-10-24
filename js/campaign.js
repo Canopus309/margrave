@@ -138,38 +138,47 @@ MG.actRepair = () => {
   });
 };
 
-// 모집: 병영 단계만큼, 주민 중에서. 마법사·사제 부대는 마법탑·사원이 있어야 채운다.
+// 모집: 병영 단계만큼, 주민 중에서. 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 모두 성주 직할로 간다.
+// 직할 병력에는 상한이 없다 — 병력은 식량으로만 제한된다 (설계 문서 4장).
+// 마법사·사제 부대는 마법탑·사원이 있어야 채운다.
+MG.MIN_POP = 10;  // 주민을 이보다 적게 남기며 뽑지는 않는다
 MG.recruitCap = () => MG.bLevel('barracks') * 10;
 MG.recruitTargets = () => {
-  const S = MG.S, list = [];
-  for (const g of S.generals) {
+  const list = [];
+  for (const g of MG.S.generals) {
     if (g.dead) continue;
     if (g.type === 'mage' && !MG.bLevel('tower')) continue;
     if (g.type === 'priest' && !MG.bLevel('temple')) continue;
     const need = MG.genCap(g) - g.healthy - g.wounded.length;
     if (need > 0) list.push({ g, need });
   }
-  const gar = S.garrison, gneed = MG.GARRISON.archer + MG.GARRISON.infantry - gar.archer - gar.infantry - gar.wounded.length;
-  if (gneed > 0) list.push({ garrison: true, need: gneed });
   return list;
 };
-MG.recruitAmount = () => Math.min(MG.recruitCap(), Math.max(0, MG.S.pop - 10), MG.recruitTargets().reduce((a, t) => a + t.need, 0));
+MG.recruitAmount = () => Math.min(MG.recruitCap(), Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.RECRUIT_GOLD));
 MG.recruitCost = () => ({ gold: MG.recruitAmount() * MG.RECRUIT_GOLD });
+MG.recruitPlan = () => {
+  let left = MG.recruitAmount();
+  const toSquads = MG.recruitTargets().reduce((a, t) => a + t.need, 0);
+  const squads = Math.min(left, toSquads);
+  return { total: left, squads, garrison: left - squads };
+};
 MG.actRecruit = () => {
-  if (!MG.recruitCap()) return '병영이 없어요';
+  if (!MG.recruitCap()) return '병영이 없거나 부서졌어요';
+  if (MG.S.pop <= MG.MIN_POP) return '주민이 너무 적어요';
   const n = MG.recruitAmount();
-  if (!n) return MG.S.pop <= 10 ? '주민이 너무 적어요' : '채울 자리가 없어요';
+  if (!n) return '골드가 모자라요';
   return act(MG.recruitCost(), () => {
     let pool = n;
     const targets = MG.recruitTargets();
     while (pool > 0) {
       const t = targets.filter(x => x.need > 0).sort((a, b) => b.need - a.need)[0];
       if (!t) break;
-      if (t.garrison) { const gar = MG.S.garrison; if (gar.archer <= gar.infantry) gar.archer++; else gar.infantry++; }
-      else t.g.healthy++;
-      t.need--; pool--;
+      t.g.healthy++; t.need--; pool--;
     }
-    MG.S.pop -= n - pool;
+    // 남는 신병은 성주 직할 (궁수·보병을 번갈아)
+    const gar = MG.S.garrison;
+    for (; pool > 0; pool--) { if (gar.archer <= gar.infantry) gar.archer++; else gar.infantry++; }
+    MG.S.pop -= n;
   });
 };
 
