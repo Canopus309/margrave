@@ -46,4 +46,35 @@ button.main.alt { background: #6aa8ff; }
 .panel h1 { margin: 0 0 12px; font-size: 26px; }
 .panel table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0 12px; }
 .panel td, .panel th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+#app.hidden, #camp.hidden { display: none; }
+#camp { position: fixed; inset: 0; overflow-y: auto; background: var(--bg); }
+.campWrap { max-width: 1200px; margin: 0 auto; padding: 18px 16px 40px; }
+.campWrap header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.campWrap h1 { margin: 0; font-size: 24px; }
+.campWrap .next { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.campWrap .next b { color: var(--accent); font-size: 20px; }
+.campWrap .next .main { width: auto; padding: 10px 22px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.ok { color: var(--ok); } .warn { color: var(--accent); } .danger { color: var(--danger); }
+button.danger { border-color: var(--danger); color: var(--danger); }
+.gens { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.gen { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.gen.hurt { border-color: #6b5420; }
+.gen.dead { opacity: .6; }
+.gtop { display: flex; justify-content: space-between; font-size: 15px; }
+.lv { display: flex; align-items: center; gap: 6px; }
+.lv .bar { flex: 1; margin: 0; }
+.choose { display: flex; flex-direction: column; gap: 4px; }
+.choose .hint { color: var(--ok); font-weight: 700; font-size: 12px; }
+.choose button { text-align: left; display: flex; flex-direction: column; gap: 2px; border-color: var(--ok); }
+.choose button span { font-weight: 400; font-size: 11px; color: var(--muted); }
+.clsDesc { font-size: 12px; background: var(--panel2); border-radius: 6px; padding: 5px 7px; }
+.weapon select { width: 100%; margin-top: 4px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px; font: inherit; font-size: 12px; }
+button.mini { padding: 1px 6px; font-size: 11px; }
+.tog { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; cursor: pointer; }
+.campRow { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.campRow ul { margin: 6px 0 0; padding-left: 16px; }
+.campRow .inv { max-height: 180px; overflow-y: auto; }
+.campRow button { width: 100%; margin-top: 8px; }
 .dirTag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #5a2323; color: #ffd0d0; font-weight: 700; margin-right: 4px; }

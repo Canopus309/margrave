@@ -26,7 +26,7 @@ function enemyAt(B, p) {
   return best;
 }
 
-const usable = B => B.phase === 'prep' || B.phase === 'battle';
+const usable = B => MG.mode === 'battle' && B && (B.phase === 'prep' || B.phase === 'battle');
 
 // 여러 부대를 함께 옮길 때는 옆으로 나란히 세운다
 function moveSelected(B, p) {
@@ -106,6 +106,7 @@ window.addEventListener('mouseup', ev => {
 
 window.addEventListener('keydown', ev => {
   const B = MG.B;
+  if (MG.mode !== 'battle' || !B) return;
   if (ev.key >= '1' && ev.key <= '9') {
     if (ev.ctrlKey) {
       ev.preventDefault();

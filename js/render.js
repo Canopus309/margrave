@@ -197,7 +197,10 @@ function drawEnemies(B) {
     if (e.type === 'wolf') ctx.ellipse(e.x, e.y, e.r + 2, e.r - 1, 0, 0, Math.PI * 2);
     else ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#5a1010'; ctx.lineWidth = 1.2; ctx.stroke();
+    // 상태 이상: 얼음은 파란 테두리, 둔화는 옅은 파랑, 화상은 주황 점
+    ctx.strokeStyle = e.frozenT > 0 ? '#bfe8ff' : e.slowT > 0 ? '#6cc6ff' : '#5a1010';
+    ctx.lineWidth = e.frozenT > 0 ? 2.5 : 1.2; ctx.stroke();
+    if (e.burnT > 0) { ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.arc(e.x + e.r * 0.6, e.y - e.r * 0.6, 2, 0, Math.PI * 2); ctx.fill(); }
     if (e.hp < e.max) {
       const w = e.r * 2.4;
       ctx.fillStyle = '#300'; ctx.fillRect(e.x - w / 2, e.y - e.r - 5, w, 2.5);
@@ -211,6 +214,9 @@ function drawProjectiles(B) {
     if (p.kind === 'fire') {
       ctx.fillStyle = 'rgba(255,150,60,0.35)'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else if (p.kind === 'holy') {
+      ctx.fillStyle = 'rgba(255,241,168,0.4)'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff1a8'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill();
     } else {
       const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy) || 1;
       ctx.strokeStyle = '#f0e6c8'; ctx.lineWidth = 1.2;

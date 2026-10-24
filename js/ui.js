@@ -27,10 +27,11 @@ function composition(B) {
 
 ui.refresh = function (force) {
   const B = MG.B;
+  if (MG.mode !== 'battle' || !B) return;
   if (force) lastHtml = {};
   const phaseName = { prep: '전투 준비', battle: '전투 중', result: '전투 종료' }[B.phase];
   const next = B.spawnQueue[0];
-  setHtml('statusCard', `<h3>${phaseName} · 전투 ${B.level}</h3>
+  setHtml('statusCard', `<h3>${phaseName} · 전투 ${B.level}${B.level % 5 === 0 ? ' (대습격)' : ''}</h3>
     <div class="stat"><span>경과 시간</span><b>${Math.floor(B.time)}초</b></div>
     <div class="stat"><span>습격</span><b>${B.wave} / 3파</b></div>
     <div class="stat"><span>전장의 적</span><b>${B.enemies.length}</b></div>
@@ -68,7 +69,8 @@ ui.refresh = function (force) {
 
   if (setHtml('squads', B.squads.map(sq => {
     const T = MG.UNIT_TYPES[sq.type];
-    const sub = sq.isGarrison ? '궁수·보병 혼성' : `${T ? T.name : ''}${sq.leaderDown ? ' · 지휘관 쓰러짐' : ''}`;
+    const lead = sq.general ? (sq.general.dead ? ' · 지휘관 쓰러짐' : '') : ' · 지휘관 없음';
+    const sub = sq.isGarrison ? '궁수·보병 혼성' : `${sq.title || (T ? T.name : '')}${sq.isLord ? '' : lead}`;
     const hp = sq.soldiers.reduce((a, s) => a + s.hp, 0), max = sq.soldiers.reduce((a, s) => a + s.max, 0);
     return `<div class="squad ${B.selected.has(sq) ? 'sel' : ''} ${sq.leaderDown ? 'down' : ''}" data-id="${sq.id}">
       <div class="top"><span>${sq.name}</span><span>${sq.soldiers.length} / ${sq.initial}</span></div>
@@ -105,6 +107,10 @@ function showResult(B) {
     return `${MG.SIDE_NAME[s]}(${[walls ? `성벽 ${walls}조각` : '', gate ? '성문' : ''].filter(Boolean).join(', ')})`;
   }).filter(Boolean);
   const left = B.squads.reduce((a, q) => a + q.soldiers.length, 0);
+  const s = r.summary, S = MG.S;
+  const genRows = s.gens.map(g => `<tr><td>${g.name}</td><td>${g.status === '전사' ? '—' : `+${g.xp} 경험치`}</td>
+    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}</td>
+    <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
   $('resBody').innerHTML = `
     <table>
       <tr><th>버틴 시간</th><td>${Math.floor(r.time)}초</td></tr>
@@ -112,14 +118,19 @@ function showResult(B) {
       <tr><th>부서진 곳</th><td>${breached.length ? breached.join(' · ') : '없음'}</td></tr>
       <tr><th>남은 병력</th><td>${left}명</td></tr>
     </table>
+    <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
+    <table>${genRows || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     <table>
-      <tr><th>경상 — 병원에서 1개월</th><td>${r.roll.light}명</td></tr>
-      <tr><th>중상 — 병원에서 3~6개월</th><td>${r.roll.heavy}명</td></tr>
-      <tr><th>사망</th><td>${r.roll.dead}명</td></tr>
-      <tr><th>부상당한 장수</th><td>${r.generals.length ? r.generals.join(', ') : '없음'}</td></tr>
+      <tr><th>경상 — 1전투 결장</th><td>${s.wound.light}명</td></tr>
+      <tr><th>중상 — 2~3전투 결장</th><td>${s.wound.heavy}명</td></tr>
+      <tr><th>사망</th><td>${s.wound.dead}명</td></tr>
     </table>
-    ${r.lordDead ? '<p style="color:#ff6b6b">성주가 전사했어요. 후계는 2단계에서 구현돼요.</p>' : ''}`;
+    ${s.heir ? `<p style="color:#ff6b6b">${s.heir.old}이(가) 전사했어요. ${s.heir.name}이(가) 뒤를 이어요.</p>` : ''}
+    ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
+      <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
+    ${S.over ? `<p style="color:#ff6b6b">본성이 함락되어 캠페인이 끝났어요. ${S.stats.wins}번의 전투를 버텼어요.</p>` : ''}`;
+  $('contBtn').textContent = S.over ? '새 캠페인 시작' : '정비 화면으로';
   $('result').classList.remove('hidden');
 }
 
@@ -133,6 +144,8 @@ ui.togglePause = function () {
 $('startBtn').onclick = () => { MG.startBattle(); ui.refresh(true); };
 $('pauseBtn').onclick = ui.togglePause;
 $('speedBtn').onclick = () => { const B = MG.B; B.speed = B.speed === 1 ? 2 : B.speed === 2 ? 3 : 1; ui.refresh(); };
-$('retryBtn').onclick = () => MG.newBattle(MG.B.level);
-$('nextBtn').onclick = () => MG.newBattle(MG.B.level + 1);
+$('contBtn').onclick = () => {
+  if (MG.S.over) MG.resetCampaign();
+  MG.enterCamp();
+};
 })();

@@ -88,32 +88,47 @@ function stepToward(o, tx, ty, step, enemy) {
 }
 
 // ---------- 생성 ----------
+// 능력치 = 병종 기본값 × 장수 레벨의 부대 보너스 × 전직·무기 보정 (장수는 본인 레벨과 무기 등급까지)
 function makeSoldier(squad, type, x, y, opts = {}) {
-  const T = MG.UNIT_TYPES[type];
-  const hpMul = opts.general ? MG.GENERAL_MULT.hp : 1;
-  const hp = opts.hp || T.hp * hpMul;
-  const s = { id: B.nextId++, squad, type, T, x, y, hp, max: hp,
-    atk: opts.atk || T.atk * (opts.general ? MG.GENERAL_MULT.atk : 1),
+  const T = MG.UNIT_TYPES[type], m = squad.mods, lv = squad.lvBonus;
+  let max = T.hp * lv * m.hp, atk = T.atk * lv * m.atk;
+  if (opts.general) {
+    const gl = (opts.genLevel || 1) - 1;
+    max *= MG.GENERAL_MULT.hp * (1 + MG.LEVEL_BONUS.genHp * gl);
+    atk *= MG.GENERAL_MULT.atk * (1 + MG.LEVEL_BONUS.genAtk * gl) * (opts.weaponAtk || 1);
+  }
+  if (opts.hp) max = opts.hp;
+  if (opts.atk) atk = opts.atk;
+  let hp = max;
+  if (opts.injured) hp = max * MG.INJURED_GENERAL_HP;
+  if (opts.wound) hp = max * MG.WOUND_HP[opts.wound.sev];
+  const s = { id: B.nextId++, squad, type, T, x, y, hp, max, atk,
+    cd: T.cd * m.cd, range: T.range * m.range, splash: (T.splash || 0) * m.splash, heal: atk * m.heal,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), target: null, path: [], slotX: x, slotY: y,
-    moving: false, stuckT: 0, replanT: 0, isGeneral: !!opts.general, isLord: !!opts.lord, name: opts.name || null, dead: false };
+    moving: false, stuckT: 0, replanT: 0, isGeneral: !!opts.general, isLord: !!opts.lord, name: opts.name || null,
+    wound: opts.wound || null, injuredStart: !!opts.injured, dead: false };
   squad.soldiers.push(s);
   B.soldiers.push(s);
   return s;
 }
 
+const NO_MODS = MG.combineMods([]);
 function makeSquad(name, type, opts = {}) {
   const sq = { id: B.nextId++, name, type, soldiers: [], general: null, focus: null, anchor: null,
-    facing: { x: 0, y: -1 }, leaderDown: false, isLord: !!opts.lord, isGarrison: !!opts.garrison, initial: 0 };
+    facing: { x: 0, y: -1 }, leaderDown: false, isLord: !!opts.lord, isGarrison: !!opts.garrison, initial: 0,
+    gid: opts.gid || null, title: opts.title || null, mods: opts.mods || NO_MODS, lvBonus: opts.lvBonus || 1, xp: 0, kills: 0 };
   B.squads.push(sq);
+  B.allSquads.push(sq);
   return sq;
 }
 
-MG.createBattle = function (level) {
+// roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
+MG.createBattle = function (level, roster) {
   const waves = MG.buildWaves(level);
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: MG.KEEP_HP, max: MG.KEEP_HP },
-    squads: [], soldiers: [], enemies: [], projectiles: [], fx: [], log: [],
+    squads: [], allSquads: [], soldiers: [], enemies: [], projectiles: [], fx: [], log: [], auras: [], roster,
     garrison: {}, garrisonSquads: {}, garrisonPool: { archer: 0, infantry: 0 }, groups: {}, selected: new Set(),
     waves: waves.groups, dirs: waves.dirs, spawnQueue: [], wave: 0,
     stats: { kills: 0, fallen: [], spawned: 0 }, lordDead: false, lord: null, result: null,
@@ -127,19 +142,29 @@ MG.createBattle = function (level) {
       B.walls.push(w);
       return w;
     });
-    B.garrison[s] = { archer: MG.GARRISON.archer / 4, infantry: MG.GARRISON.infantry / 4, archT: rand(0, 1), infT: rand(0, 1) };
+    B.garrison[s] = { archer: 0, infantry: 0, archT: rand(0, 1), infT: rand(0, 1) };
   }
-  for (const a of MG.START_ARMY) {
-    const sq = makeSquad(`${a.general} 부대`, a.type);
-    const x = C.x + a.at.x, y = C.y + a.at.y;
-    sq.general = makeSoldier(sq, a.type, x, y, { general: true, name: a.general });
-    for (let i = 0; i < a.lead * 10; i++) makeSoldier(sq, a.type, x, y);
+  // 직할 병력은 네 면에 고르게 (나머지는 앞쪽 면부터)
+  for (const kind of ['archer', 'infantry']) {
+    const n = roster.garrison[kind];
+    MG.SIDES.forEach((s, i) => { B.garrison[s][kind] = Math.floor(n / 4) + (i < n % 4 ? 1 : 0); });
+  }
+  for (const rs of roster.squads) {
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods,
+      lvBonus: 1 + MG.LEVEL_BONUS.squad * (rs.level - 1) });
+    const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
+    if (rs.general) {
+      sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
+        weaponAtk: rs.weaponAtk, injured: rs.general.injured });
+    } else sq.leaderDown = true;
+    for (let i = 0; i < rs.healthy; i++) makeSoldier(sq, rs.type, x, y);
+    for (const m of rs.mob) makeSoldier(sq, rs.type, x, y, { wound: m });
     sq.initial = sq.soldiers.length;
     MG.orderMove(sq, x, y, { x: 0, y: -1 }, true);
   }
-  const L = MG.LORD, lsq = makeSquad('성주 근위대', 'guard', { lord: true });
+  const L = MG.LORD, lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
   const lx = C.x + L.at.x, ly = C.y + L.at.y;
-  B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: L.name, hp: L.hp, atk: L.atk });
+  B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: roster.lord.name, hp: L.hp, atk: L.atk });
   for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
   lsq.initial = lsq.soldiers.length;
   MG.orderMove(lsq, lx, ly, { x: 0, y: -1 }, true);
@@ -237,23 +262,44 @@ function spawnEnemy(q) {
   else { x = 8; y = C.y + q.lane; }
   const hp = Math.round(T.hp * q.hpScale);
   B.enemies.push({ id: B.nextId++, type: q.type, T, x, y, hp, max: hp, r: T.r, lane: q.lane, dir: q.dir,
-    cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false });
+    cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
+    slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 });
   B.stats.spawned++;
 }
 
+// 장수가 내는 오라(전투사제: 공격력, 수호기사: 받는 피해 감소)
+const AURA_R = 120;
+function auraBonus(s, key) {
+  let best = 0;
+  for (const a of B.auras) if (a[key] > best && dist(s, a.s) < AURA_R) best = a[key];
+  return best;
+}
+
 function atkMult(s) {
-  let m = 1;
+  let m = 1 + auraBonus(s, 'atk');
   if (s.squad.leaderDown && !s.isGeneral) m *= MG.LEADER_DOWN_MULT;
   if (B.lordDead) m *= MG.LORD_DEAD_MULT;
   else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura) m *= 1 + MG.LORD.auraBonus;
   return m;
 }
 
-function damageEnemy(e, dmg) {
+// sq: 피해를 준 부대(경험치와 전직·무기 효과의 주인). 직할 수비대의 화살은 null.
+function hitEnemy(e, dmg, sq) {
+  const m = sq ? sq.mods : NO_MODS;
+  if (m.crit && Math.random() < m.crit) dmg *= 2;
+  damageEnemy(e, dmg, sq);
+  if (e.dead) return;
+  if (m.slow) { e.slowF = Math.max(e.slowT > 0 ? e.slowF : 0, m.slow); e.slowT = 2; }
+  if (m.burn) { e.burnT = 3; e.burnDps = Math.max(e.burnDps || 0, m.burn); e.burnSrc = sq; }
+  if (m.freeze && Math.random() < m.freeze) e.frozenT = 1;
+}
+
+function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
   e.hp -= dmg; e.hitT = 0.1;
   if (e.hp <= 0) {
     e.dead = true; B.stats.kills++;
+    if (sq) { sq.kills++; sq.xp += MG.ENEMY_XP[e.type] || 1; }
     for (let i = 0; i < 6; i++) {
       const a = rand(0, Math.PI * 2), sp = rand(30, 90);
       B.fx.push({ kind: 'p', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.45, max: 0.45, color: e.T.color });
@@ -263,11 +309,12 @@ function damageEnemy(e, dmg) {
 
 function damageFriendly(s, dmg) {
   if (s.dead) return;
-  s.hp -= dmg;
+  s.hp -= dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def'));
   if (s.hp > 0) return;
   s.dead = true;
   const sq = s.squad;
-  B.stats.fallen.push({ name: s.name, type: s.type, squad: sq.name, general: s.isGeneral, lord: s.isLord });
+  B.stats.fallen.push({ name: s.name, type: s.type, squad: sq.name, gid: sq.gid, garrison: sq.isGarrison,
+    general: s.isGeneral, lord: s.isLord, wound: s.wound, injured: s.injuredStart });
   B.fx.push({ kind: 'p', x: s.x, y: s.y, vx: 0, vy: -20, t: 0.6, max: 0.6, color: '#ff8080' });
   if (s.isLord) {
     B.lordDead = true; B.lord = null;
@@ -304,18 +351,19 @@ function nearby(g, p, r, fn) {
 }
 
 function effRange(s) {
-  return s.T.range * (s.T.kind !== 'melee' && onWall(s) ? 1.3 : 1);
+  return s.range * (s.T.kind !== 'melee' && onWall(s) ? 1.3 : 1);
 }
 
+// 돌려주는 대상이 아군이면 회복, 적이면 공격
 function pickTarget(s, eGrid) {
-  const T = s.T, f = s.squad.focus;
+  const T = s.T, m = s.squad.mods, f = s.squad.focus;
   if (T.kind === 'heal') {
     let best = null, bp = 0.95;
     for (const o of B.soldiers) {
-      if (o.dead || o.hp / o.max >= bp || dist(s, o) > T.range) continue;
+      if (o.dead || o.hp / o.max >= bp || dist(s, o) > s.range) continue;
       bp = o.hp / o.max; best = o;
     }
-    return best;
+    if (best || !m.canAttack) return best;
   }
   const slot = { x: s.slotX, y: s.slotY };
   if (f && !f.dead) {
@@ -323,18 +371,19 @@ function pickTarget(s, eGrid) {
   }
   if (s.moving) return null;
   const r = T.kind === 'melee' ? 90 : effRange(s);
-  let best = null, bd = Infinity;
+  let best = null, score = Infinity;
   nearby(eGrid, s, r, e => {
     if (e.dead) return;
     const d = dist(s, e);
-    if (d > r || d >= bd) return;
+    if (d > r) return;
     // 근접병은 같은 쪽(성 안/밖)의 적을 쫓고, 성벽 너머 적은 손이 닿을 때만 친다
-    if (T.kind === 'melee' && (dist(e, slot) > 150 ||(cls(e) !== cls(s) && d > T.range + e.r))) return;
-    bd = d; best = e;
+    if (T.kind === 'melee' && (dist(e, slot) > 150 || (cls(e) !== cls(s) && d > s.range + e.r))) return;
+    const sc = m.tough && T.kind !== 'melee' ? -e.hp : d;  // 저격수는 체력 높은 적부터
+    if (sc < score) { score = sc; best = e; }
   });
   // 본성이 공격받으면 근처 근접병은 자리를 벗어나서라도 막으러 간다
   if (!best && T.kind === 'melee') {
-    bd = 260;
+    let bd = 260;
     for (const e of B.enemies) {
       if (e.dead || dist(e, C) > C.keepR + 30 || cls(s) !== 'in') continue;
       const d = dist(s, e);
@@ -342,6 +391,33 @@ function pickTarget(s, eGrid) {
     }
   }
   return best;
+}
+
+function heal(s, t) {
+  const amt = s.heal, m = s.squad.mods;
+  t.hp = Math.min(t.max, t.hp + amt);
+  s.squad.xp += amt * MG.HEAL_XP;
+  B.fx.push({ kind: 'heal', x: t.x, y: t.y, t: 0.5, max: 0.5 });
+  if (m.healAoe) for (const o of B.soldiers) if (o !== t && !o.dead && dist(o, t) < m.healAoe) o.hp = Math.min(o.max, o.hp + amt * 0.5);
+}
+
+function attack(s, t) {
+  const T = s.T, sq = s.squad, m = sq.mods, dmg = s.atk * atkMult(s);
+  if (T.kind === 'melee') {
+    hitEnemy(t, dmg, sq);
+    B.fx.push({ kind: 'hit', x: t.x, y: t.y, t: 0.15, max: 0.15 });
+    if (m.cleave) for (const o of B.enemies) if (o !== t && !o.dead && dist(o, t) < 22) hitEnemy(o, dmg * m.cleave, sq);
+    return;
+  }
+  const kind = T.kind === 'magic' ? 'fire' : T.kind === 'heal' ? 'holy' : 'arrow';
+  const shoot = e => B.projectiles.push({ x: s.x, y: s.y, target: e, tx: e.x, ty: e.y, kind, src: sq,
+    dmg: kind === 'holy' ? dmg * 0.6 : dmg, speed: kind === 'fire' ? 260 : kind === 'holy' ? 380 : 520, splash: s.splash });
+  shoot(t);
+  // 폭풍궁수: 다른 적에게 한 발 더
+  for (let i = 1; i < m.multishot; i++) {
+    const others = B.enemies.filter(o => o !== t && !o.dead && dist(s, o) <= effRange(s));
+    if (others.length) shoot(others[(Math.random() * others.length) | 0]);
+  }
 }
 
 function updateSoldier(s, dt, eGrid) {
@@ -352,20 +428,10 @@ function updateSoldier(s, dt, eGrid) {
   const t = s.target, sp = T.speed * dt;
   if (t) {
     const d = dist(s, t);
-    if (T.kind === 'heal') {
-      if (d <= T.range && s.cdT <= 0) {
-        s.cdT = T.cd;
-        t.hp = Math.min(t.max, t.hp + s.atk);
-        B.fx.push({ kind: 'heal', x: t.x, y: t.y, t: 0.5, max: 0.5 });
-      }
+    if (t.squad) {
+      if (d <= s.range && s.cdT <= 0) { s.cdT = s.cd; heal(s, t); }
     } else if (d <= effRange(s) + (t.r || 0)) {
-      if (s.cdT <= 0) {
-        s.cdT = T.cd;
-        const dmg = s.atk * atkMult(s);
-        if (T.kind === 'melee') { damageEnemy(t, dmg); B.fx.push({ kind: 'hit', x: t.x, y: t.y, t: 0.15, max: 0.15 }); }
-        else B.projectiles.push({ x: s.x, y: s.y, target: t, tx: t.x, ty: t.y, dmg, kind: T.kind === 'magic' ? 'fire' : 'arrow',
-          speed: T.kind === 'magic' ? 260 : 520, splash: T.splash || 0 });
-      }
+      if (s.cdT <= 0) { s.cdT = s.cd; attack(s, t); }
       return;
     } else if (T.kind === 'melee' && !s.moving) {
       const leash = s.squad.focus === t || dist(t, C) < C.keepR + 40 ? 320 : 170;
@@ -423,8 +489,12 @@ function breach(w) {
 }
 
 function updateEnemy(e, dt, fGrid) {
-  const T = e.T, sp = T.speed * dt;
+  const T = e.T;
   e.cdT -= dt; e.retT -= dt; e.planT -= dt; e.hitT -= dt;
+  if (e.burnT > 0) { e.burnT -= dt; damageEnemy(e, e.burnDps * dt, e.burnSrc); if (e.dead) return; }
+  if (e.slowT > 0) e.slowT -= dt;
+  if (e.frozenT > 0) { e.frozenT -= dt; return; }
+  const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1);
   if (e.target && !reachable(e, e.target)) e.target = null;
   if (T.aggro > 0 && e.retT <= 0) {
     e.retT = rand(0.3, 0.45);
@@ -521,8 +591,8 @@ function updateProjectiles(dt) {
       p.done = true;
       if (p.kind === 'fire') {
         B.fx.push({ kind: 'boom', x: p.tx, y: p.ty, r: p.splash, t: 0.3, max: 0.3 });
-        for (const e of B.enemies) if (!e.dead && dist(e, { x: p.tx, y: p.ty }) <= p.splash) damageEnemy(e, p.dmg);
-      } else if (p.target && !p.target.dead) damageEnemy(p.target, p.dmg);
+        for (const e of B.enemies) if (!e.dead && dist(e, { x: p.tx, y: p.ty }) <= p.splash) hitEnemy(e, p.dmg, p.src);
+      } else if (p.target && !p.target.dead) hitEnemy(p.target, p.dmg, p.src);
     } else { p.x += dx / d * step; p.y += dy / d * step; }
   }
   B.projectiles = B.projectiles.filter(p => !p.done);
@@ -537,6 +607,11 @@ MG.update = function (dt) {
     spawnEnemy(q);
   }
   const eGrid = buildGrid(B.enemies), fGrid = buildGrid(B.soldiers);
+  B.auras = [];
+  for (const sq of B.squads) {
+    const g = sq.general, m = sq.mods;
+    if (g && !g.dead && (m.aura || m.auraDef)) B.auras.push({ s: g, atk: m.aura, def: m.auraDef });
+  }
   for (const s of B.soldiers) if (!s.dead) updateSoldier(s, dt, eGrid);
   for (const e of B.enemies) if (!e.dead) updateEnemy(e, dt, fGrid);
   separate(B.enemies, eGrid);
@@ -561,18 +636,11 @@ MG.update = function (dt) {
   else if (!B.spawnQueue.length && !B.enemies.length) finish(true);
 };
 
-// 쓰러진 일반 병사는 전투 후 확률로 경상·중상·사망 (설계 문서 4장)
+// 부상·경험치 같은 전투 후 처리는 캠페인이 맡는다 (MG.applyResult)
 function finish(win) {
   B.phase = 'result';
-  const roll = { light: 0, heavy: 0, dead: 0 };
-  const generals = [];
-  for (const f of B.stats.fallen) {
-    if (f.lord) continue;
-    if (f.general) { generals.push(f.name); continue; }
-    const r = Math.random();
-    if (r < 0.5) roll.light++; else if (r < 0.8) roll.heavy++; else roll.dead++;
-  }
-  B.result = { win, roll, generals, lordDead: B.lordDead, time: B.time };
+  B.result = { win, lordDead: B.lordDead, time: B.time };
+  if (MG.onBattleEnd) MG.onBattleEnd(B);
 }
 
 MG.startBattle = function () {
