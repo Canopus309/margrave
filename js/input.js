@@ -1,0 +1,158 @@
+// 마우스·키보드: 선택, 이동, 집중 공격, 부대 지정
+(() => {
+const cv = MG.canvas;
+const input = MG.input = { drag: null, marks: [], pan: null, keys: new Set() };
+
+const toScreen = ev => { const r = cv.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+const toWorld = ev => { const s = toScreen(ev); return MG.screenToWorld(s.x, s.y); };
+
+// 깃발은 화면 좌표, 병사는 월드 좌표로 찾는다
+function squadAt(B, p, sp) {
+  for (const sq of B.squads) {
+    const f = sq.flagBox;
+    if (f && sp.x >= f.x && sp.x <= f.x + f.w && sp.y >= f.y && sp.y <= f.y + f.h) return sq;
+  }
+  let best = null, bd = Math.max(9, 9 / MG.view.zoom);
+  for (const sq of B.squads) for (const s of sq.soldiers) {
+    const d = MG.dist(s, p);
+    if (d < bd) { bd = d; best = sq; }
+  }
+  return best;
+}
+
+function enemyAt(B, p) {
+  let best = null, bd = 14;
+  for (const e of B.enemies) { const d = MG.dist(e, p) - e.r; if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+
+const usable = B => B.phase === 'prep' || B.phase === 'battle';
+
+// 여러 부대를 함께 옮길 때는 옆으로 나란히 세운다
+function moveSelected(B, p) {
+  const sel = [...B.selected];
+  if (!sel.length) return;
+  const wallSide = MG.onWall(p) ? MG.side(p) : null;
+  let facing, perp;
+  if (wallSide) {
+    facing = MG.NORMAL[wallSide];
+    perp = { x: -facing.y, y: facing.x };
+  } else {
+    let cx = 0, cy = 0;
+    for (const sq of sel) { const c = MG.centroid(sq); cx += c.x; cy += c.y; }
+    cx /= sel.length; cy /= sel.length;
+    const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+    facing = d > 20 ? { x: dx / d, y: dy / d } : sel[0].facing;
+    perp = { x: -facing.y, y: facing.x };
+  }
+  const widths = sel.map(sq => (wallSide ? MG.squadWallWidth(sq) : MG.squadWidth(sq)));
+  let off = -widths.reduce((a, b) => a + b, 0) / 2;
+  sel.forEach((sq, i) => {
+    const o = off + widths[i] / 2;
+    off += widths[i];
+    MG.orderMove(sq, p.x + perp.x * o, p.y + perp.y * o, facing);
+  });
+  input.marks.push({ x: p.x, y: p.y, t: 0.6, color: '#6bdc8f' });
+}
+
+cv.addEventListener('contextmenu', ev => ev.preventDefault());
+cv.addEventListener('mousedown', ev => {
+  const B = MG.B;
+  if (ev.button === 1) {
+    ev.preventDefault();
+    input.pan = { sx: ev.clientX, sy: ev.clientY, vx: MG.view.x, vy: MG.view.y };
+    return;
+  }
+  if (!usable(B)) return;
+  const p = toWorld(ev);
+  if (ev.button === 0) input.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, shift: ev.shiftKey, sx: toScreen(ev) };
+  if (ev.button === 2 && B.selected.size) {
+    const e = enemyAt(B, p);
+    if (e) {
+      for (const sq of B.selected) MG.orderAttack(sq, e);
+      input.marks.push({ x: e.x, y: e.y, t: 0.6, color: '#ff6b6b' });
+    } else moveSelected(B, p);
+  }
+});
+window.addEventListener('mousemove', ev => {
+  if (input.pan) {
+    const v = MG.view;
+    v.x = input.pan.vx - (ev.clientX - input.pan.sx) / v.zoom;
+    v.y = input.pan.vy - (ev.clientY - input.pan.sy) / v.zoom;
+    MG.clampView();
+  }
+  if (!input.drag) return;
+  const p = toWorld(ev);
+  input.drag.x1 = p.x; input.drag.y1 = p.y;
+});
+window.addEventListener('mouseup', ev => {
+  if (ev.button === 1) { input.pan = null; return; }
+  const d = input.drag, B = MG.B;
+  if (!d || ev.button !== 0) return;
+  input.drag = null;
+  if (!d.shift) B.selected.clear();
+  const tiny = 5 / MG.view.zoom;
+  if (Math.abs(d.x1 - d.x0) < tiny && Math.abs(d.y1 - d.y0) < tiny) {
+    const sq = squadAt(B, { x: d.x0, y: d.y0 }, d.sx);
+    if (sq) { if (d.shift && B.selected.has(sq)) B.selected.delete(sq); else B.selected.add(sq); }
+  } else {
+    const x0 = Math.min(d.x0, d.x1), x1 = Math.max(d.x0, d.x1), y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
+    for (const sq of B.squads) {
+      if (sq.soldiers.some(s => s.x >= x0 && s.x <= x1 && s.y >= y0 && s.y <= y1)) B.selected.add(sq);
+    }
+  }
+  MG.ui.refresh(true);
+});
+
+window.addEventListener('keydown', ev => {
+  const B = MG.B;
+  if (ev.key >= '1' && ev.key <= '9') {
+    if (ev.ctrlKey) {
+      ev.preventDefault();
+      B.groups[ev.key] = [...B.selected];
+      MG.log(`부대 ${ev.key}번에 지정했어요.`);
+    } else if (B.groups[ev.key]) {
+      B.selected.clear();
+      for (const sq of B.groups[ev.key]) if (B.squads.includes(sq)) B.selected.add(sq);
+    }
+    MG.ui.refresh(true);
+  } else if (ev.key === ' ') {
+    ev.preventDefault();
+    MG.ui.togglePause();
+  } else if (ev.key === 'Escape') {
+    B.selected.clear();
+    MG.ui.refresh(true);
+  } else if (ev.key === 'h' || ev.key === 'H') {
+    MG.resetView();
+  }
+  if (PAN_KEYS[ev.key]) { ev.preventDefault(); input.keys.add(ev.key); }
+});
+window.addEventListener('keyup', ev => input.keys.delete(ev.key));
+window.addEventListener('blur', () => input.keys.clear());
+
+// 휠: 커서 위치를 기준으로 확대·축소
+cv.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const v = MG.view, s = toScreen(ev), before = MG.screenToWorld(s.x, s.y);
+  v.zoom *= Math.exp(-ev.deltaY * 0.0015);
+  MG.clampView();
+  v.x = before.x - (s.x - v.w / 2) / v.zoom;
+  v.y = before.y - (s.y - v.h / 2) / v.zoom;
+  MG.clampView();
+}, { passive: false });
+
+const PAN_KEYS = {
+  w: [0, -1], a: [-1, 0], s: [0, 1], d: [1, 0], W: [0, -1], A: [-1, 0], S: [0, 1], D: [1, 0],
+  ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0],
+};
+
+MG.updateInput = dt => {
+  for (const m of input.marks) m.t -= dt;
+  input.marks = input.marks.filter(m => m.t > 0);
+  if (input.keys.size) {
+    const v = MG.view, sp = 700 / v.zoom * dt;
+    for (const k of input.keys) { const d = PAN_KEYS[k]; if (d) { v.x += d[0] * sp; v.y += d[1] * sp; } }
+    MG.clampView();
+  }
+};
+})();
