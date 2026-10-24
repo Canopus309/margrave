@@ -24,13 +24,35 @@ const segMid = (w, depth) => {
 };
 Object.assign(MG, { dist, cheb, cls, side, along, onWall, segAt, segMid });
 
+// ---------- 길찾기 격자 (20px) ----------
+const NC = 20, NX = Math.ceil(MG.WORLD.w / NC), NY = Math.ceil(MG.WORLD.h / NC), NN = NX * NY;
+const cellIdx = p => Math.min(NX - 1, Math.max(0, (p.x / NC) | 0)) + Math.min(NY - 1, Math.max(0, (p.y / NC) | 0)) * NX;
+const cellCenter = k => ({ x: (k % NX) * NC + NC / 2, y: ((k / NX) | 0) * NC + NC / 2 });
+const NEI = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+
+// 성 안 건물: 칸마다 건물 번호(+1)를 적어 둔다. 부서진 건물은 지나갈 수 있다.
+function buildingAt(p) {
+  const v = B.bgrid[cellIdx(p)];
+  return v ? B.buildings[v - 1] : null;
+}
+function markBuilding(b, idx) {
+  for (let y = b.y0; y < b.y1; y += NC) for (let x = b.x0; x < b.x1; x += NC) B.bgrid[cellIdx({ x: x + 1, y: y + 1 })] = idx;
+}
+MG.buildingAt = p => buildingAt(p);
+
 // 성벽 경계(바깥 테두리)를 넘을 수 있는지: 무너진 조각은 누구나, 멀쩡한 성문은 아군만
-function canStep(a, b, enemy) {
+function wallOK(a, b, enemy) {
   const ca = cls(a), cb = cls(b);
   if (ca === cb) return true;
   const w = segAt(ca === 'in' ? a : b);
   if (w.hp <= 0) return true;
   return !enemy && w.gate;
+}
+// 건물 안으로는 못 들어간다 (이미 안에 있으면 빠져나오는 건 허용)
+function canStep(a, b, enemy) {
+  const bb = buildingAt(b);
+  if (bb && bb !== buildingAt(a)) return false;
+  return wallOK(a, b, enemy);
 }
 
 function segOK(a, b, enemy) {
@@ -44,33 +66,116 @@ function segOK(a, b, enemy) {
   return true;
 }
 
-// 성 모서리와 지나갈 수 있는 틈(성문, 무너진 조각) 안팎을 노드로 하는 작은 그래프에서 최단 경로
-function planPath(a, b, enemy) {
-  if (segOK(a, b, enemy)) return [{ x: b.x, y: b.y }];
-  const o = C.R + 22, inn = C.R - C.T - 18;
-  const nodes = [a, b,
-    { x: C.x - o, y: C.y - o }, { x: C.x + o, y: C.y - o }, { x: C.x + o, y: C.y + o }, { x: C.x - o, y: C.y + o }];
-  for (const w of B.walls) {
-    if (w.hp > 0 && (enemy || !w.gate)) continue;
-    nodes.push(segMid(w, o), segMid(w, inn));
-  }
-  const N = nodes.length, d = Array(N).fill(Infinity), prev = Array(N).fill(-1), done = Array(N).fill(false);
-  d[0] = 0;
-  for (;;) {
-    let u = -1;
-    for (let i = 0; i < N; i++) if (!done[i] && d[i] < Infinity && (u < 0 || d[i] < d[u])) u = i;
-    if (u < 0 || u === 1) break;
-    done[u] = true;
-    for (let v = 0; v < N; v++) {
-      if (done[v] || v === u) continue;
-      const w = dist(nodes[u], nodes[v]);
-      if (d[u] + w < d[v] && segOK(nodes[u], nodes[v], enemy)) { d[v] = d[u] + w; prev[v] = u; }
+// 최소 힙 (길찾기용)
+function heapPush(h, k, f) {
+  h.push([f, k]);
+  let i = h.length - 1;
+  while (i > 0) { const p = (i - 1) >> 1; if (h[p][0] <= h[i][0]) break; [h[p], h[i]] = [h[i], h[p]]; i = p; }
+}
+function heapPop(h) {
+  const top = h[0], last = h.pop();
+  if (h.length) {
+    h[0] = last;
+    let i = 0;
+    for (;;) {
+      const l = i * 2 + 1, r = l + 1;
+      let m = i;
+      if (l < h.length && h[l][0] < h[m][0]) m = l;
+      if (r < h.length && h[r][0] < h[m][0]) m = r;
+      if (m === i) break;
+      [h[m], h[i]] = [h[i], h[m]]; i = m;
     }
   }
-  if (d[1] === Infinity) return null;
-  const path = [];
-  for (let v = 1; v > 0; v = prev[v]) path.unshift({ x: nodes[v].x, y: nodes[v].y });
-  return path;
+  return top;
+}
+
+// 아군 길찾기: 격자 A* 후, 곧게 갈 수 있는 구간은 이어 붙인다
+function planPath(a, b) {
+  if (segOK(a, b, false)) return [{ x: b.x, y: b.y }];
+  const goal = freeSpot(b), s = cellIdx(a), t = cellIdx(goal);
+  const g = new Float32Array(NN).fill(Infinity), prev = new Int32Array(NN).fill(-1), closed = new Uint8Array(NN);
+  const tc = cellCenter(t), h = k => { const c = cellCenter(k), dx = Math.abs(c.x - tc.x), dy = Math.abs(c.y - tc.y); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) / NC; };
+  const open = [];
+  g[s] = 0; heapPush(open, s, h(s));
+  let found = false;
+  while (open.length) {
+    const [, u] = heapPop(open);
+    if (closed[u]) continue;
+    if (u === t) { found = true; break; }
+    closed[u] = 1;
+    const ux = u % NX, uy = (u / NX) | 0, cu = cellCenter(u);
+    for (const [dx, dy, w] of NEI) {
+      const vx = ux + dx, vy = uy + dy;
+      if (vx < 0 || vy < 0 || vx >= NX || vy >= NY) continue;
+      const v = vx + vy * NX;
+      if (closed[v] || B.bgrid[v]) continue;
+      if (dx && dy && (B.bgrid[ux + dx + uy * NX] || B.bgrid[ux + (uy + dy) * NX])) continue;  // 모서리 끼어들기 금지
+      const cv = cellCenter(v);
+      if (!wallOK(cu, cv, false)) continue;
+      const ng = g[u] + w;
+      if (ng < g[v]) { g[v] = ng; prev[v] = u; heapPush(open, v, ng + h(v)); }
+    }
+  }
+  if (!found) return null;
+  const cells = [];
+  for (let k = t; k !== -1 && k !== s; k = prev[k]) cells.unshift(cellCenter(k));
+  cells.push({ x: goal.x, y: goal.y });
+  const out = [];
+  let cur = a, i = 0;
+  while (i < cells.length) {
+    let j = cells.length - 1;
+    while (j > i && !segOK(cur, cells[j], false)) j--;
+    out.push(cells[j]); cur = cells[j]; i = j + 1;
+  }
+  return out;
+}
+
+// 건물 안쪽 지점이면 가까운 빈 곳으로 옮긴다
+function freeSpot(p) {
+  if (!buildingAt(p)) return p;
+  for (let r = 10; r <= 140; r += 10) {
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, q = { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
+      if (!buildingAt(q) && cls(q) === cls(p)) return q;
+    }
+  }
+  return p;
+}
+
+// 적의 흐름장: 본성에서 바깥으로 퍼지는 거리. 건물 칸은 비싸지만 부수고 지나갈 수 있다.
+const BUILDING_COST = 4;
+function computeField() {
+  const d = new Float32Array(NN).fill(Infinity), open = [];
+  for (let k = 0; k < NN; k++) if (dist(cellCenter(k), C) <= C.keepR + 18) { d[k] = 0; heapPush(open, k, 0); }
+  while (open.length) {
+    const [du, u] = heapPop(open);
+    if (du > d[u]) continue;
+    const ux = u % NX, uy = (u / NX) | 0, cu = cellCenter(u);
+    for (const [dx, dy, w] of NEI) {
+      const vx = ux + dx, vy = uy + dy;
+      if (vx < 0 || vy < 0 || vx >= NX || vy >= NY) continue;
+      const v = vx + vy * NX;
+      if (!wallOK(cu, cellCenter(v), true)) continue;
+      const nd = du + w * (B.bgrid[v] ? BUILDING_COST : 1);
+      if (nd < d[v]) { d[v] = nd; heapPush(open, v, nd); }
+    }
+  }
+  B.field = d;
+  B.fieldDirty = false;
+}
+// 흐름장을 따라 한 칸 나아갈 지점 (닿을 수 없으면 null)
+function fieldNext(e) {
+  const k = cellIdx(e);
+  if (B.field[k] === Infinity) return null;
+  const kx = k % NX, ky = (k / NX) | 0;
+  let best = -1, bv = B.field[k];
+  for (const [dx, dy] of NEI) {
+    const vx = kx + dx, vy = ky + dy;
+    if (vx < 0 || vy < 0 || vx >= NX || vy >= NY) continue;
+    const v = vx + vy * NX;
+    if (B.field[v] < bv && wallOK(e, cellCenter(v), true)) { bv = B.field[v]; best = v; }
+  }
+  return best < 0 ? null : cellCenter(best);
 }
 
 // 목표 쪽으로 한 걸음. 아군은 막히면 축 방향으로 미끄러져 본다.
@@ -124,26 +229,36 @@ function makeSquad(name, type, opts = {}) {
 
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
-  const waves = MG.buildWaves(level);
+  const waves = MG.buildWaves(level, roster.dirs);
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
-    keep: { hp: MG.KEEP_HP, max: MG.KEEP_HP },
+    keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,
     squads: [], allSquads: [], soldiers: [], enemies: [], projectiles: [], fx: [], log: [], auras: [], roster,
     garrison: {}, garrisonSquads: {}, garrisonPool: { archer: 0, infantry: 0 }, groups: {}, selected: new Set(),
-    waves: waves.groups, dirs: waves.dirs, spawnQueue: [], wave: 0,
+    waves: waves.groups, dirs: waves.dirs, spawnQueue: [], wave: 0, fields: roster.fields || [],
     stats: { kills: 0, fallen: [], spawned: 0 }, lordDead: false, lord: null, result: null,
   };
+  // 성벽: 지난 전투에서 받은 피해가 남아 있다
   B.walls = []; B.wallBySide = {};
   const g = C.gateHalf, spans = [[-C.R, -C.R / 2], [-C.R / 2, -g], [-g, g], [g, C.R / 2], [C.R / 2, C.R]];
+  const prevWalls = roster.walls || {};
   for (const s of MG.SIDES) {
     B.wallBySide[s] = spans.map(([a0, a1], i) => {
-      const gate = i === 2, max = gate ? MG.GATE_HP : MG.WALL_SEG_HP;
-      const w = { id: s + i, side: s, a0, a1, gate, hp: max, max };
+      const gate = i === 2, max = gate ? MG.GATE_HP : MG.WALL_SEG_HP, id = s + i;
+      const w = { id, side: s, a0, a1, gate, hp: prevWalls[id] != null ? prevWalls[id] : max, max };
       B.walls.push(w);
       return w;
     });
     B.garrison[s] = { archer: 0, infantry: 0, archT: rand(0, 1), infT: rand(0, 1) };
   }
+  // 성 안 건물
+  B.bgrid = new Int16Array(NN);
+  B.buildings = (roster.buildings || []).map(b => {
+    const d = MG.BUILDINGS[b.type], r0 = MG.cellRect(b.i, b.j), r1 = MG.cellRect(b.i + d.w - 1, b.j + d.h - 1);
+    return { ...b, x0: r0.x0, y0: r0.y0, x1: r1.x1, y1: r1.y1 };
+  });
+  B.buildings.forEach((b, i) => { if (b.hp > 0) markBuilding(b, i + 1); });
+  computeField();
   // 직할 병력은 네 면에 고르게 (나머지는 앞쪽 면부터)
   for (const kind of ['archer', 'infantry']) {
     const n = roster.garrison[kind];
@@ -151,7 +266,7 @@ MG.createBattle = function (level, roster) {
   }
   for (const rs of roster.squads) {
     const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods,
-      lvBonus: 1 + MG.LEVEL_BONUS.squad * (rs.level - 1) });
+      lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
     const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
     if (rs.general) {
       sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
@@ -176,7 +291,8 @@ MG.createBattle = function (level, roster) {
       const atGate = Math.random() < MG.GATE_TARGET[g.type];
       const l = atGate ? rand(-C.gateHalf * 0.7, C.gateHalf * 0.7) : lane + rand(-C.R * 0.5, C.R * 0.5);
       B.spawnQueue.push({ t: g.t + i * 0.35 + rand(0, 0.3), type: g.type, dir: g.dir, wave: g.wave,
-        lane: Math.max(-C.R * 0.92, Math.min(C.R * 0.92, l)), hpScale });
+        lane: Math.max(-C.R * 0.92, Math.min(C.R * 0.92, l)), hpScale,
+        raider: g.type !== 'orc' && Math.random() < MG.RAIDER_SHARE });
     }
   }
   B.spawnQueue.sort((a, b) => a.t - b.t);
@@ -232,7 +348,8 @@ MG.orderMove = function (sq, tx, ty, facing, teleport) {
   const slots = formationSlots(ordered.length, tx, ty, facing, wallSide);
   const via = teleport ? [] : (planPath(MG.centroid(sq), { x: tx, y: ty }, false) || [{ x: tx, y: ty }]).slice(0, -1);
   ordered.forEach((s, i) => {
-    s.slotX = slots[i].x; s.slotY = slots[i].y;
+    const slot = freeSpot(slots[i]);
+    s.slotX = slot.x; s.slotY = slot.y;
     s.target = null; s.stuckT = 0;
     if (teleport) { s.x = s.slotX; s.y = s.slotY; s.path = []; s.moving = false; return; }
     s.path = via.map(p => ({ x: p.x + rand(-6, 6), y: p.y + rand(-6, 6) }));
@@ -261,7 +378,7 @@ function spawnEnemy(q) {
   else if (q.dir === 'E') { x = W.w - 8; y = C.y + q.lane; }
   else { x = 8; y = C.y + q.lane; }
   const hp = Math.round(T.hp * q.hpScale);
-  B.enemies.push({ id: B.nextId++, type: q.type, T, x, y, hp, max: hp, r: T.r, lane: q.lane, dir: q.dir,
+  B.enemies.push({ id: B.nextId++, type: q.type, T, x, y, hp, max: hp, r: T.r, lane: q.lane, dir: q.dir, raider: q.raider, prey: null,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
     slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 });
   B.stats.spawned++;
@@ -276,7 +393,7 @@ function auraBonus(s, key) {
 }
 
 function atkMult(s) {
-  let m = 1 + auraBonus(s, 'atk');
+  let m = (1 + auraBonus(s, 'atk')) * B.morale;
   if (s.squad.leaderDown && !s.isGeneral) m *= MG.LEADER_DOWN_MULT;
   if (B.lordDead) m *= MG.LORD_DEAD_MULT;
   else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura) m *= 1 + MG.LORD.auraBonus;
@@ -465,8 +582,33 @@ function attackWall(e, w) {
   if (w.hp <= 0) breach(w);
 }
 
+function attackBuilding(e, b) {
+  if (e.cdT > 0) return;
+  e.cdT = e.T.cd;
+  if (b.hp <= 0) return;
+  b.hp -= e.T.wallDmg;
+  if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x + rand(-4, 4), y: e.y + rand(-4, 4), t: 0.4, max: 0.4 });
+  if (b.hp > 0) return;
+  b.hp = 0;
+  markBuilding(b, 0);
+  B.fieldDirty = true;
+  log(`${MG.BUILDINGS[b.type].name}이(가) 부서졌어요!`, b.type === 'house' ? '#ff6b6b' : '#ffb36b');
+}
+
+// 성 안에 들어온 약탈자는 가장 가까운 건물을 노린다
+function nearestBuilding(e) {
+  let best = null, bd = 260;
+  for (const b of B.buildings) {
+    if (b.hp <= 0) continue;
+    const dx = Math.max(b.x0 - e.x, 0, e.x - b.x1), dy = Math.max(b.y0 - e.y, 0, e.y - b.y1), d = Math.hypot(dx, dy);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+
 function breach(w) {
   w.hp = 0;
+  B.fieldDirty = true;
   const s = w.side;
   log(`${MG.SIDE_NAME[s]}쪽 ${w.gate ? '성문' : '성벽'}이 부서졌어요!`, '#ff6b6b');
   if (w.gate) return;
@@ -512,27 +654,46 @@ function updateEnemy(e, dt, fGrid) {
     if (stepToward(e, t.x, t.y, sp, true)) return;
     e.target = null;
   }
-  // 성 안: 본성으로
+  // 한 걸음 나아가되, 건물에 막히면 그 건물을 부순다
+  const go = (tx, ty) => {
+    if (stepToward(e, tx, ty, sp, true)) return true;
+    const d = Math.hypot(tx - e.x, ty - e.y) || 1;
+    const b = buildingAt({ x: e.x + (tx - e.x) / d * Math.max(sp, 3), y: e.y + (ty - e.y) / d * Math.max(sp, 3) });
+    if (b) { attackBuilding(e, b); return true; }
+    return false;
+  };
+  // 성 안: 약탈자는 가까운 건물부터, 나머지는 흐름장을 따라 본성으로
   if (cls(e) === 'in') {
-    e.path = null;
     if (dist(e, C) <= C.keepR + e.r + 3) {
       if (e.cdT <= 0) {
         e.cdT = T.cd; B.keep.hp -= T.wallDmg;
         if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x, y: e.y, t: 0.4, max: 0.4 });
       }
-    } else stepToward(e, C.x, C.y, sp, true);
+      return;
+    }
+    if (e.raider) {
+      if (!e.prey || e.prey.hp <= 0) e.prey = nearestBuilding(e);
+      const b = e.prey;
+      if (b) {
+        const px = Math.max(b.x0, Math.min(b.x1, e.x)), py = Math.max(b.y0, Math.min(b.y1, e.y));
+        if (Math.hypot(px - e.x, py - e.y) <= e.r + 4) { attackBuilding(e, b); return; }
+        if (go(px, py)) return;
+        e.prey = null;
+      }
+    }
+    const nx = fieldNext(e);
+    if (!go(nx ? nx.x : C.x, nx ? nx.y : C.y)) {
+      // 끼었으면 살짝 흔들어 빠져나온다
+      const a = Math.random() * Math.PI * 2, q = { x: e.x + Math.cos(a) * 3, y: e.y + Math.sin(a) * 3 };
+      if (canStep(e, q, true)) { e.x = q.x; e.y = q.y; }
+    }
     return;
   }
-  // 성 밖: 무너진 구역이 있으면 그리로 돌아가고, 없으면 자기 진로의 성벽을 친다
-  if (e.planT <= 0) {
-    e.planT = rand(1.2, 1.8);
-    e.path = B.walls.some(w => w.hp <= 0) ? planPath(e, C, true) : null;
-  }
-  if (e.path && e.path.length) {
-    const p = e.path[0];
-    if (dist(e, p) < 6) e.path.shift();
-    else if (!stepToward(e, p.x, p.y, sp, true)) e.path = null;
-    return;
+  // 성 밖: 무너진 곳이 있으면 흐름장을 따라 그리로 돌아가고, 없으면 자기 진로의 성벽을 친다
+  // (모서리에서 한 걸음이 막히면 아래로 내려가 앞의 성벽을 친다)
+  if (B.walls.some(w => w.hp <= 0)) {
+    const nx = fieldNext(e);
+    if (nx && go(nx.x, nx.y)) return;
   }
   const n = MG.NORMAL[e.dir], perp = { x: -n.y, y: n.x };
   const tx = C.x + n.x * (C.R - 5) + perp.x * e.lane, ty = C.y + n.y * (C.R - 5) + perp.y * e.lane;
@@ -606,6 +767,7 @@ MG.update = function (dt) {
     if (q.wave > B.wave) { B.wave = q.wave; log(`제${q.wave}파 습격! (${MG.SIDE_NAME[q.dir]}쪽)`, '#ffd36b'); }
     spawnEnemy(q);
   }
+  if (B.fieldDirty) computeField();
   const eGrid = buildGrid(B.enemies), fGrid = buildGrid(B.soldiers);
   B.auras = [];
   for (const sq of B.squads) {

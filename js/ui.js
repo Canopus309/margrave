@@ -122,10 +122,11 @@ function showResult(B) {
     <table>${genRows || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     <table>
-      <tr><th>경상 — 1전투 결장</th><td>${s.wound.light}명</td></tr>
-      <tr><th>중상 — 2~3전투 결장</th><td>${s.wound.heavy}명</td></tr>
+      <tr><th>경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
+      <tr><th>중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
       <tr><th>사망</th><td>${s.wound.dead}명</td></tr>
     </table>
+    ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명을 잃었어요` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
     ${s.heir ? `<p style="color:#ff6b6b">${s.heir.old}이(가) 전사했어요. ${s.heir.name}이(가) 뒤를 이어요.</p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
@@ -144,8 +145,9 @@ ui.togglePause = function () {
 $('startBtn').onclick = () => { MG.startBattle(); ui.refresh(true); };
 $('pauseBtn').onclick = ui.togglePause;
 $('speedBtn').onclick = () => { const B = MG.B; B.speed = B.speed === 1 ? 2 : B.speed === 2 ? 3 : 1; ui.refresh(); };
+// 습격이 있던 달은 전투가 끝나야 지나간다
 $('contBtn').onclick = () => {
-  if (MG.S.over) MG.resetCampaign();
+  if (MG.S.over) MG.resetCampaign(); else MG.endMonth();
   MG.enterCamp();
 };
 })();

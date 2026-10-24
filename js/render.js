@@ -50,7 +50,22 @@ bg.width = W.w; bg.height = W.h;
     g.fillStyle = 'rgba(0,0,0,0.08)';
     g.fillRect(C.x - pad + rnd() * pad * 2, C.y - pad + rnd() * pad * 2, 3, 3);
   }
+  // 성 안 십자 큰길과 성벽 안길
+  const inner = C.R - C.T, road = MG.GRID.cell;
+  g.fillStyle = '#93805f';
+  g.fillRect(C.x - road, C.y - inner, road * 2, inner * 2);
+  g.fillRect(C.x - inner, C.y - road, inner * 2, road * 2);
+  const ring = MG.GRID.half - road / 2;  // 가장자리 한 줄 칸의 가운데
+  g.strokeStyle = '#93805f'; g.lineWidth = road;
+  g.strokeRect(C.x - ring, C.y - ring, ring * 2, ring * 2);
 })();
+
+// 성 밖 들판 시설 자리 (모서리마다 2곳)
+MG.fieldPos = i => {
+  const corner = [[-1, -1], [1, -1], [1, 1], [-1, 1]][i >> 1], near = C.R + 100, far = C.R + 200;
+  const [a, b] = i % 2 ? [far, near] : [near, far];
+  return { x: C.x + corner[0] * a, y: C.y + corner[1] * b };
+};
 
 const lerpColor = (a, b, t) => {
   const pa = a.match(/\w\w/g).map(h => parseInt(h, 16)), pb = b.match(/\w\w/g).map(h => parseInt(h, 16));
@@ -108,6 +123,45 @@ function drawWalls(B) {
   for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
     const tx = C.x + sx * (C.R - C.T / 2), ty = C.y + sy * (C.R - C.T / 2);
     ctx.fillRect(tx - 20, ty - 20, 40, 40); ctx.strokeRect(tx - 20, ty - 20, 40, 40);
+  }
+}
+
+function drawFields(B) {
+  ctx.font = 'bold 12px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  B.fields.forEach((f, i) => {
+    const d = MG.FIELDS[f.type], p = MG.fieldPos(i), w = 96, h = 64;
+    ctx.fillStyle = d.color; ctx.globalAlpha = 0.55; ctx.fillRect(p.x - w / 2, p.y - h / 2, w, h); ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+    for (let k = 1; k < 5; k++) { ctx.beginPath(); ctx.moveTo(p.x - w / 2, p.y - h / 2 + h * k / 5); ctx.lineTo(p.x + w / 2, p.y - h / 2 + h * k / 5); ctx.stroke(); }
+    ctx.strokeRect(p.x - w / 2, p.y - h / 2, w, h);
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+    const label = `${d.name} ${f.level}`;
+    ctx.strokeText(label, p.x, p.y); ctx.fillText(label, p.x, p.y);
+  });
+}
+
+function drawBuildings(B) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const b of B.buildings) {
+    const d = MG.BUILDINGS[b.type], w = b.x1 - b.x0, h = b.y1 - b.y0, m = 4;
+    if (b.hp <= 0) {
+      let seed = b.id * 97;
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      ctx.fillStyle = '#5b5248';
+      for (let i = 0; i < 8 * (w / 40) * (h / 40); i++) ctx.fillRect(b.x0 + rnd() * w - 3, b.y0 + rnd() * h - 3, 4 + rnd() * 6, 4 + rnd() * 6);
+      continue;
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(b.x0 + m + 3, b.y0 + m + 3, w - m * 2, h - m * 2);
+    ctx.fillStyle = d.color; ctx.fillRect(b.x0 + m, b.y0 + m, w - m * 2, h - m * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5; ctx.strokeRect(b.x0 + m, b.y0 + m, w - m * 2, h - m * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(b.x0 + m, b.y0 + m, w - m * 2, (h - m * 2) * 0.35);
+    ctx.font = `bold ${w > 40 ? 13 : 10}px "Malgun Gothic", sans-serif`;
+    ctx.fillStyle = '#111'; ctx.fillText(d.name, b.x0 + w / 2, b.y0 + h / 2 + 1);
+    if (b.level > 1) { ctx.font = 'bold 9px sans-serif'; ctx.fillText('★'.repeat(b.level - 1), b.x0 + w / 2, b.y0 + h / 2 + 12); }
+    if (b.hp < b.max) {
+      ctx.fillStyle = '#300'; ctx.fillRect(b.x0 + 6, b.y0 + 6, w - 12, 4);
+      ctx.fillStyle = b.hp / b.max > 0.5 ? '#e6b450' : '#ff6b6b'; ctx.fillRect(b.x0 + 6, b.y0 + 6, (w - 12) * b.hp / b.max, 4);
+    }
   }
 }
 
@@ -272,6 +326,8 @@ MG.render = function (B, input) {
   // 월드 좌표
   ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, (view.w / 2 - view.x * zoom) * dpr, (view.h / 2 - view.y * zoom) * dpr);
   ctx.drawImage(bg, 0, 0);
+  drawFields(B);
+  drawBuildings(B);
   drawWalls(B);
   drawGarrison(B);
   drawKeep(B);

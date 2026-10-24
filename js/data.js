@@ -35,12 +35,13 @@ MG.LORD_DEAD_MULT = 0.85;    // 성주 전사 후 전군 공격력
 
 // 장수와 통솔력 (통솔력 1당 병사 10명)
 MG.START_ARMY = [
-  { general: '브란',   type: 'infantry', lead: 3, at: { x: -140, y: 140 } },
-  { general: '에린',   type: 'archer',   lead: 2, at: { x: 140,  y: -140 } },
-  { general: '셀레네', type: 'mage',     lead: 1, at: { x: -140, y: -140 } },
-  { general: '토마스', type: 'priest',   lead: 1, at: { x: 140,  y: 140 } },
+  // 시작 위치는 성 안 십자 큰길 위 (건물에 막히지 않게)
+  { general: '브란',   type: 'infantry', lead: 3, at: { x: 0,    y: 140 } },
+  { general: '에린',   type: 'archer',   lead: 2, at: { x: 0,    y: -140 } },
+  { general: '셀레네', type: 'mage',     lead: 1, at: { x: -150, y: 0 } },
+  { general: '토마스', type: 'priest',   lead: 1, at: { x: 150,  y: 0 } },
 ];
-MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130, auraBonus: 0.10, at: { x: 0, y: 130 } };
+MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130, auraBonus: 0.10, at: { x: 0, y: 215 } };
 MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
@@ -132,9 +133,13 @@ function shuffled(arr) {
   return a;
 }
 
+// 습격 방향은 미리 정해 둔다 (정찰로 알 수 있게)
+MG.rollDirs = level => shuffled(MG.SIDES).slice(0, level >= 3 ? 3 : 2);
+
 // level이 오를수록 적이 많아지고 방향이 늘어난다
-MG.buildWaves = function (level) {
-  const [a, b, c] = shuffled(MG.SIDES);
+MG.buildWaves = function (level, dirs) {
+  const [a, b] = dirs || MG.rollDirs(level);
+  const c = (dirs && dirs[2]) || MG.SIDES.find(s => s !== a && s !== b);
   const L = level;
   const groups = [
     { wave: 1, t: 0,  dir: a, type: 'goblin', count: 36 + 8 * L },
@@ -159,3 +164,71 @@ MG.buildWaves = function (level) {
   }
   return { groups, dirs: L >= 3 ? [a, b, c] : [a, b] };
 };
+
+// ---------- 3a: 성 안 건물, 민가, 자원, 달 턴 ----------
+// 성 안은 40×40 칸 14×14. 가장자리 한 줄(성벽 안길), 십자 큰길(6·7번 줄), 본성(5~8)은 비워 둔다.
+MG.GRID = { cell: 40, n: 14, half: 280 };
+MG.cellRect = (i, j) => {
+  const c = MG.GRID.cell, x0 = MG.CASTLE.x - MG.GRID.half + i * c, y0 = MG.CASTLE.y - MG.GRID.half + j * c;
+  return { x0, y0, x1: x0 + c, y1: y0 + c };
+};
+MG.reservedCell = (i, j) => {
+  const n = MG.GRID.n;
+  if (i <= 0 || j <= 0 || i >= n - 1 || j >= n - 1) return true;
+  if (i === 6 || i === 7 || j === 6 || j === 7) return true;
+  return i >= 5 && i <= 8 && j >= 5 && j <= 8;
+};
+
+// cost는 1단계 기준, 다음 단계는 ×(단계+1). w·h는 칸 수.
+MG.BUILDINGS = {
+  house:    { name: '민가',   w: 1, h: 1, hp: 300, color: '#b98a5a', cost: { gold: 30, wood: 40 },           max: 3, desc: l => `주민 ${MG.HOUSE_POP * l}명이 살아요` },
+  barracks: { name: '병영',   w: 2, h: 2, hp: 700, color: '#8a5a4a', cost: { gold: 80, wood: 100 },          max: 3, desc: l => `한 번에 ${10 * l}명 모집` },
+  training: { name: '훈련장', w: 2, h: 2, hp: 600, color: '#7a7a4a', cost: { gold: 80, wood: 80 },           max: 3, desc: l => `훈련 경험치 ${30 * l}, 부대 능력 +${3 * l}%` },
+  smithy:   { name: '대장간', w: 2, h: 2, hp: 700, color: '#5a5a6a', cost: { gold: 100, wood: 60, iron: 40 }, max: 3, desc: l => `무기 제작 (${['', '일반~희귀', '희귀~영웅', '영웅~전설'][l]})` },
+  tower:    { name: '마법탑', w: 1, h: 1, hp: 500, color: '#7a5aa0', cost: { gold: 120, wood: 40, iron: 30 }, max: 3, desc: l => `마법사 보충 가능, 마법 피해 +${10 * l}%` },
+  temple:   { name: '사원',   w: 2, h: 2, hp: 600, color: '#c8b46a', cost: { gold: 100, wood: 80 },          max: 3, desc: l => `사제 보충 가능, 회복량 +${10 * l}%, 매달 본성 +${150 * l}` },
+  hospital: { name: '병원',   w: 2, h: 2, hp: 600, color: '#d0d0d0', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `부상자 ${MG.HOSPITAL_PER_LEVEL * l}명 수용` },
+  storage:  { name: '창고',   w: 2, h: 2, hp: 600, color: '#8a7050', cost: { gold: 40, wood: 100 },          max: 3, desc: l => `자원 보관 한도 +${1000 * l}` },
+  market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}` },
+  watch:    { name: '감시탑', w: 1, h: 1, hp: 400, color: '#6a8aa0', cost: { gold: 50, wood: 60 },           max: 3, desc: l => l >= 2 ? '매달 습격 날짜·방향·구성을 알아냄' : '매달 습격 날짜·방향을 알아냄' },
+};
+MG.HOUSE_POP = 20;
+MG.RAIDER_SHARE = 0.35;  // 성 안에 들어오면 본성보다 가까운 건물부터 부수는 적의 비율
+MG.HOSPITAL_PER_LEVEL = 20;
+
+// 성 밖 들판의 생산 시설. 적은 부수지 않는다.
+MG.FIELDS = {
+  farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 40 } },
+  lumber: { name: '벌목장', color: '#6a8a4a', cost: { gold: 40 },            max: 3, prod: { wood: 25 } },
+  mine:   { name: '광산',   color: '#7a7a7a', cost: { gold: 60, wood: 40 },  max: 3, prod: { iron: 15 } },
+};
+MG.FIELD_SLOTS = 8;
+
+MG.RES = { gold: '골드', food: '식량', wood: '목재', iron: '철' };
+MG.START_RES = { gold: 300, food: 400, wood: 200, iron: 100 };
+MG.STORAGE_BASE = 1000;
+MG.AP_PER_MONTH = 3;
+MG.TAX_PER_POP = 0.5;
+MG.FOOD_PER_SOLDIER = 0.5;
+MG.FOOD_PER_POP = 0.2;
+MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
+MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
+MG.REPAIR_WOOD_PER_HP = 0.1;
+MG.REPAIR_PER_ACTION = 2000;  // 한 번 수리할 때 고치는 체력 총량
+MG.CRAFT_COST = { gold: 80, iron: 60 };
+MG.TEMPLE_KEEP_HEAL = 150;  // 사원 단계당 매달 본성 회복량
+MG.STARVE_MULT = 0.85;     // 식량이 바닥나면 전군 공격력
+MG.SEASON = m => ['겨울', '겨울', '봄', '봄', '봄', '여름', '여름', '여름', '가을', '가을', '가을', '겨울'][m % 12];
+MG.SEASON_PROD = { 봄: { food: 1, wood: 1 }, 여름: { food: 1, wood: 1.2 }, 가을: { food: 2, wood: 1 }, 겨울: { food: 0, wood: 0.5 } };
+
+// 습격 간격(달): 해가 갈수록 잦아진다
+MG.attackGap = year => (year <= 5 ? [5, 8] : year <= 15 ? [3, 5] : [2, 4]);
+
+// 시작 배치
+MG.START_BUILDINGS = [
+  { type: 'barracks', i: 1, j: 1 }, { type: 'hospital', i: 11, j: 1 },
+  { type: 'house', i: 1, j: 10 }, { type: 'house', i: 2, j: 10 }, { type: 'house', i: 1, j: 11 },
+  { type: 'house', i: 2, j: 11 }, { type: 'house', i: 11, j: 11 },
+];
+MG.START_FIELDS = ['farm', 'farm', 'farm', 'lumber', 'mine'];
+MG.START_POP = 90;
