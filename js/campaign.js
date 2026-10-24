@@ -1,17 +1,25 @@
 // 캠페인 상태: 장수 성장, 내정(건물·민가·자원·달 턴), 병원, 습격 일정, 저장.
 (() => {
 const KEY = 'margrave_save_v2';
+// 저장소: 데스크톱 앱이면 문서\변경백 폴더의 파일(키마다 .json 하나), 브라우저면 localStorage
+const FS = window.margraveFS;
+const store = FS
+  ? { get: k => FS.get(k), set: (k, v) => { if (!FS.set(k, v)) throw new Error('파일 저장 실패'); }, remove: k => FS.remove(k) }
+  : { get: k => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v), remove: k => localStorage.removeItem(k) };
+MG.isDesktop = !!FS;
+MG.saveDir = () => (FS ? FS.dir() : null);
+MG.openSaveDir = () => FS && FS.openDir();
 const pick = arr => arr[(Math.random() * arr.length) | 0];
 const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(MG.S)); } catch (e) { /* 저장 불가 환경: 이번 세션만 유지 */ }
+  try { store.set(KEY, JSON.stringify(MG.S)); } catch (e) { /* 저장 불가 환경: 이번 세션만 유지 */ }
 }
 MG.saveCampaign = save;
 
 MG.loadCampaign = () => {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY));
+    const s = JSON.parse(store.get(KEY));
     if (s && s.version === 2 && !s.over) { MG.S = s; migrate(s); return s; }
   } catch (e) { /* 손상된 저장은 무시하고 새로 시작 */ }
   return null;
@@ -879,13 +887,13 @@ const stateLabel = s => ({ lord: s.lord.name, gen: s.lord.gen || 1, year: 1 + Ma
   battles: s.stats.battles, level: s.level });
 MG.slotInfo = i => {
   try {
-    const d = JSON.parse(localStorage.getItem(slotKey(i)));
+    const d = JSON.parse(store.get(slotKey(i)));
     return d && d.state ? { savedAt: d.savedAt, ...stateLabel(d.state) } : null;
   } catch (e) { return null; }
 };
 MG.saveSlot = i => {
   if (MG.S.over) return '끝난 캠페인은 저장할 수 없어요';
-  try { localStorage.setItem(slotKey(i), JSON.stringify({ savedAt: Date.now(), state: MG.S })); }
+  try { store.set(slotKey(i), JSON.stringify({ savedAt: Date.now(), state: MG.S })); }
   catch (e) { return '저장하지 못했어요 (브라우저 저장 공간 문제)'; }
   return `슬롯 ${i}에 저장했어요.`;
 };
@@ -900,11 +908,11 @@ function adopt(state) {
 }
 MG.loadSlot = i => {
   let d;
-  try { d = JSON.parse(localStorage.getItem(slotKey(i))); } catch (e) { d = null; }
+  try { d = JSON.parse(store.get(slotKey(i))); } catch (e) { d = null; }
   if (!d) return '빈 슬롯이에요';
   return adopt(d.state) || `슬롯 ${i}을(를) 불러왔어요.`;
 };
-MG.deleteSlot = i => { try { localStorage.removeItem(slotKey(i)); } catch (e) { /* 무시 */ } return `슬롯 ${i}을(를) 지웠어요.`; };
+MG.deleteSlot = i => { try { store.remove(slotKey(i)); } catch (e) { /* 무시 */ } return `슬롯 ${i}을(를) 지웠어요.`; };
 MG.exportSave = () => JSON.stringify({ game: 'margrave', savedAt: Date.now(), state: MG.S });
 MG.importSave = text => {
   let d;
@@ -914,7 +922,7 @@ MG.importSave = text => {
 };
 
 MG.resetCampaign = () => {
-  try { localStorage.removeItem(KEY); } catch (e) { /* 무시 */ }
+  try { store.remove(KEY); } catch (e) { /* 무시 */ }
   return MG.newCampaign();
 };
 })();

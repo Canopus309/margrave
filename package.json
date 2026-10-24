@@ -1,0 +1,25 @@
+{
+  "name": "margrave",
+  "productName": "변경백",
+  "version": "0.3.0",
+  "description": "변경백 — 판타지 공성 방어 로그라이크",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "serve": "node serve.js"
+  },
+  "build": {
+    "appId": "com.margrave.game",
+    "productName": "변경백",
+    "files": ["index.html", "css/**", "js/**", "electron/**", "package.json"],
+    "directories": { "output": "dist" },
+    "win": { "target": "portable", "signAndEditExecutable": false },
+    "portable": { "artifactName": "변경백.exe" }
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  }
+}

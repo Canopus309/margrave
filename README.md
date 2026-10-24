@@ -5,13 +5,17 @@
 
 ## 실행
 
-`index.html`을 브라우저로 바로 열거나, 로컬 서버로 띄운다.
+**데스크톱 앱 (추천):** `dist\변경백.exe`를 더블클릭한다. 설치 없이 바로 실행되는 단일 파일이다.
+저장은 `문서\변경백` 폴더의 `.json` 파일로 남는다 (자동 저장 `margrave_save_v2.json`, 슬롯 `margrave_slot_1~3.json`).
+F11 전체 화면, F12 개발자 도구.
 
 ```
-node serve.js
+npm install        # 처음 한 번
+npm start          # 개발 중 앱 실행
+npm run dist       # dist\변경백.exe 만들기
 ```
 
-→ http://localhost:5180
+**브라우저:** `index.html`을 바로 열거나 `node serve.js` → http://localhost:5180 (저장은 브라우저 안에만 남는다)
 
 ## 구성
 

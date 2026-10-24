@@ -344,8 +344,10 @@ function savePanel() {
       </div></div>`);
   }
   return `<div class="overlay"><div class="panel"><h1>저장 · 불러오기</h1>
-    <p class="muted small">지금 진행은 내정 화면에서 행동할 때마다 자동으로 저장되고, 새로고침하면 이어져요. 슬롯은 따로 보관하는 저장이에요.
+    <p class="muted small">지금 진행은 내정 화면에서 행동할 때마다 자동으로 저장되고, 다시 켜면 이어져요. 슬롯은 따로 보관하는 저장이에요.
       불러오면 지금 진행(자동 저장)이 그 슬롯 내용으로 바뀌어요.</p>
+    ${MG.isDesktop ? `<p class="small">저장 위치: <b>${MG.saveDir()}</b> <button class="mini" id="openDirBtn">폴더 열기</button></p>`
+      : '<p class="warn small">브라우저에서 실행 중이라 저장이 이 브라우저 안에만 있어요. 오래 남길 진행은 파일로 내보내 두세요.</p>'}
     ${rows.join('')}
     <div class="row">
       <button id="exportBtn" ${S.over ? 'disabled' : ''}>파일로 내보내기</button>
@@ -482,6 +484,7 @@ function bindSave() {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     msg = '파일로 내보냈어요.'; render();
   };
+  if ($('openDirBtn')) $('openDirBtn').onclick = () => MG.openSaveDir();
   $('importBtn').onclick = () => $('importFile').click();
   $('importFile').onchange = ev => {
     const f = ev.target.files[0];
