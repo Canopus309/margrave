@@ -5,6 +5,8 @@ const el = $('camp');
 const CELL_PX = 30;
 let resetArmed = false;
 let dismissArmed = null;  // 해고 확인 중인 장수 id
+let saveOpen = false;     // 저장·불러오기 창
+let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
 let sel = null;   // { i, j } 빈 칸 또는 { b } 건물
 let msg = '';
 
@@ -35,7 +37,8 @@ function headerBlock() {
   const attackNow = MG.isAttackMonth();
   return `<header>
     <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주</div></div>
-    <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(MG.AP_PER_MONTH - S.ap)}</div>
+    <div class="headRight"><button id="saveMenuBtn">저장·불러오기</button>
+      <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(MG.AP_PER_MONTH - S.ap)}</div></div>
   </header>
   <div class="resBar">${res}
     <div class="res"><span>주민</span><b>${S.pop}</b><i class="muted">/ ${MG.popCap()}</i></div>
@@ -318,7 +321,39 @@ function overPanel() {
   const S = MG.S;
   return `<div class="overlay"><div class="panel"><h1>${S.overReason === '가문 단절' ? '가문이 끊겼어요' : '캠페인 종료'}</h1>
     <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}, 처치한 적 ${S.stats.kills}.</p>
-    <button class="main" id="newCampBtn">새 캠페인 시작</button></div></div>`;
+    <div class="row"><button class="main" id="newCampBtn">새 캠페인 시작</button><button class="main alt" id="saveMenuBtn2">저장 불러오기</button></div></div></div>`;
+}
+
+// 저장 슬롯 창: 덮어쓰기·불러오기·지우기는 두 번 눌러 확인
+function savePanel() {
+  const S = MG.S, fmt = t => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const btn = (act, i, label, armedLabel, disabled) => {
+    const k = `${act}:${i}`, on = slotArmed === k;
+    return `<button class="mini ${on ? 'danger' : ''}" data-slot="${k}" ${disabled ? 'disabled' : ''}>${on ? armedLabel : label}</button>`;
+  };
+  const rows = [];
+  for (let i = 1; i <= MG.SLOTS; i++) {
+    const info = MG.slotInfo(i);
+    rows.push(`<div class="slotRow"><div><b>슬롯 ${i}</b>
+      ${info ? `<div class="small">${info.lord} (${info.gen}대) · ${info.year}년차 ${info.month}월 · 전투 ${info.battles}회</div>
+        <div class="muted small">${fmt(info.savedAt)} 저장</div>` : '<div class="muted small">비어 있어요</div>'}</div>
+      <div class="slotBtns">
+        ${btn('save', i, '저장', info ? '덮어쓸까요? 한 번 더' : '저장', S.over)}
+        ${btn('load', i, '불러오기', '지금 진행을 버리고 불러올까요? 한 번 더', !info)}
+        ${info ? btn('del', i, '지우기', '정말 지울까요? 한 번 더') : ''}
+      </div></div>`);
+  }
+  return `<div class="overlay"><div class="panel"><h1>저장 · 불러오기</h1>
+    <p class="muted small">지금 진행은 내정 화면에서 행동할 때마다 자동으로 저장되고, 새로고침하면 이어져요. 슬롯은 따로 보관하는 저장이에요.
+      불러오면 지금 진행(자동 저장)이 그 슬롯 내용으로 바뀌어요.</p>
+    ${rows.join('')}
+    <div class="row">
+      <button id="exportBtn" ${S.over ? 'disabled' : ''}>파일로 내보내기</button>
+      <button id="importBtn">파일에서 불러오기</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+    ${msg ? `<div class="msg small">${msg}</div>` : ''}
+    <div class="row"><button class="main" id="saveCloseBtn">닫기</button></div></div></div>`;
 }
 
 function hospitalBlock() {
@@ -360,7 +395,7 @@ function render() {
         <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>
     </div>
   </div>
-  ${S.over ? overPanel() : S.pendingSuccession ? successionModal() : S.event ? eventModal() : ''}`;
+  ${saveOpen ? savePanel() : S.over ? overPanel() : S.pendingSuccession ? successionModal() : S.event ? eventModal() : ''}`;
   bind();
 }
 
@@ -397,6 +432,7 @@ function bind() {
   q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
   const nc = $('newCampBtn');
   if (nc) nc.onclick = () => { MG.resetCampaign(); render(); };
+  bindSave();
   q('[data-fup]').forEach(b => b.onclick = () => run(MG.actFieldUpgrade(S.fields[+b.dataset.fup])));
   q('[data-cls]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.cls.split(','); MG.chooseClass(gen(id), k); render(); });
   q('[data-adv]').forEach(b => b.onclick = () => { MG.advanceClass(gen(b.dataset.adv)); render(); });
@@ -419,6 +455,38 @@ function bind() {
   $('resetBtn').onclick = () => {
     if (!resetArmed) { resetArmed = true; render(); return; }
     resetArmed = false; sel = null; msg = ''; MG.resetCampaign(); render();
+  };
+}
+
+function bindSave() {
+  const open = () => { saveOpen = true; slotArmed = null; msg = ''; render(); };
+  for (const id of ['saveMenuBtn', 'saveMenuBtn2']) { const b = $(id); if (b) b.onclick = open; }
+  if (!saveOpen) return;
+  $('saveCloseBtn').onclick = () => { saveOpen = false; slotArmed = null; msg = ''; render(); };
+  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => {
+    const k = b.dataset.slot, [act, n] = k.split(':'), i = +n;
+    // 빈 슬롯에 저장할 때만 바로, 나머지는 두 번 눌러야 한다
+    const needConfirm = act !== 'save' || !!MG.slotInfo(i);
+    if (needConfirm && slotArmed !== k) { slotArmed = k; render(); return; }
+    slotArmed = null;
+    msg = act === 'save' ? MG.saveSlot(i) : act === 'load' ? MG.loadSlot(i) : MG.deleteSlot(i);
+    if (act === 'load' && !MG.S.over) { sel = null; }
+    render();
+  });
+  $('exportBtn').onclick = () => {
+    const S = MG.S, blob = new Blob([MG.exportSave()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `변경백-${S.lord.gen}대-${MG.year()}년차${S.month % 12 + 1}월.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    msg = '파일로 내보냈어요.'; render();
+  };
+  $('importBtn').onclick = () => $('importFile').click();
+  $('importFile').onchange = ev => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    f.text().then(t => { msg = MG.importSave(t); sel = null; render(); });
   };
 }
 

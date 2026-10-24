@@ -871,6 +871,48 @@ MG.applyResult = B => {
   return sum;
 };
 
+// ---------- 저장 슬롯 ----------
+// 자동 저장(KEY)과 별개로 수동 슬롯 3개. 슬롯에는 저장 시각과 상태 전체가 들어간다.
+MG.SLOTS = 3;
+const slotKey = i => `margrave_slot_${i}`;
+const stateLabel = s => ({ lord: s.lord.name, gen: s.lord.gen || 1, year: 1 + Math.floor(s.month / 12), month: s.month % 12 + 1,
+  battles: s.stats.battles, level: s.level });
+MG.slotInfo = i => {
+  try {
+    const d = JSON.parse(localStorage.getItem(slotKey(i)));
+    return d && d.state ? { savedAt: d.savedAt, ...stateLabel(d.state) } : null;
+  } catch (e) { return null; }
+};
+MG.saveSlot = i => {
+  if (MG.S.over) return '끝난 캠페인은 저장할 수 없어요';
+  try { localStorage.setItem(slotKey(i), JSON.stringify({ savedAt: Date.now(), state: MG.S })); }
+  catch (e) { return '저장하지 못했어요 (브라우저 저장 공간 문제)'; }
+  return `슬롯 ${i}에 저장했어요.`;
+};
+// 불러온 상태를 검사하고, 빠진 값을 채운 뒤 지금 진행으로 삼는다 (자동 저장도 덮어씀)
+function adopt(state) {
+  if (!state || state.version !== 2 || !Array.isArray(state.generals)) return '올바른 저장이 아니에요';
+  MG.S = state;
+  migrate(state);
+  MG.ensureMarket();
+  save();
+  return null;
+}
+MG.loadSlot = i => {
+  let d;
+  try { d = JSON.parse(localStorage.getItem(slotKey(i))); } catch (e) { d = null; }
+  if (!d) return '빈 슬롯이에요';
+  return adopt(d.state) || `슬롯 ${i}을(를) 불러왔어요.`;
+};
+MG.deleteSlot = i => { try { localStorage.removeItem(slotKey(i)); } catch (e) { /* 무시 */ } return `슬롯 ${i}을(를) 지웠어요.`; };
+MG.exportSave = () => JSON.stringify({ game: 'margrave', savedAt: Date.now(), state: MG.S });
+MG.importSave = text => {
+  let d;
+  try { d = JSON.parse(text); } catch (e) { return '파일을 읽지 못했어요'; }
+  if (!d || d.game !== 'margrave') return '변경백 저장 파일이 아니에요';
+  return adopt(d.state) || '파일에서 불러왔어요.';
+};
+
 MG.resetCampaign = () => {
   try { localStorage.removeItem(KEY); } catch (e) { /* 무시 */ }
   return MG.newCampaign();
