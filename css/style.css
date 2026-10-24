@@ -117,6 +117,8 @@ button.main.danger { background: var(--danger); color: #fff; }
 .buildOpt b { font-size: 13px; }
 .actRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
 .actRow > button { min-width: 64px; }
+.tradeRow { display: grid; grid-template-columns: 70px 1fr; gap: 2px 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.tradeRow .tbtns { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
 .fieldAdd { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 .msg { margin-top: 6px; color: var(--accent); }
 .dirTag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #5a2323; color: #ffd0d0; font-weight: 700; margin-right: 4px; }

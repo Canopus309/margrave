@@ -33,6 +33,7 @@ MG.newCampaign = () => {
   }
   for (const b of MG.START_BUILDINGS) placeBuilding(b.type, b.i, b.j);
   for (const f of MG.START_FIELDS) s.fields.push({ type: f, level: 1 });
+  MG.ensureMarket();
   scheduleAttack(4);
   save();
   return s;
@@ -198,6 +199,47 @@ MG.actCraft = () => {
   return why || `${MG.WEAPON_GRADES[w.grade].name} ${w.name}을(를) 만들었어요`;
 };
 
+// ---------- 시장 ----------
+// 예전 저장에는 시세가 없으니 처음 볼 때 만든다
+MG.ensureMarket = () => {
+  const S = MG.S;
+  if (!S.prices) { S.prices = { ...MG.MARKET.base }; S.prevPrices = { ...S.prices }; S.traded = 0; }
+};
+MG.buyPrice = r => MG.S.prices[r];
+MG.sellPrice = r => MG.S.prices[r] * MG.MARKET.sellRate(MG.bLevel('market'));
+MG.tradeLeft = () => Math.max(0, MG.MARKET.volume(MG.bLevel('market')) - MG.S.traded);
+// 사기(qty>0) 또는 팔기(qty<0). 행동력은 쓰지 않는다.
+MG.trade = (r, qty) => {
+  const S = MG.S;
+  MG.ensureMarket();
+  if (!MG.bLevel('market')) return '시장이 없거나 부서졌어요';
+  const n = Math.min(Math.abs(qty), MG.tradeLeft());
+  if (!n) return '이번 달 거래 한도를 다 썼어요';
+  if (qty > 0) {
+    const room = MG.storageCap() - S.res[r], k = Math.min(n, room, Math.floor(S.res.gold / MG.buyPrice(r)));
+    if (k <= 0) return room <= 0 ? '창고가 가득 찼어요' : '골드가 모자라요';
+    S.res.gold -= Math.ceil(k * MG.buyPrice(r)); S.res[r] += k; S.traded += k;
+  } else {
+    const k = Math.min(n, Math.floor(S.res[r]));
+    if (k <= 0) return `팔 ${MG.RES[r]}이(가) 없어요`;
+    S.res[r] -= k; S.res.gold = Math.min(MG.storageCap(), S.res.gold + Math.floor(k * MG.sellPrice(r))); S.traded += k;
+  }
+  save();
+  return null;
+};
+function moveMarket() {
+  const S = MG.S, M = MG.MARKET, season = MG.SEASON(S.month);
+  MG.ensureMarket();
+  S.prevPrices = { ...S.prices };
+  for (const r of Object.keys(M.base)) {
+    const target = M.base[r] * ((M.season[r] && M.season[r][season]) || 1);
+    let p = S.prices[r] * (1 + (Math.random() * 2 - 1) * M.drift);
+    p += (target - p) * M.pull;
+    S.prices[r] = Math.round(Math.max(M.base[r] * M.min, Math.min(M.base[r] * M.max, p)) * 100) / 100;
+  }
+  S.traded = 0;
+}
+
 // ---------- 한 달 마치기 ----------
 // 매달 수입·지출 내역. 식량은 병사와 주민이 똑같이 먹고, 병사에게는 급여가 나간다.
 MG.economy = () => {
@@ -267,6 +309,7 @@ MG.endMonth = () => {
   }
   S.month++;
   S.ap = MG.AP_PER_MONTH;
+  moveMarket();
   S.report = rep;
   save();
   return rep;

@@ -147,6 +147,24 @@ function fieldsBlock() {
     <div class="muted small">가을엔 식량 2배, 겨울엔 식량 0·목재 절반</div></section>`;
 }
 
+function marketBlock() {
+  const S = MG.S;
+  MG.ensureMarket();
+  const l = MG.bLevel('market');
+  if (!l) return `<section class="card"><h3>시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔 수 있어요. 시세는 매달 바뀌어요.</div></section>`;
+  const arrow = r => {
+    const d = S.prices[r] - S.prevPrices[r];
+    return Math.abs(d) < 0.01 ? '<span class="muted">–</span>' : d > 0 ? '<span class="danger">▲</span>' : '<span class="ok">▼</span>';
+  };
+  const rows = Object.keys(MG.MARKET.base).map(r => `<div class="tradeRow">
+    <span><b>${MG.RES[r]}</b> ${arrow(r)}</span>
+    <span class="small">살 때 ${MG.buyPrice(r).toFixed(2)} · 팔 때 ${MG.sellPrice(r).toFixed(2)}</span>
+    <span class="tbtns">${[50, 10].map(q => `<button class="mini" data-trade="${r},${q}">사기 ${q}</button>`).join('')}
+      ${[10, 50].map(q => `<button class="mini" data-trade="${r},${-q}">팔기 ${q}</button>`).join('')}</span></div>`).join('');
+  return `<section class="card"><h3>시장 거래 <span class="muted">(행동력 안 씀 · 이번 달 남은 거래 ${MG.tradeLeft()}개)</span></h3>
+    ${rows}<div class="muted small">값은 1개당 골드. ▲ 지난달보다 비쌈, ▼ 쌈. 식량은 가을에 싸고 겨울·봄에 비싸요.</div></section>`;
+}
+
 // ---------- 장수 ----------
 function classBlock(g) {
   const C = MG.CLASSES[g.type];
@@ -217,7 +235,7 @@ function render() {
   const inv = S.inventory.slice().sort((a, b) => Object.keys(MG.WEAPON_GRADES).indexOf(b.grade) - Object.keys(MG.WEAPON_GRADES).indexOf(a.grade));
   el.innerHTML = `<div class="campWrap">
     ${headerBlock()}
-    <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${fieldsBlock()}</div></div>
+    <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${marketBlock()}${fieldsBlock()}</div></div>
     <h2>장수</h2>
     <section class="gens">${S.generals.map(genCard).join('')}</section>
     <div class="campRow">
@@ -253,6 +271,7 @@ function bind() {
     run(a === 'repair' ? MG.actRepair() : a === 'recruit' ? MG.actRecruit() : a === 'train' ? MG.actTrain() : a === 'scout' ? MG.actScout() : MG.actCraft());
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
+  q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
   q('[data-fup]').forEach(b => b.onclick = () => run(MG.actFieldUpgrade(S.fields[+b.dataset.fup])));
   q('[data-cls]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.cls.split(','); MG.chooseClass(gen(id), k); render(); });
   q('[data-adv]').forEach(b => b.onclick = () => { MG.advanceClass(gen(b.dataset.adv)); render(); });

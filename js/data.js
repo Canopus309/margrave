@@ -189,7 +189,7 @@ MG.BUILDINGS = {
   temple:   { name: '사원',   w: 2, h: 2, hp: 600, color: '#c8b46a', cost: { gold: 100, wood: 80 },          max: 3, desc: l => `사제 보충 가능, 회복량 +${10 * l}%, 매달 본성 +${150 * l}` },
   hospital: { name: '병원',   w: 2, h: 2, hp: 600, color: '#d0d0d0', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `부상자 ${MG.HOSPITAL_PER_LEVEL * l}명 수용` },
   storage:  { name: '창고',   w: 2, h: 2, hp: 600, color: '#8a7050', cost: { gold: 40, wood: 100 },          max: 3, desc: l => `자원 보관 한도 +${1000 * l}` },
-  market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}` },
+  market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}, 자원 거래 (한 달 ${150 * l}개, 파는 값 ${65 + 5 * l}%)` },
   watch:    { name: '감시탑', w: 1, h: 1, hp: 400, color: '#6a8aa0', cost: { gold: 50, wood: 60 },           max: 3, desc: l => l >= 2 ? '매달 습격 날짜·방향·구성을 알아냄' : '매달 습격 날짜·방향을 알아냄' },
 };
 MG.HOUSE_POP = 20;
@@ -214,6 +214,15 @@ MG.WAGE_SOLDIER = 0.5;      // 병사 급여 (매달 골드)
 MG.WAGE_GENERAL = 3;
 MG.UNPAID_MULT = 0.85;      // 급여가 밀리면 전군 공격력
 MG.battleGold = level => 50 + level * 10;  // 승리 전리품
+
+// 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
+MG.MARKET = {
+  base: { food: 1.0, wood: 1.5, iron: 3.0 },       // 사는 값 기준 (1개당 골드)
+  drift: 0.12, pull: 0.3, min: 0.4, max: 2.5,       // 매달 ±12%, 기준값으로 30% 복귀, 기준의 0.4~2.5배
+  season: { food: { 봄: 1.2, 여름: 1.0, 가을: 0.7, 겨울: 1.4 } },
+  sellRate: l => 0.65 + 0.05 * l,                   // 파는 값 = 사는 값 × (70% / 75% / 80%)
+  volume: l => 150 * l,                             // 한 달 거래 한도 (개수)
+};
 MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
 MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
 MG.REPAIR_WOOD_PER_HP = 0.1;
