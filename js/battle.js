@@ -199,8 +199,10 @@ function makeSoldier(squad, type, x, y, opts = {}) {
   let max = T.hp * lv * m.hp, atk = T.atk * lv * m.atk;
   if (opts.general) {
     const gl = (opts.genLevel || 1) - 1;
-    max *= MG.GENERAL_MULT.hp * (1 + MG.LEVEL_BONUS.genHp * gl);
-    atk *= MG.GENERAL_MULT.atk * (1 + MG.LEVEL_BONUS.genAtk * gl) * (opts.weaponAtk || 1);
+    // 나이가 많으면 장수 본인의 능력이 떨어진다
+    const age = opts.ageMul || 1;
+    max *= MG.GENERAL_MULT.hp * (1 + MG.LEVEL_BONUS.genHp * gl) * age;
+    atk *= MG.GENERAL_MULT.atk * (1 + MG.LEVEL_BONUS.genAtk * gl) * (opts.weaponAtk || 1) * age;
   }
   if (opts.hp) max = opts.hp;
   if (opts.atk) atk = opts.atk;
@@ -270,16 +272,20 @@ MG.createBattle = function (level, roster) {
     const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
     if (rs.general) {
       sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
-        weaponAtk: rs.weaponAtk, injured: rs.general.injured });
+        weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
     } else sq.leaderDown = true;
     for (let i = 0; i < rs.healthy; i++) makeSoldier(sq, rs.type, x, y);
     for (const m of rs.mob) makeSoldier(sq, rs.type, x, y, { wound: m });
     sq.initial = sq.soldiers.length;
     MG.orderMove(sq, x, y, { x: 0, y: -1 }, true);
   }
-  const L = MG.LORD, lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
-  const lx = C.x + L.at.x, ly = C.y + L.at.y;
-  B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: roster.lord.name, hp: L.hp, atk: L.atk });
+  // 성주: 장수 출신이면 그 레벨만큼 강하다. 어린 성주는 전투에 나가지 않고 근위대만 싸운다.
+  const L = MG.LORD, RL = roster.lord, lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
+  const lx = C.x + L.at.x, ly = C.y + L.at.y, lv = (RL.level || 1) - 1, age = RL.ageMul || 1;
+  if (!RL.minor) {
+    B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
+      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age });
+  } else lsq.leaderDown = false;
   for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
   lsq.initial = lsq.soldiers.length;
   MG.orderMove(lsq, lx, ly, { x: 0, y: -1 }, true);

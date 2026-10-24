@@ -12,31 +12,176 @@ MG.saveCampaign = save;
 MG.loadCampaign = () => {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && s.version === 2 && !s.over) return (MG.S = s);
+    if (s && s.version === 2 && !s.over) { MG.S = s; migrate(s); return s; }
   } catch (e) { /* 손상된 저장은 무시하고 새로 시작 */ }
   return null;
 };
 
+// ---------- 장수 만들기 ----------
+function usedNames() {
+  const S = MG.S;
+  return new Set([S.lord.given, ...S.generals.map(g => g.name), ...(S.family || []).map(c => c.name), ...(S.tavern || []).map(t => t.g.name)]);
+}
+MG.randomName = () => {
+  const used = usedNames(), free = MG.GIVEN_NAMES.filter(n => !used.has(n));
+  return free.length ? pick(free) : `${pick(MG.GIVEN_NAMES)} ${randInt(2, 9)}세`;
+};
+// 좋은 특성 1개(30%는 2개), 20% 확률로 단점 1개
+MG.rollTraits = () => {
+  const good = Object.keys(MG.TRAITS).filter(k => !MG.TRAITS[k].bad).sort(() => Math.random() - 0.5);
+  const bad = Object.keys(MG.TRAITS).filter(k => MG.TRAITS[k].bad);
+  const t = good.slice(0, Math.random() < 0.3 ? 2 : 1);
+  if (Math.random() < 0.2) t.push(pick(bad));
+  return t;
+};
+function newGeneral(o) {
+  return { id: MG.S.nextId++, name: o.name || MG.randomName(), type: o.type, baseLead: o.lead || 1,
+    level: o.level || 1, xp: 0, cls: null, adv: false, weapon: null, injured: 0, dead: false,
+    deploy: true, mobilize: false, healthy: o.healthy || 0, wounded: [],
+    age: o.age || randInt(20, 35), traits: o.traits || MG.rollTraits(), blood: !!o.blood };
+}
+
+// 예전 저장에 없는 값을 채운다 (나이·특성·가문·주점)
+function migrate(s) {
+  if (!s.lord.given) s.lord = { given: MG.FAMILY_NAME, name: s.lord.name, gen: s.lord.gen || 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false };
+  for (const g of s.generals) {
+    if (g.age == null) g.age = randInt(22, 38);
+    if (!g.traits) g.traits = MG.rollTraits();
+  }
+  if (!s.family) s.family = [];
+  if (!s.tavern) s.tavern = [];
+  if (s.retired == null) s.retired = 0;
+}
+
 MG.newCampaign = () => {
   const s = MG.S = {
     version: 2, level: 1, month: 2, nextId: 1, over: false, ap: MG.AP_PER_MONTH,
-    generals: [], lord: { name: MG.LORD.name, gen: 1 },
+    generals: [], lord: { given: MG.FAMILY_NAME, name: MG.LORD.name, gen: 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false },
+    family: [], tavern: [], retired: 0, pendingSuccession: false,
     garrison: { archer: MG.GARRISON.archer, infantry: MG.GARRISON.infantry, wounded: [] },
     res: { ...MG.START_RES }, pop: MG.START_POP, buildings: [], fields: [],
     walls: {}, keep: MG.KEEP_HP, nextAttack: null, report: [],
     inventory: [], stats: { battles: 0, wins: 0, kills: 0, generalsLost: 0, soldiersLost: 0 },
   };
-  for (const a of MG.START_ARMY) {
-    s.generals.push({ id: s.nextId++, name: a.general, type: a.type, baseLead: a.lead, slot: a.at,
-      level: 1, xp: 0, cls: null, adv: false, weapon: null, injured: 0, dead: false,
-      deploy: true, mobilize: false, healthy: a.lead * 10, wounded: [] });
-  }
+  const ages = [34, 26, 22, 41];
+  MG.START_ARMY.forEach((a, i) => {
+    s.generals.push(newGeneral({ name: a.general, type: a.type, lead: a.lead, healthy: a.lead * 10, age: ages[i] }));
+  });
   for (const b of MG.START_BUILDINGS) placeBuilding(b.type, b.i, b.j);
   for (const f of MG.START_FIELDS) s.fields.push({ type: f, level: 1 });
   MG.ensureMarket();
   scheduleAttack(4);
   save();
   return s;
+};
+
+// ---------- 가문과 후계 ----------
+// 후계 후보는 혈족뿐: 장수가 된 자녀와 아직 어린 자녀
+MG.heirs = () => [
+  ...MG.S.generals.filter(g => g.blood && !g.dead).map(g => ({ kind: 'general', id: g.id, name: g.name, age: g.age, level: g.level, traits: g.traits })),
+  ...MG.S.family.map(c => ({ kind: 'child', id: c.id, name: c.name, age: c.age, level: 1, traits: c.traits })),
+];
+
+// 장수가 부대를 떠나면(후계·은퇴) 그 병사들은 성주 직할로 간다
+function disband(g) {
+  const S = MG.S, kind = g.type === 'archer' ? 'archer' : 'infantry';
+  S.garrison[kind] += g.healthy;
+  for (const w of g.wounded) S.garrison.wounded.push({ type: kind, sev: w.sev, left: w.left });
+  if (g.weapon) S.inventory.push(g.weapon);
+  S.generals = S.generals.filter(x => x !== g);
+}
+
+function lordDied(rep, why) {
+  const S = MG.S;
+  rep.push(`${S.lord.name}이(가) ${why}`);
+  if (MG.heirs().length) S.pendingSuccession = true;
+  else { S.over = true; S.overReason = '가문 단절'; rep.push('이을 혈족이 없어 가문이 끊겼어요.'); }
+}
+
+MG.chooseHeir = (kind, id) => {
+  const S = MG.S, gen = S.lord.gen + 1;
+  if (kind === 'general') {
+    const g = S.generals.find(x => x.id === id);
+    if (!g) return;
+    S.lord = { given: g.name, name: `변경백 ${g.name}`, gen, age: g.age, level: g.level, traits: g.traits, minor: false };
+    disband(g);
+  } else {
+    const c = S.family.find(x => x.id === id);
+    if (!c) return;
+    S.lord = { given: c.name, name: `변경백 ${c.name}`, gen, age: c.age, level: 1, traits: c.traits, minor: c.age < MG.ADULT_AGE };
+    S.family = S.family.filter(x => x !== c);
+  }
+  S.pendingSuccession = false;
+  S.report = [`${S.lord.name}이(가) ${gen}대 성주가 되었어요.${S.lord.minor ? ` 아직 ${S.lord.age}세라 ${MG.ADULT_AGE}세까지는 전투에 나가지 않아요.` : ''}`];
+  save();
+};
+
+// 해가 바뀔 때: 나이, 출생, 성년, 노환
+function newYear(rep) {
+  const S = MG.S, L = S.lord;
+  L.age++;
+  if (L.minor && L.age >= MG.ADULT_AGE) { L.minor = false; rep.push(`${L.name}이(가) 성년이 되어 이제 전투에 나가요.`); }
+  for (const g of S.generals) if (!g.dead) g.age++;
+  for (const c of S.family) c.age++;
+  if (L.age >= 20 && L.age <= 45 && Math.random() < MG.BIRTH_CHANCE) {
+    const c = { id: S.nextId++, name: MG.randomName(), age: 0, traits: MG.rollTraits() };
+    S.family.push(c);
+    rep.push(`성주에게 아이가 태어났어요: ${c.name} (${c.traits.map(t => MG.TRAITS[t].name).join(', ')})`);
+  }
+  for (const c of S.family.filter(c => c.age >= MG.ADULT_AGE)) {
+    const type = pick(Object.keys(MG.WEAPON_KINDS));
+    S.generals.push(newGeneral({ name: c.name, type, lead: Math.random() < 0.3 ? 2 : 1, age: c.age, traits: c.traits, blood: true }));
+    rep.push(`${c.name}이(가) 성년이 되어 장수가 되었어요 (${MG.UNIT_TYPES[type].name}).`);
+  }
+  S.family = S.family.filter(c => c.age < MG.ADULT_AGE);
+  for (const g of S.generals) {
+    if (g.dead || Math.random() >= MG.deathChance(g.age)) continue;
+    g.dead = true; g.deploy = false; S.stats.generalsLost++;
+    rep.push(`장수 ${g.name}이(가) ${g.age}세로 세상을 떠났어요.`);
+  }
+  if (!S.pendingSuccession && Math.random() < MG.deathChance(L.age)) lordDied(rep, `${L.age}세로 세상을 떠났어요.`);
+}
+
+// ---------- 주점·발탁·은퇴 ----------
+function refreshTavern(rep) {
+  const S = MG.S, l = MG.bLevel('tavern');
+  S.tavern = S.tavern.filter(t => --t.left > 0);
+  if (!l) return;
+  if (S.tavern.length < l + 1 && Math.random() < 0.6) {
+    const level = randInt(1, Math.min(l * 2 + 1, S.level + 1));
+    S.tavern.push({ left: randInt(2, 3), g: newGeneral({ type: pick(Object.keys(MG.WEAPON_KINDS)), level, age: randInt(20, 45) }) });
+    rep.push('주점에 떠돌이 장수가 찾아왔어요.');
+  }
+}
+MG.hire = idx => {
+  const S = MG.S, t = S.tavern[idx];
+  if (!t) return '이미 떠났어요';
+  const cost = MG.hireCost(t.g.level);
+  if (S.res.gold < cost) return '골드가 모자라요';
+  S.res.gold -= cost;
+  S.generals.push(t.g);
+  S.tavern.splice(idx, 1);
+  save();
+  return `${t.g.name}을(를) 고용했어요. 병사는 모집으로 채워요.`;
+};
+MG.canPromote = () => MG.bLevel('training') >= 2;
+MG.actPromote = type => {
+  if (!MG.canPromote()) return '훈련장 2단계가 필요해요';
+  if (MG.S.garrison[type] <= 0) return '발탁할 직할 병사가 없어요';
+  let g;
+  const why = act(MG.PROMOTE_COST, () => {
+    MG.S.garrison[type]--;
+    g = newGeneral({ type, age: randInt(19, 30) });
+    MG.S.generals.push(g);
+  });
+  return why || `직할 ${MG.UNIT_TYPES[type].name} ${g.name}을(를) 장수로 발탁했어요.`;
+};
+MG.retire = g => {
+  if (g.dead || g.age < 45) return '45세부터 은퇴할 수 있어요';
+  disband(g);
+  MG.S.retired++;
+  save();
+  return `${g.name}이(가) 은퇴해 교관이 되었어요. 훈련 경험치가 늘어요.`;
 };
 
 // ---------- 시간 ----------
@@ -183,10 +328,11 @@ MG.actRecruit = () => {
   });
 };
 
+MG.trainXp = () => 30 * MG.bLevel('training') + MG.RETIRED_TRAIN_XP * (MG.S.retired || 0);
 MG.actTrain = () => {
   const l = MG.bLevel('training');
   if (!l) return '훈련장이 없어요';
-  return act(null, () => { for (const g of MG.S.generals) if (!g.dead && !g.injured) addXp(g, 30 * l); });
+  return act(null, () => { for (const g of MG.S.generals) if (!g.dead && !g.injured) addXp(g, MG.trainXp()); });
 };
 
 MG.actScout = () => (MG.S.nextAttack.scout >= 2 ? '더 알아낼 것이 없어요' : act({ gold: 20 }, () => { MG.S.nextAttack.scout++; }));
@@ -309,6 +455,8 @@ MG.endMonth = () => {
   }
   S.month++;
   S.ap = MG.AP_PER_MONTH;
+  if (S.month % 12 === 0) newYear(rep);
+  refreshTavern(rep);
   moveMarket();
   S.report = rep;
   save();
@@ -316,11 +464,13 @@ MG.endMonth = () => {
 };
 
 // ---------- 장수 ----------
-MG.genLead = g => g.baseLead + (g.level >= 5 ? 1 : 0) + (g.level >= 10 ? 1 : 0);
+const traitsOf = g => (g.traits || []).map(t => MG.TRAITS[t]);
+MG.genLead = g => g.baseLead + (g.level >= 5 ? 1 : 0) + (g.level >= 10 ? 1 : 0) + traitsOf(g).reduce((a, t) => a + (t.lead || 0), 0);
 MG.genCap = g => MG.genLead(g) * 10;
 MG.genClass = g => (g.cls ? (g.adv ? MG.CLASSES[g.type][g.cls].lv10 : MG.CLASSES[g.type][g.cls]) : null);
 MG.genTitle = g => (MG.genClass(g) || MG.UNIT_TYPES[g.type]).name;
-MG.genMods = g => MG.combineMods([MG.genClass(g) && MG.genClass(g).mods, ...(g.weapon ? g.weapon.opts.map(o => MG.WEAPON_OPTS[o].mods) : [])]);
+MG.genMods = g => MG.combineMods([MG.genClass(g) && MG.genClass(g).mods, ...(g.weapon ? g.weapon.opts.map(o => MG.WEAPON_OPTS[o].mods) : []),
+  ...traitsOf(g).map(t => t.mods)]);
 MG.canClass = g => !g.dead && g.level >= 5 && !g.cls;
 MG.canAdvance = g => !g.dead && g.level >= 10 && g.cls && !g.adv;
 
@@ -329,7 +479,7 @@ MG.advanceClass = g => { if (MG.canAdvance(g)) { g.adv = true; save(); } };
 
 function addXp(g, n) {
   const from = g.level;
-  g.xp += n;
+  g.xp += n * traitsOf(g).reduce((a, t) => a * (t.xp || 1), 1);
   while (g.level < MG.MAX_LEVEL && g.xp >= MG.xpToNext(g.level)) { g.xp -= MG.xpToNext(g.level); g.level++; }
   if (g.level >= MG.MAX_LEVEL) g.xp = 0;
   return from;
@@ -408,14 +558,18 @@ MG.buildRoster = () => {
     const withGeneral = !g.dead && g.deploy;
     const mob = g.mobilize ? g.wounded.map((w, idx) => ({ idx, sev: w.sev })) : [];
     if (!withGeneral && g.healthy + mob.length === 0) continue;
-    squads.push({ gid: g.id, name: g.name, type: g.type, slot: g.slot, title: MG.genTitle(g),
-      general: withGeneral ? { name: g.name, injured: g.injured > 0 } : null,
+    // 시작 자리는 출전 순서대로 큰길 → 성벽 안길
+    const slot = MG.SQUAD_SLOTS[squads.length % MG.SQUAD_SLOTS.length];
+    squads.push({ gid: g.id, name: g.name, type: g.type, slot, title: MG.genTitle(g),
+      general: withGeneral ? { name: g.name, injured: g.injured > 0, ageMul: MG.ageMul(g.age) } : null,
       healthy: g.healthy, mob, level: g.level, train,
       mods: MG.combineMods([MG.genMods(g), typeMods[g.type]]),
       weaponAtk: g.weapon ? MG.WEAPON_GRADES[g.weapon.grade].atk : 1 });
   }
+  const L = S.lord;
   return {
-    squads, lord: { name: S.lord.name }, garrison: { archer: S.garrison.archer, infantry: S.garrison.infantry },
+    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, ageMul: MG.ageMul(L.age || 30) },
+    garrison: { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs,
@@ -484,18 +638,19 @@ MG.applyResult = B => {
     }
   }
 
+  // 성주가 전사하면 혈족 중에서 후계자를 고른다 (내정 화면). 혈족이 없으면 가문 단절.
   if (B.lordDead) {
-    // 혈족 후계(자녀 랜덤 출생)는 3b. 지금은 이름만 바뀐 후계자가 잇는다.
-    const name = pick(MG.HEIR_NAMES.filter(n => !S.lord.name.endsWith(n)));
-    sum.heir = { old: S.lord.name, name: `변경백 ${name}` };
-    S.lord = { name: sum.heir.name, gen: S.lord.gen + 1 };
+    const rep = [];
+    lordDied(rep, '전사했어요.');
+    sum.lordDied = rep;
   }
 
   S.stats.battles++;
   S.stats.kills += B.stats.kills;
   if (!B.result.win) {
     S.over = true;
-  } else {
+    S.overReason = '본성 함락';
+  } else if (!S.over) {
     S.stats.wins++;
     sum.gold = MG.battleGold(S.level);
     S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);

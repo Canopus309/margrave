@@ -117,6 +117,14 @@ button.main.danger { background: var(--danger); color: #fff; }
 .buildOpt b { font-size: 13px; }
 .actRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
 .actRow > button { min-width: 64px; }
+#camp .overlay { position: fixed; z-index: 10; }
+.traits { display: flex; flex-wrap: wrap; gap: 3px; }
+.trait { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #24384f; color: #bcd6ff; cursor: help; }
+.trait.bad { background: #4a2626; color: #ffc4c4; }
+.blood { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #6b5420; color: #ffe2a0; vertical-align: middle; }
+.hireRow { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.heirBtn { display: block; width: 100%; text-align: left; margin-bottom: 6px; font-weight: 400; }
+.heirBtn .traits { margin-top: 3px; }
 .tradeRow { display: grid; grid-template-columns: 70px 1fr; gap: 2px 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .tradeRow .tbtns { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
 .fieldAdd { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }

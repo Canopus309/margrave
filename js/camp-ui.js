@@ -128,8 +128,13 @@ function actionsBlock() {
     { id: 'craft', name: '제작', note: MG.bLevel('smithy') ? `무기 1개 · ${MG.costText(MG.CRAFT_COST)}` : '대장간이 필요해요',
       ok: MG.bLevel('smithy') && MG.canPay(MG.CRAFT_COST) },
   ];
+  const promote = MG.canPromote()
+    ? `<div class="actRow"><span class="small"><b>발탁</b> <span class="muted">직할 병사를 장수로 · ${MG.costText(MG.PROMOTE_COST)}</span></span>
+        <span>${['infantry', 'archer'].map(t => `<button class="mini" data-promote="${t}" ${ap && S.garrison[t] > 0 && MG.canPay(MG.PROMOTE_COST) ? '' : 'disabled'}>${MG.UNIT_TYPES[t].name}</button>`).join(' ')}</span></div>`
+    : '<div class="actRow"><span class="small muted">발탁: 훈련장 2단계가 있으면 직할 병사를 장수로 키울 수 있어요</span></div>';
   return `<section class="card"><h3>행동 (행동력 1씩)</h3>
     ${rows.map(r => `<div class="actRow"><button data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
+    ${promote}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
 }
 
@@ -199,14 +204,16 @@ function genCard(g) {
   const refill = (g.type === 'mage' && !MG.bLevel('tower')) || (g.type === 'priest' && !MG.bLevel('temple'))
     ? `<div class="warn small">${g.type === 'mage' ? '마법탑' : '사원'}이 있어야 병사를 보충할 수 있어요</div>` : '';
   if (g.dead) {
-    return `<div class="gen dead"><div class="gtop"><b>${g.name}</b><span class="danger">전사</span></div>
+    return `<div class="gen dead"><div class="gtop"><b>${g.name}</b><span class="danger">세상을 떠남</span></div>
       <div class="muted">${MG.genTitle(g)} · Lv.${g.level}</div>
       <div class="muted small">남은 병사 ${g.healthy}명은 지휘관 없이 출전해요.</div></div>`;
   }
   const status = g.injured ? `<span class="warn">부상 · ${g.injured}개월 남음</span>` : '<span class="ok">건강</span>';
+  const old = MG.ageMul(g.age) < 1 ? ` <span class="warn">(노쇠 ${Math.round((1 - MG.ageMul(g.age)) * 100)}%)</span>` : '';
   return `<div class="gen ${g.injured ? 'hurt' : ''}">
-    <div class="gtop"><b>${g.name}</b>${status}</div>
-    <div class="muted">${MG.genTitle(g)} · 통솔 ${MG.genLead(g)}</div>
+    <div class="gtop"><b>${g.name}${g.blood ? ' <span class="blood">가문</span>' : ''}</b>${status}</div>
+    <div class="muted">${MG.genTitle(g)} · 통솔 ${MG.genLead(g)} · ${g.age}세${old}</div>
+    ${traitTags(g.traits)}
     <div class="lv"><span>Lv.${g.level}</span><div class="bar"><div style="width:${pct(g.xp, need)}%;background:#6aa8ff"></div></div>
       <span class="small muted">${need ? `${Math.floor(g.xp)} / ${need}` : '최고 레벨'}</span></div>
     <div class="small">병사 ${g.healthy} / ${cap}${g.wounded.length ? ` · <span class="warn">부상 ${g.wounded.length}명 (${woundCounts(g.wounded)})</span>` : ''}</div>
@@ -215,7 +222,57 @@ function genCard(g) {
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
       <span class="warn">부상병 ${g.wounded.length}명 동원 (체력 감소, 또 쓰러지면 사망 위험 큼)</span></label>` : ''}
+    ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">은퇴시키기 (교관이 되어 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
   </div>`;
+}
+
+const traitTags = traits => `<div class="traits">${(traits || []).map(t => {
+  const d = MG.TRAITS[t];
+  return `<span class="trait ${d.bad ? 'bad' : ''}" title="${d.desc}">${d.name}</span>`;
+}).join('')}</div>`;
+
+// ---------- 가문·주점 ----------
+function familyBlock() {
+  const S = MG.S, L = S.lord;
+  const kids = S.family.map(c => `<li>${c.name} · ${c.age}세 ${traitTags(c.traits)}</li>`).join('');
+  const blood = S.generals.filter(g => g.blood && !g.dead).map(g => `<li>${g.name} · ${g.age}세 · 장수</li>`).join('');
+  return `<section class="card"><h3>가문 · ${L.gen}대 성주</h3>
+    <div><b>${L.name}</b> · ${L.age}세${L.level > 1 ? ` · Lv.${L.level}` : ''}${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}</div>
+    ${traitTags(L.traits)}
+    ${MG.ageMul(L.age) < 1 ? `<div class="warn small">나이가 들어 능력이 ${Math.round((1 - MG.ageMul(L.age)) * 100)}% 떨어졌어요.</div>` : ''}
+    ${MG.deathChance(L.age) ? `<div class="danger small">해마다 ${Math.round(MG.deathChance(L.age) * 100)}% 확률로 세상을 떠날 수 있어요.</div>` : ''}
+    <ul class="small">${blood}${kids || (blood ? '' : '<li class="muted">아직 자녀가 없어요</li>')}</ul>
+    <div class="muted small">성주가 20~45세일 때 해마다 ${Math.round(MG.BIRTH_CHANCE * 100)}% 확률로 아이가 태어나고, ${MG.ADULT_AGE}세에 장수가 돼요.
+      성주가 세상을 떠나면 혈족 중에서 후계자를 골라요. 혈족이 없으면 가문이 끊겨요.</div></section>`;
+}
+
+function tavernBlock() {
+  const S = MG.S, l = MG.bLevel('tavern');
+  if (!l) return `<section class="card"><h3>주점</h3><div class="muted small">주점을 지으면 떠돌이 장수가 찾아와요. 골드로 고용할 수 있어요.</div></section>`;
+  const list = S.tavern.map((t, i) => {
+    const g = t.g, cost = MG.hireCost(g.level);
+    return `<div class="hireRow"><div><b>${g.name}</b> <span class="muted small">${MG.UNIT_TYPES[g.type].name} · Lv.${g.level} · ${g.age}세 · ${t.left}개월 뒤 떠남</span>
+      ${traitTags(g.traits)}</div><button class="mini" data-hire="${i}" ${S.res.gold >= cost ? '' : 'disabled'}>고용 · 골드 ${cost}</button></div>`;
+  }).join('');
+  return `<section class="card"><h3>주점 (최대 ${l + 1}명)</h3>${list || '<div class="muted small">지금은 찾아온 장수가 없어요. 매달 찾아올 수 있어요.</div>'}
+    <div class="muted small">고용한 장수의 부대는 빈 채로 시작해요. 모집으로 채워요.</div></section>`;
+}
+
+// 성주가 세상을 떠나면 다른 것을 하기 전에 후계자를 고른다
+function successionModal() {
+  const S = MG.S, heirs = MG.heirs();
+  return `<div class="overlay"><div class="panel"><h1>후계자를 고르세요</h1>
+    <p class="muted">${S.lord.name}이(가) 세상을 떠났어요. 혈족 중에서 다음 성주를 골라요.</p>
+    ${heirs.map(h => `<button class="heirBtn" data-heir="${h.kind},${h.id}">
+      <b>${h.name}</b> · ${h.age}세${h.kind === 'general' ? ` · 장수 Lv.${h.level} (부대 병사는 직할로)` : h.age < MG.ADULT_AGE ? ' · 어린 자녀 (성년까지 전투 불참)' : ''}
+      ${traitTags(h.traits)}</button>`).join('')}</div></div>`;
+}
+
+function overPanel() {
+  const S = MG.S;
+  return `<div class="overlay"><div class="panel"><h1>${S.overReason === '가문 단절' ? '가문이 끊겼어요' : '캠페인 종료'}</h1>
+    <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}, 처치한 적 ${S.stats.kills}.</p>
+    <button class="main" id="newCampBtn">새 캠페인 시작</button></div></div>`;
 }
 
 function hospitalBlock() {
@@ -236,9 +293,11 @@ function render() {
   el.innerHTML = `<div class="campWrap">
     ${headerBlock()}
     <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${marketBlock()}${fieldsBlock()}</div></div>
-    <h2>장수</h2>
+    <h2>장수 ${S.generals.filter(g => !g.dead).length}명</h2>
     <section class="gens">${S.generals.map(genCard).join('')}</section>
     <div class="campRow">
+      ${familyBlock()}
+      ${tavernBlock()}
       <section class="card"><h3>성주 직할 병력 (성벽 위)</h3>
         <div class="stat"><span>궁수</span><b>${S.garrison.archer}</b></div>
         <div class="stat"><span>보병</span><b>${S.garrison.infantry}</b></div>
@@ -253,7 +312,8 @@ function render() {
         <div class="stat"><span>잃은 장수 / 병사</span><b>${S.stats.generalsLost} / ${S.stats.soldiersLost}</b></div>
         <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>
     </div>
-  </div>`;
+  </div>
+  ${S.over ? overPanel() : S.pendingSuccession ? successionModal() : ''}`;
   bind();
 }
 
@@ -272,6 +332,12 @@ function bind() {
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
+  q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
+  q('[data-promote]').forEach(b => b.onclick = () => run(MG.actPromote(b.dataset.promote)));
+  q('[data-retire]').forEach(b => b.onclick = () => run(MG.retire(gen(b.dataset.retire))));
+  q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
+  const nc = $('newCampBtn');
+  if (nc) nc.onclick = () => { MG.resetCampaign(); render(); };
   q('[data-fup]').forEach(b => b.onclick = () => run(MG.actFieldUpgrade(S.fields[+b.dataset.fup])));
   q('[data-cls]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.cls.split(','); MG.chooseClass(gen(id), k); render(); });
   q('[data-adv]').forEach(b => b.onclick = () => { MG.advanceClass(gen(b.dataset.adv)); render(); });

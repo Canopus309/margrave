@@ -125,7 +125,6 @@ MG.WOUND_HP = { light: 0.7, heavy: 0.4 };  // 동원된 부상병의 시작 체�
 MG.INJURED_GENERAL_HP = 0.5;               // 출전한 부상 장수의 시작 체력
 MG.HOSPITAL_CAP = 20;
 MG.RECRUITS_PER_MONTH = 15;
-MG.HEIR_NAMES = ['레오릭', '아이린', '카스텔', '미라벨', '오스윈', '세라핀', '테오도르', '엘리스'];
 
 function shuffled(arr) {
   const a = arr.slice();
@@ -190,6 +189,7 @@ MG.BUILDINGS = {
   hospital: { name: '병원',   w: 2, h: 2, hp: 600, color: '#d0d0d0', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `부상자 ${MG.HOSPITAL_PER_LEVEL * l}명 수용` },
   storage:  { name: '창고',   w: 2, h: 2, hp: 600, color: '#8a7050', cost: { gold: 40, wood: 100 },          max: 3, desc: l => `자원 보관 한도 +${1000 * l}` },
   market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}, 자원 거래 (한 달 ${150 * l}개, 파는 값 ${65 + 5 * l}%)` },
+  tavern:   { name: '주점',   w: 1, h: 1, hp: 400, color: '#a0603a', cost: { gold: 80, wood: 60 },           max: 3, desc: l => `떠돌이 장수가 찾아와요 (최대 ${l + 1}명, 레벨 최대 ${l * 2 + 1})` },
   watch:    { name: '감시탑', w: 1, h: 1, hp: 400, color: '#6a8aa0', cost: { gold: 50, wood: 60 },           max: 3, desc: l => l >= 2 ? '매달 습격 날짜·방향·구성을 알아냄' : '매달 습격 날짜·방향을 알아냄' },
 };
 MG.HOUSE_POP = 20;
@@ -214,6 +214,44 @@ MG.WAGE_SOLDIER = 0.5;      // 병사 급여 (매달 골드)
 MG.WAGE_GENERAL = 3;
 MG.UNPAID_MULT = 0.85;      // 급여가 밀리면 전군 공격력
 MG.battleGold = level => 50 + level * 10;  // 승리 전리품
+
+// ---------- 3b-1: 장수 영입, 특성, 나이, 가문 ----------
+// 특성: 장수마다 1~2개. mods는 부대 전체, lead는 통솔, xp는 경험치 배율, bad는 단점
+MG.TRAITS = {
+  brave:   { name: '용맹',   desc: '부대 공격력 +10%',     mods: { atk: 1.1 } },
+  iron:    { name: '철벽',   desc: '부대가 받는 피해 -10%', mods: { dmgTaken: 0.9 } },
+  eagle:   { name: '매의 눈', desc: '사거리 +10%',          mods: { range: 1.1 } },
+  leader:  { name: '인솔',   desc: '통솔 +1',              lead: 1 },
+  gifted:  { name: '영재',   desc: '경험치 +25%',          xp: 1.25 },
+  swift:   { name: '날쌘',   desc: '공격 속도 +10%',       mods: { cd: 0.9 } },
+  tough:   { name: '강골',   desc: '부대 체력 +10%',       mods: { hp: 1.1 } },
+  coward:  { name: '겁쟁이', desc: '부대 공격력 -10%',     mods: { atk: 0.9 }, bad: true },
+  sickly:  { name: '병약',   desc: '부대 체력 -15%',       mods: { hp: 0.85 }, bad: true },
+  slow:    { name: '둔재',   desc: '경험치 -25%',          xp: 0.75, bad: true },
+};
+MG.GIVEN_NAMES = ['가렌', '리아나', '오도', '세린', '바르크', '유리엘', '토린', '하나', '케일', '미렐', '도란', '아델', '로완', '실바',
+  '이반', '노엘', '라스', '엘다', '마커스', '루시엔', '고드릭', '피오나', '헨릭', '소냐', '브람', '테사', '울릭', '카야'];
+MG.FAMILY_NAME = '알데른';  // 변경백 가문의 이름 (성주 이름 앞에 '변경백'이 붙는다)
+
+MG.LORD_START_AGE = 30;
+MG.BIRTH_CHANCE = 0.25;      // 성주가 20~45세일 때 해마다
+MG.ADULT_AGE = 16;
+MG.AGE_DECLINE = 50;         // 이 나이부터 해마다 능력 -3%
+MG.AGE_DEATH = 60;           // 이 나이부터 해마다 10% + 5%×(나이-60) 확률로 세상을 떠남
+MG.ageMul = age => (age > MG.AGE_DECLINE ? Math.max(0.6, 1 - 0.03 * (age - MG.AGE_DECLINE)) : 1);
+MG.deathChance = age => (age >= MG.AGE_DEATH ? 0.1 + 0.05 * (age - MG.AGE_DEATH) : 0);
+
+MG.hireCost = level => 150 + 50 * level;
+MG.PROMOTE_COST = { gold: 100 };
+MG.RETIRED_TRAIN_XP = 10;    // 은퇴한 교관 1명당 훈련 경험치 +
+
+// 장수 부대의 시작 자리: 십자 큰길 → 성벽 안길 순서
+MG.SQUAD_SLOTS = [
+  { x: 0, y: 140 }, { x: 0, y: -140 }, { x: -150, y: 0 }, { x: 150, y: 0 },
+  { x: -215, y: 0 }, { x: 215, y: 0 }, { x: 0, y: -215 },
+  { x: -170, y: -260 }, { x: 170, y: -260 }, { x: -170, y: 260 }, { x: 170, y: 260 },
+  { x: -260, y: -170 }, { x: 260, y: -170 }, { x: -260, y: 170 }, { x: 260, y: 170 },
+];
 
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {
