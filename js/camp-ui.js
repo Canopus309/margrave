@@ -5,6 +5,7 @@ const el = $('camp');
 const CELL_PX = 30;
 let resetArmed = false;
 let dismissArmed = null;  // 해고 확인 중인 장수 id
+let demolishArmed = null; // 철거 확인 중: 'b'+건물 id 또는 'f'+들판 번호
 let saveOpen = false;     // 저장·불러오기 창
 let chronOpen = false;    // 연대기 창
 let setupOpen = false;    // 새 캠페인 준비 창
@@ -134,6 +135,8 @@ function selBlock() {
     return `<div class="selPanel"><b>${d.name} ${b.level}단계</b> <span class="muted small">체력 ${Math.round(b.hp)} / ${b.max}</span>
       <div class="small">${d.desc(b.level)}</div>
       ${b.hp <= 0 ? '<div class="danger small">부서져서 기능을 잃었어요. 행동의 "수리"로 고쳐요.</div>' : ''}
+      <button class="mini ${demolishArmed === 'b' + b.id ? 'danger' : ''}" data-demolish="${b.id}" title="행동력 없이 헐고, 들인 자원의 절반(${MG.costText(MG.demolishRefund(d.cost, b.level))})을 돌려받아요">
+        ${MG.ic('trash')} ${demolishArmed === 'b' + b.id ? '정말 헐까요? 한 번 더' : `철거 · ${MG.costText(MG.demolishRefund(d.cost, b.level))} 환불`}</button>
       ${maxed ? '<div class="muted small">최고 단계예요</div>' : `<button data-upgrade="${b.id}" ${S.ap && MG.canPay(cost) && b.hp > 0 ? '' : 'disabled'}>
         ${b.level + 1}단계로 강화 · ${MG.costText(cost)} · 행동력 1</button><div class="muted small">다음: ${d.desc(b.level + 1)}</div>`}</div>`;
   }
@@ -194,7 +197,9 @@ function fieldsBlock() {
   const list = S.fields.map((f, idx) => {
     const d = MG.FIELDS[f.type], cost = MG.fieldUpgradeCost(f), prod = Object.entries(d.prod).map(([k, v]) => `${MG.icRes(k)}${v * f.level}`).join('');
     return `<div class="actRow"><span><b>${MG.ic(MG.ICONS.field[f.type])} ${d.name}</b> ${'★'.repeat(f.level)} <span class="muted small">${prod}/월</span></span>
-      ${f.level >= d.max ? '<span class="muted small">최고</span>' : `<button class="mini" data-fup="${idx}" ${ap && MG.canPay(cost) ? '' : 'disabled'}>강화 · ${MG.costText(cost)}</button>`}</div>`;
+      <span class="fbtns">${f.level >= d.max ? '<span class="muted small">최고</span>' : `<button class="mini" data-fup="${idx}" ${ap && MG.canPay(cost) ? '' : 'disabled'}>강화 · ${MG.costText(cost)}</button>`}
+      <button class="mini ${demolishArmed === 'f' + idx ? 'danger' : ''}" data-fdel="${idx}" title="철거: 행동력 없이, ${MG.costText(MG.demolishRefund(d.cost, f.level))} 돌려받아요${d.hidden ? ' · 다시 지을 수 없어요' : ''}">
+        ${MG.ic('trash')}${demolishArmed === 'f' + idx ? ' 한 번 더' : ''}</button></span></div>`;
   }).join('');
   const add = S.fields.length < MG.FIELD_SLOTS ? Object.entries(MG.FIELDS).filter(([, d]) => !d.hidden).map(([k, d]) =>
     `<button class="mini" data-field="${k}" ${ap && MG.canPay(d.cost) ? '' : 'disabled'} title="${MG.costText(d.cost)}">${MG.ic('plus')} ${MG.ic(MG.ICONS.field[k])} ${d.name}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
@@ -643,6 +648,17 @@ function bind() {
   q('[data-bld]').forEach(c => c.onclick = () => { sel = { b: S.buildings.find(b => b.id === +c.dataset.bld) }; msg = ''; render(); });
   q('[data-build]').forEach(b => b.onclick = () => { const why = MG.actBuild(b.dataset.build, sel.i, sel.j); if (!why) sel = null; run(why); });
   q('[data-upgrade]').forEach(b => b.onclick = () => run(MG.actUpgrade(sel.b)));
+  // 철거는 두 번 눌러 확인
+  q('[data-demolish]').forEach(b => b.onclick = () => {
+    const k = 'b' + b.dataset.demolish;
+    if (demolishArmed !== k) { demolishArmed = k; render(); return; }
+    demolishArmed = null; const why = MG.demolish(sel.b); sel = null; run(why);
+  });
+  q('[data-fdel]').forEach(b => b.onclick = () => {
+    const k = 'f' + b.dataset.fdel;
+    if (demolishArmed !== k) { demolishArmed = k; render(); return; }
+    demolishArmed = null; run(MG.demolishField(+b.dataset.fdel));
+  });
   q('[data-act]').forEach(b => b.onclick = () => {
     const a = b.dataset.act;
     run(a === 'repair' ? MG.actRepair() : a === 'recruit' ? MG.actRecruit() : a === 'train' ? MG.actTrain() : a === 'scout' ? MG.actScout()

@@ -236,3 +236,4 @@ details.report summary { cursor: pointer; color: var(--muted); }
 .rcard .cardIcon { font-size: 30px; }
 .overlay h1 .ti { color: var(--accent); }
 #resTitle .ti { color: var(--accent); }
+.fbtns { display: inline-flex; gap: 4px; align-items: center; }

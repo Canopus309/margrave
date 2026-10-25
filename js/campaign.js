@@ -420,6 +420,32 @@ MG.actField = type => act(MG.FIELDS[type].cost, () => (MG.S.fields.length < MG.F
 MG.fieldUpgradeCost = f => MG.costOf(MG.FIELDS[f.type].cost, f.level + 1);
 MG.actFieldUpgrade = f => (f.level >= MG.FIELDS[f.type].max ? '최고 단계예요' : act(MG.fieldUpgradeCost(f), () => { f.level++; }));
 
+// 철거: 행동력 없이, 짓고 강화하는 데 든 자원의 절반을 돌려받는다
+MG.demolishRefund = (base, level) => {
+  const out = {};
+  for (let l = 1; l <= level; l++) for (const [k, v] of Object.entries(MG.costOf(base, l))) out[k] = (out[k] || 0) + v;
+  for (const k of Object.keys(out)) out[k] = Math.floor(out[k] / 2);
+  return out;
+};
+const refund = cost => { const cap = MG.storageCap(); for (const [k, v] of Object.entries(cost)) MG.S.res[k] = Math.min(cap, MG.S.res[k] + v); };
+MG.demolish = b => {
+  const S = MG.S, d = MG.BUILDINGS[b.type], back = MG.demolishRefund(d.cost, b.level);
+  if (!S.buildings.includes(b)) return '이미 없는 건물이에요';
+  S.buildings = S.buildings.filter(x => x !== b);
+  refund(back);  // 창고를 헐면 한도가 줄어드니, 헌 뒤의 한도로 맞춘다
+  save();
+  return `${d.name}을(를) 헐었어요. ${MG.costText(back)} 돌려받았어요.`;
+};
+MG.demolishField = idx => {
+  const S = MG.S, f = S.fields[idx];
+  if (!f) return '이미 없는 시설이에요';
+  const d = MG.FIELDS[f.type], back = MG.demolishRefund(d.cost, f.level);
+  S.fields.splice(idx, 1);
+  refund(back);
+  save();
+  return `${d.name}을(를) 헐었어요. ${MG.costText(back)} 돌려받았어요.${d.hidden ? ' (다시 지을 수 없어요)' : ''}`;
+};
+
 // 성벽 조각 최대 체력 (국경 요새 영지면 +30%). id의 두 번째 글자 2는 성문
 MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1) * (MG.S && MG.hasRelic('crest') ? 1.15 : 1);
 MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul());
