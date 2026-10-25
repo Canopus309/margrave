@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>변경백</title>
+<link rel="stylesheet" href="vendor/tabler/tabler-icons-outline.min.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -30,16 +31,16 @@
     <div class="card" id="garrisonCard"></div>
     <div class="card hidden" id="itemCard"></div>
     <div class="card">
-      <h3>부대</h3>
+      <h3><i class="ti ti-users-group" aria-hidden="true"></i> 부대</h3>
       <div id="squads"></div>
     </div>
     <div class="card">
-      <button class="main" id="startBtn">전투 시작</button>
+      <button class="main" id="startBtn"><i class="ti ti-swords" aria-hidden="true"></i> 전투 시작</button>
       <div class="row">
         <button id="pauseBtn">일시정지</button>
         <button id="speedBtn">속도 x1</button>
       </div>
-      <button id="retreatBtn" class="hidden" title="정벌은 실패로 끝나고, 살아 있는 병력은 그대로 돌아와요">퇴각 (정벌 실패)</button>
+      <button id="retreatBtn" class="hidden" title="정벌은 실패로 끝나고, 살아 있는 병력은 그대로 돌아와요"><i class="ti ti-flag-off" aria-hidden="true"></i> 퇴각 (정벌 실패)</button>
     </div>
     <div class="card keys">
       좌클릭/드래그: 부대 선택 · Shift: 추가 선택<br>
@@ -54,6 +55,7 @@
 </div>
 <div id="camp" class="hidden"></div>
 <script src="js/data.js"></script>
+<script src="js/icons.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/campaign.js"></script>
 <script src="js/battle.js"></script>

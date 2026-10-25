@@ -37,8 +37,8 @@ ui.refresh = function (force) {
 
   $('startBtn').style.display = B.phase === 'prep' ? '' : 'none';
   $('pauseBtn').disabled = B.phase !== 'battle';
-  $('pauseBtn').textContent = B.paused ? '계속' : '일시정지';
-  $('speedBtn').textContent = '속도 x' + B.speed;
+  $('pauseBtn').innerHTML = B.paused ? `${MG.ic('player-play')} 계속` : `${MG.ic('player-pause')} 일시정지`;
+  $('speedBtn').innerHTML = `${MG.ic('player-track-next')} x${B.speed}`;
   $('retreatBtn').classList.toggle('hidden', !(B.conquest && B.phase === 'battle'));
 
   const res = $('result');
@@ -47,14 +47,14 @@ ui.refresh = function (force) {
 
 function refreshDefense(B, phaseName) {
   const next = B.spawnQueue[0];
-  $('wallsTitle').textContent = '성벽과 본성';
+  $('wallsTitle').innerHTML = `${MG.ic('wall')} 성벽과 본성`;
   setHtml('statusCard', `<h3>${phaseName} · 전투 ${B.level}${B.level % 5 === 0 ? ' (대습격)' : ''}</h3>
-    <div class="stat"><span>경과 시간</span><b>${Math.floor(B.time)}초</b></div>
-    <div class="stat"><span>습격</span><b>${B.wave} / 3파</b></div>
-    <div class="stat"><span>전장의 적</span><b>${B.enemies.length}</b></div>
-    <div class="stat"><span>처치</span><b>${B.stats.kills}</b></div>
-    ${next && B.phase === 'battle' && next.wave > B.wave ? `<div class="stat"><span>다음 습격까지</span><b>${Math.ceil(next.t - B.time)}초</b></div>` : ''}
-    <div class="stat"><span>성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '정벌 중' : B.lordDead ? '전사' : '생존'}</b></div>`);
+    <div class="stat"><span>${MG.ic('clock')} 경과 시간</span><b>${Math.floor(B.time)}초</b></div>
+    <div class="stat"><span>${MG.ic('swords')} 습격</span><b>${B.wave} / 3파</b></div>
+    <div class="stat"><span>${MG.ic('skull')} 전장의 적</span><b>${B.enemies.length}</b></div>
+    <div class="stat"><span>${MG.ic('target')} 처치</span><b>${B.stats.kills}</b></div>
+    ${next && B.phase === 'battle' && next.wave > B.wave ? `<div class="stat"><span>${MG.ic('hourglass')} 다음 습격까지</span><b>${Math.ceil(next.t - B.time)}초</b></div>` : ''}
+    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '정벌 중' : B.lordDead ? '전사' : '생존'}</b></div>`);
 
   // 한 면을 성벽 조각 4개 + 가운데 성문으로 보여준다
   const piece = w => {
@@ -88,16 +88,16 @@ function refreshDefense(B, phaseName) {
 // 정벌 전투: 적 본진·보스·망루 상태
 function refreshConquest(B, phaseName) {
   const O = B.outpost, boss = B.boss, towers = B.enemies.filter(e => e.struct === 'tower').length;
-  $('wallsTitle').textContent = '적 진지';
+  $('wallsTitle').innerHTML = `${MG.ic('building-fortress')} 적 진지`;
   setHtml('statusCard', `<h3>${phaseName} · ${O.name} 정벌</h3>
-    <div class="stat"><span>경과 시간</span><b>${Math.floor(B.time)}초</b></div>
-    <div class="stat"><span>전장의 적</span><b>${B.enemies.filter(e => !e.struct).length}</b></div>
-    <div class="stat"><span>처치</span><b>${B.stats.kills}</b></div>
-    ${!B.bossDead && B.phase === 'battle' ? `<div class="stat"><span>다음 증원까지</span><b>${Math.ceil(B.reinfT)}초</b></div>` : ''}
-    <div class="stat"><span>성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '성에 남음' : B.lordDead ? '전사' : '친정 중'}</b></div>`);
+    <div class="stat"><span>${MG.ic('clock')} 경과 시간</span><b>${Math.floor(B.time)}초</b></div>
+    <div class="stat"><span>${MG.ic('skull')} 전장의 적</span><b>${B.enemies.filter(e => !e.struct).length}</b></div>
+    <div class="stat"><span>${MG.ic('target')} 처치</span><b>${B.stats.kills}</b></div>
+    ${!B.bossDead && B.phase === 'battle' ? `<div class="stat"><span>${MG.ic('hourglass')} 다음 증원까지</span><b>${Math.ceil(B.reinfT)}초</b></div>` : ''}
+    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '성에 남음' : B.lordDead ? '전사' : '친정 중'}</b></div>`);
   setHtml('walls', bar('적 본진', B.hq.dead ? 0 : B.hq.hp, B.hq.max)
     + bar(boss.T.name, boss.dead ? 0 : boss.hp, boss.max)
-    + `<div class="stat"><span>남은 망루</span><b>${towers}</b></div>
+    + `<div class="stat"><span>${MG.ic('building-lighthouse')} 남은 망루</span><b>${towers}</b></div>
     <div class="wallLegend">본진을 부수면 이겨요. 보스를 먼저 쓰러뜨리면 증원이 끊기고 적의 기세가 꺾이며, 전설 무기를 얻어요.</div>`);
   $('scoutCard').classList.toggle('hidden', B.phase !== 'prep');
   setHtml('scoutCard', `<h3>정찰 보고</h3>
@@ -113,9 +113,9 @@ function refreshItems(B) {
   card.classList.toggle('hidden', !kinds.length || B.phase === 'result');
   const html = B.phase === 'prep'
     ? `<h3>소모품 챙기기 (${B.carry.size} / ${MG.ITEM_CARRY}종)</h3>${kinds.map(k => `<label class="tog"><input type="checkbox" data-carry="${k}" ${B.carry.has(k) ? 'checked' : ''}
-        ${!B.carry.has(k) && B.carry.size >= MG.ITEM_CARRY ? 'disabled' : ''}> ${MG.ITEMS[k].name} ${B.items[k]}개 <span class="muted small">${MG.ITEMS[k].desc}</span></label>`).join('')}`
-    : `<h3>소모품</h3><div class="itemBtns">${[...B.carry].map(k => `<button class="mini" data-useitem="${k}" ${MG.itemLeft(k) > 0 ? '' : 'disabled'} title="${MG.ITEMS[k].desc}">
-        ${MG.ITEMS[k].name} ${MG.itemLeft(k)}</button>`).join('') || '<span class="muted small">챙겨 온 소모품이 없어요</span>'}</div>
+        ${!B.carry.has(k) && B.carry.size >= MG.ITEM_CARRY ? 'disabled' : ''}> ${MG.ic(MG.ICONS.item[k])} ${MG.ITEMS[k].name} ×${B.items[k]} <span class="muted small">${MG.ITEMS[k].desc}</span></label>`).join('')}`
+    : `<h3>${MG.ic('gift')} 소모품</h3><div class="itemBtns">${[...B.carry].map(k => `<button class="mini" data-useitem="${k}" ${MG.itemLeft(k) > 0 ? '' : 'disabled'} title="${MG.ITEMS[k].desc}">
+        ${MG.ic(MG.ICONS.item[k])} ${MG.ITEMS[k].name} <b>${MG.itemLeft(k)}</b></button>`).join('') || '<span class="muted small">챙겨 온 소모품이 없어요</span>'}</div>
         ${B.drumT > 0 ? `<div class="ok small">전투 북: ${Math.ceil(B.drumT)}초</div>` : ''}`;
   if (setHtml('itemCard', html)) {
     card.querySelectorAll('[data-carry]').forEach(c => c.onchange = () => { MG.toggleCarry(c.dataset.carry); ui.refresh(true); });
@@ -127,7 +127,8 @@ function refreshItems(B) {
 function skillBtn(sq) {
   const K = MG.skillOf(sq), st = MG.skillState(sq);
   if (!K || !st) return '';
-  const label = st.ok ? `${K.name} (Q)` : `${K.name} · ${st.why}`;
+  const ico = MG.ic(MG.ICONS.skill[sq.isLord ? 'guard' : sq.type]);
+  const label = st.ok ? `${ico} ${K.name} <span class="key">Q</span>` : `${ico} ${K.name} · ${st.why}`;
   return `<button class="mini skillBtn ${st.ok ? 'ready' : ''}" data-skill="${sq.id}" ${st.ok && B_().phase === 'battle' ? '' : 'disabled'} title="${K.desc}${sq.cls && K[sq.cls] ? ` · 강화: ${K[sq.cls]}` : ''}">${label}</button>`;
 }
 const B_ = () => MG.B;
@@ -139,8 +140,9 @@ function refreshSquads(B) {
     const sub = sq.isGarrison ? '궁수·보병 혼성' : `${sq.title || (T ? T.name : '')}${sq.isLord ? '' : lead}`;
     const hp = sq.soldiers.reduce((a, s) => a + s.hp, 0), max = sq.soldiers.reduce((a, s) => a + s.max, 0);
     return `<div class="squad ${B.selected.has(sq) ? 'sel' : ''} ${sq.leaderDown ? 'down' : ''}" data-id="${sq.id}">
-      <div class="top"><span>${sq.name}</span><span>${sq.soldiers.length} / ${sq.initial}</span></div>
-      <div class="sub">${sub} · 체력 ${Math.round(hp / max * 100)}%${sq.shieldT > 0 ? ' · 방패벽' : ''}</div>${skillBtn(sq)}</div>`;
+      <div class="top"><span class="unitBadge sm u-${sq.type}">${MG.icUnit(sq.isGarrison ? 'garrison' : sq.type)}</span><span class="sqName">${sq.name.replace(' 부대', '')}</span><span>${MG.ic('users')} ${sq.soldiers.length}/${sq.initial}</span></div>
+      <div class="sub">${sub}${sq.shieldT > 0 ? ` · ${MG.ic('shield-half')}방패벽` : ''}</div>
+      <div class="bar thin" title="체력 ${Math.round(hp / max * 100)}%"><div style="width:${hp / max * 100}%;background:${hp / max > 0.5 ? '#6bdc8f' : hp / max > 0.25 ? '#e6b450' : '#ff6b6b'}"></div></div>${skillBtn(sq)}</div>`;
   }).join('') || '<div style="color:var(--muted)">남은 부대가 없어요.</div>')) {
     $('squads').querySelectorAll('[data-skill]').forEach(b => b.onmousedown = ev => {
       ev.preventDefault(); ev.stopPropagation();
@@ -167,21 +169,21 @@ function genTable(s) {
     <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
 }
 const woundTable = s => `<table>
-      <tr><th>경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
-      <tr><th>중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
-      <tr><th>사망</th><td>${s.wound.dead}명</td></tr>
+      <tr><th>${MG.ic('bandage')} 경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
+      <tr><th>${MG.ic('first-aid-kit')} 중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
+      <tr><th>${MG.ic('grave-2')} 사망</th><td>${s.wound.dead}명</td></tr>
     </table>`;
 
 function showConquestResult(B) {
   const r = B.result, s = r.summary, S = MG.S, O = B.outpost;
-  $('resTitle').textContent = r.win ? `${O.name} ${O.final ? '함락' : '정벌'}!` : B.retreated ? '퇴각했어요' : '정벌 실패…';
+  $('resTitle').innerHTML = r.win ? `${MG.ic('trophy')} ${O.name} ${O.final ? '함락' : '정벌'}!` : B.retreated ? `${MG.ic('flag-off')} 퇴각했어요` : `${MG.ic('skull')} 정벌 실패…`;
   const left = B.squads.reduce((a, q) => a + q.soldiers.length, 0);
   $('resBody').innerHTML = `
     <table>
-      <tr><th>싸운 시간</th><td>${Math.floor(r.time)}초</td></tr>
-      <tr><th>처치한 적</th><td>${B.stats.kills}</td></tr>
+      <tr><th>${MG.ic('clock')} 싸운 시간</th><td>${Math.floor(r.time)}초</td></tr>
+      <tr><th>${MG.ic('skull')} 처치한 적</th><td>${B.stats.kills}</td></tr>
       <tr><th>${O.boss ? MG.ENEMY_TYPES[O.boss].name : '보스'}</th><td>${B.bossDead ? '<b style="color:var(--ok)">쓰러뜨림</b>' : '살아 있음'}</td></tr>
-      <tr><th>남은 병력</th><td>${left}명</td></tr>
+      <tr><th>${MG.ic('users')} 남은 병력</th><td>${left}명</td></tr>
     </table>
     <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
     <table>${genTable(s) || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
@@ -206,7 +208,7 @@ function showConquestResult(B) {
 function showResult(B) {
   if (B.conquest) { showConquestResult(B); return; }
   const r = B.result;
-  $('resTitle').textContent = r.win ? '방어 성공!' : '본성 함락…';
+  $('resTitle').innerHTML = r.win ? `${MG.ic('trophy')} 방어 성공!` : `${MG.ic('skull')} 본성 함락…`;
   const broken = B.walls.filter(w => w.hp <= 0);
   const breached = MG.SIDES.map(s => {
     const b = broken.filter(w => w.side === s);
@@ -221,19 +223,19 @@ function showResult(B) {
     <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
   $('resBody').innerHTML = `
     <table>
-      <tr><th>버틴 시간</th><td>${Math.floor(r.time)}초</td></tr>
-      <tr><th>처치한 적</th><td>${B.stats.kills} / ${B.stats.spawned}</td></tr>
-      <tr><th>부서진 곳</th><td>${breached.length ? breached.join(' · ') : '없음'}</td></tr>
-      <tr><th>남은 병력</th><td>${left}명</td></tr>
+      <tr><th>${MG.ic('clock')} 버틴 시간</th><td>${Math.floor(r.time)}초</td></tr>
+      <tr><th>${MG.ic('skull')} 처치한 적</th><td>${B.stats.kills} / ${B.stats.spawned}</td></tr>
+      <tr><th>${MG.ic('wall')} 부서진 곳</th><td>${breached.length ? breached.join(' · ') : '없음'}</td></tr>
+      <tr><th>${MG.ic('users')} 남은 병력</th><td>${left}명</td></tr>
     </table>
     <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
     <table>${genRows || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
     ${s.lord ? `<p>성주 ${s.lord.name}: +${s.lord.xp} 경험치${s.lord.to > s.lord.from ? ` · <b style="color:var(--ok)">Lv.${s.lord.from} → ${s.lord.to}</b> (자동으로 ${s.lord.auto.join('·')} +1, 분배할 점수 +${s.lord.to - s.lord.from})` : ` · Lv.${s.lord.to}`}</p>` : ''}
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     <table>
-      <tr><th>경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
-      <tr><th>중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
-      <tr><th>사망</th><td>${s.wound.dead}명</td></tr>
+      <tr><th>${MG.ic('bandage')} 경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
+      <tr><th>${MG.ic('first-aid-kit')} 중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
+      <tr><th>${MG.ic('grave-2')} 사망</th><td>${s.wound.dead}명</td></tr>
     </table>
     ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명을 잃었어요` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}

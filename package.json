@@ -13,7 +13,7 @@
   "build": {
     "appId": "com.margrave.game",
     "productName": "변경백",
-    "files": ["index.html", "css/**", "js/**", "electron/**", "package.json"],
+    "files": ["index.html", "css/**", "js/**", "vendor/**", "electron/**", "package.json"],
     "directories": { "output": "dist" },
     "win": { "target": "portable", "signAndEditExecutable": false },
     "portable": { "artifactName": "변경백.exe" }

@@ -168,3 +168,71 @@ button.onBtn { border-color: var(--ok); color: var(--ok); }
 .lordStats { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
 .lordStats td { padding: 1px 4px; }
 .lordStats td:nth-child(2) { color: var(--accent); width: 24px; text-align: center; }
+
+/* ---------- 아이콘 UI ---------- */
+.ti { font-size: 1.1em; vertical-align: -0.12em; line-height: 1; }
+.res-gold { color: #f0c24a; } .res-food { color: #d8b45a; } .res-wood { color: #7ccf6a; } .res-iron { color: #a8b4c8; } .res-pop { color: #6aa8ff; }
+.campWrap header { align-items: center; }
+.crest { width: 44px; height: 44px; border-radius: 50%; background: #3a2e18; color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.titleBox { flex: 1; min-width: 220px; }
+.campWrap h1 { font-size: 21px; }
+.eraChip { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 5px 12px; font-size: 12px; color: #cbb8ff; }
+.iconBtn { width: 36px; height: 36px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+.campWrap .ap { letter-spacing: 0; font-size: 20px; display: flex; gap: 1px; }
+.ap .on { color: var(--accent); } .ap .off { color: #3a4152; }
+.chip { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: default; }
+.chip .ti { font-size: 18px; }
+.chip b { font-size: 16px; }
+.chip i:not(.ti) { font-style: normal; font-size: 11px; }
+.attackBar { align-items: center; }
+.atkIcon { font-size: 24px; color: var(--danger); }
+.atkText { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.attackBar.now .atkIcon { animation: pulse 1s infinite alternate; }
+@keyframes pulse { from { opacity: 1; } to { opacity: .45; } }
+.tag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 10px; background: var(--panel2); font-size: 12px; }
+.tag.danger { background: #3a1a1a; color: #ffb3b3; } .tag.ok { background: #183a24; color: #a8f0c0; }
+.warnLine { font-size: 12px; padding: 5px 10px; border-radius: 6px; margin-bottom: 4px; }
+.warnLine.danger { background: #2a1616; color: #ffb3b3; } .warnLine.warn { background: #2a2414; color: #ffd38a; }
+details.report summary { cursor: pointer; color: var(--muted); }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 6px 0 12px; overflow-x: auto; }
+.tab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 9px 16px; color: var(--muted); font-size: 14px; position: relative; white-space: nowrap; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.tab .dot { position: absolute; top: 7px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+.campRow.two { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); align-items: start; }
+.campRow.two button { width: auto; margin-top: 0; }
+.actBtn { min-width: 84px; text-align: left; }
+.count { color: var(--accent); font-size: 12px; }
+.mini.buy { color: #a8f0c0; } .mini.sell { color: #ffd38a; }
+/* 장수 카드 (압축형) */
+.gen { gap: 5px; padding: 10px; }
+.gtop { align-items: center; gap: 8px; cursor: pointer; font-size: 14px; justify-content: flex-start; }
+.gname { flex: 1; display: flex; flex-direction: column; line-height: 1.25; }
+.unitBadge { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; background: #26324a; color: #9fc4ff; flex-shrink: 0; }
+.u-archer { background: #1f3a2a; color: #9fe6b5; } .u-mage { background: #34244a; color: #d7b0ff; } .u-priest { background: #3a3418; color: #fff1a8; }
+.u-engineer { background: #3a2c18; color: #e0b880; } .u-artillery { background: #2c2f38; color: #c0c6d4; } .u-cavalry { background: #3a2418; color: #f0a878; }
+.gen.dead .unitBadge { background: #2a2a2a; color: #888; }
+.bar.thin { height: 4px; margin: 0; }
+.gline { display: flex; gap: 10px; align-items: center; color: var(--muted); }
+.gline span { display: inline-flex; align-items: center; gap: 2px; }
+.gdetail { border-top: 1px solid var(--border); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.blood .ti { color: var(--accent); }
+/* 성 안 지도 아이콘 */
+.map .bld { flex-direction: column; gap: 1px; }
+.map .bld > .ti { font-size: 17px; color: rgba(0,0,0,0.75); }
+.map .bld.big > .ti { font-size: 24px; }
+.map .bld.ruin > .ti { color: #c9b9a0; }
+.map .bld sup { position: absolute; right: 2px; bottom: 0; font-size: 8px; color: #3a2400; }
+.map .keepCell .ti { font-size: 34px; color: #3a332b; }
+.map .keepCell em { position: absolute; left: 4px; bottom: 4px; height: 3px; background: var(--ok); max-width: calc(100% - 8px); }
+/* 전투 패널 */
+.unitBadge.sm { width: 22px; height: 22px; font-size: 13px; }
+.squad .top { align-items: center; gap: 6px; justify-content: flex-start; }
+.squad .top .sqName { flex: 1; }
+.squad .bar.thin { margin: 4px 0 2px; }
+.key { display: inline-block; padding: 0 4px; border: 1px solid #4a5a7a; border-radius: 3px; font-size: 10px; margin-left: 2px; }
+#itemCard .mini b { color: var(--accent); }
+/* 창 아이콘 */
+.rcard .cardIcon { font-size: 30px; }
+.overlay h1 .ti { color: var(--accent); }
+#resTitle .ti { color: var(--accent); }

@@ -10,6 +10,8 @@ let chronOpen = false;    // 연대기 창
 let setupOpen = false;    // 새 캠페인 준비 창
 let setup = { domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
 let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
+let tab = 'castle';         // 내정 화면 탭: castle army war market family
+let openGen = new Set();    // 펼쳐 둔 장수 카드
 let marchPick = new Set();  // 정벌군으로 고른 장수 id
 let marchLord = false;      // 성주 친정
 let sel = null;   // { i, j } 빈 칸 또는 { b } 건물
@@ -29,56 +31,68 @@ const sign = v => (v >= 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
 // ---------- 머리말: 날짜, 자원, 습격 예고 ----------
 function headerBlock() {
   const S = MG.S, prod = MG.production(), eco = MG.economy(), cap = MG.storageCap(), fc = MG.attackForecast(), A = S.nextAttack;
-  const res = Object.keys(MG.RES).map(k => `<div class="res"><span>${MG.RES[k]}</span><b>${Math.floor(S.res[k])}</b>
-    <i class="${prod[k] < 0 ? 'danger' : 'muted'}">${sign(prod[k])}/월</i></div>`).join('');
   let intel = '';
-  if (A.scout >= 1) intel += ` · <b>${MG.factionText(A.faction, A.mix)}</b>`;
-  if (A.scout >= 1) intel += ` · ${A.dirs.map(d => `<span class="dirTag">${MG.SIDE_NAME[d]}</span>`).join('')}쪽`;
+  if (A.scout >= 1) intel += ` <span class="tag" title="${MG.FACTIONS[A.faction || 'goblin'].desc}">${MG.ic(MG.ICONS.faction[A.faction || 'goblin'])} ${MG.factionText(A.faction, A.mix)}</span>`;
+  if (A.scout >= 1) intel += A.dirs.map(d => ` <span class="tag" title="${MG.SIDE_NAME[d]}쪽에서 와요">${MG.ic(MG.ICONS.side[d])}${MG.SIDE_NAME[d]}</span>`).join('');
   if (A.scout >= 2) {
     const sum = {};
     for (const g of MG.attackGroups()) sum[g.type] = (sum[g.type] || 0) + g.count;
-    intel += ` · ${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${n}`).join(', ')}`;
+    intel += ` <span class="muted small">${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} ${n}`).join(' · ')}</span>`;
   }
-  if (A.mul && A.mul < 1) intel += ` <span class="ok small">(둥지 소탕으로 규모 -${Math.round((1 - A.mul) * 100)}%)</span>`;
-  if (A.retaliation) intel += ` <span class="danger small">(${MG.OUTPOSTS[A.retaliation].name}의 보복 습격)</span>`;
+  if (A.mul && A.mul < 1) intel += ` <span class="tag ok" title="고블린 둥지 소탕">${MG.ic('arrow-down')}${Math.round((1 - A.mul) * 100)}%</span>`;
+  if (A.retaliation) intel += ` <span class="tag danger">${MG.ic('flame')} ${MG.OUTPOSTS[A.retaliation].name}의 보복</span>`;
   const attackNow = MG.isAttackMonth();
   const marchNow = S.pendingConquest && S.march;
+  const I = MG.ICONS, season = MG.SEASON(S.month);
+  // 자원 칩: 아이콘 + 값 + 달 변화. 자세한 내역은 말풍선으로
+  const tip = { gold: `세금 +${eco.tax}${eco.market ? ` · 시장 +${eco.market}` : ''} · 급여 -${eco.wages} (병력 ${eco.soldiers}명)`,
+    food: `생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})`, wood: '들판 벌목장', iron: '들판 광산' };
+  const chips = Object.keys(MG.RES).map(k => `<div class="chip" title="${MG.RES[k]} · ${tip[k]} · 보관 한도 ${cap}">${MG.icRes(k)}<b>${Math.floor(S.res[k])}</b>
+    <i class="${prod[k] < 0 ? 'danger' : 'ok'}">${sign(prod[k])}</i></div>`).join('');
+  const warns = [
+    S.starving && ['grain', '식량이 바닥났어요 — 공격력이 떨어지고 주민·병사가 떠나요', 'danger'],
+    S.unpaid && ['coins', '급여가 밀렸어요 — 공격력이 떨어지고 병사가 탈영해요', 'danger'],
+    !S.unpaid && prod.gold < 0 && S.res.gold + prod.gold < 0 && ['coins', '이대로면 다음 달 급여를 다 못 줘요', 'warn'],
+    S.keep < MG.KEEP_HP * 0.5 && ['building-castle', `본성 체력 ${Math.round(S.keep)} / ${MG.KEEP_HP} — 수리하세요`, 'danger'],
+    MG.damageList().some(d => d.kind === 'wall' && d.hp <= 0) && ['wall', '무너진 성벽이 그대로예요 — 수리하지 않으면 뚫린 채로 싸워요', 'warn'],
+  ].filter(Boolean);
   return `<header>
-    <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
+    <div class="crest">${MG.ic('crown')}</div>
+    <div class="titleBox"><h1>${S.lord.name}의 변경 기지</h1>
+      <div class="muted small">${MG.ic(I.season[season])} ${MG.monthName()} · ${S.lord.gen}대${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
       ${effectTags()}</div></div>
-    <div class="muted small" title="${MG.FACTIONS[S.era.main].desc}">지금 시대: ${MG.factionText(S.era.main, S.era.mix)}</div>
-    <div class="headRight"><button id="chronBtn">연대기</button><button id="saveMenuBtn">저장·불러오기</button>
-      <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(Math.max(0, MG.apMax() - S.ap))}</div></div>
+    <div class="eraChip" title="지금 시대 · ${MG.FACTIONS[S.era.main].desc}">${MG.ic(I.faction[S.era.main])} ${MG.factionText(S.era.main, S.era.mix)}</div>
+    <div class="headRight">
+      <div class="ap" title="행동력 ${S.ap} / ${MG.apMax()}">${Array.from({ length: MG.apMax() }, (_, i) => MG.ic('bolt', i < S.ap ? 'on' : 'off')).join('')}</div>
+      <button class="iconBtn" id="chronBtn" title="연대기">${MG.ic('book')}</button>
+      <button class="iconBtn" id="saveMenuBtn" title="저장·불러오기">${MG.ic('device-floppy')}</button></div>
   </header>
-  <div class="resBar">${res}
-    <div class="res"><span>주민</span><b>${S.pop}</b><i class="muted">/ ${MG.popCap()}</i></div>
-    <div class="res"><span>보관 한도</span><b>${cap}</b></div>
+  <div class="resBar">${chips}
+    <div class="chip" title="주민 / 집 한도 (민가 1단계당 ${MG.HOUSE_POP}명)">${MG.icRes('pop')}<b>${S.pop}</b><i class="muted">/${MG.popCap()}</i></div>
+    <div class="chip" title="병력 (장수 부대·직할·부상병 포함)">${MG.ic('shield')}<b>${eco.soldiers}</b></div>
   </div>
-  <div class="ecoLine small muted">매달 골드: 세금 +${eco.tax}${eco.market ? ` · 시장 +${eco.market}` : ''} · 급여 <span class="${prod.gold < 0 ? 'danger' : ''}">-${eco.wages}</span> (병력 ${eco.soldiers}명)
-    · 식량: 생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})</div>
-  <div class="attackBar ${attackNow ? 'now' : ''}">
-    <div>다음 습격 (전투 ${S.level}${S.level % 5 === 0 ? ', 대습격' : ''}): <b>${fc.text}</b>${intel}
-      ${A.scout < 2 ? '<span class="muted small"> · 정찰하면 더 알 수 있어요</span>' : ''}</div>
+  <div class="attackBar ${attackNow || marchNow ? 'now' : ''}">
+    <div class="atkIcon">${MG.ic(marchNow ? 'flag-3' : 'swords')}</div>
+    <div class="atkText"><b>${marchNow ? `정벌군 도착 · ${MG.OUTPOSTS[S.march.id].name}` : `습격 ${fc.text}`}</b>
+      <span class="muted small">전투 ${S.level}${S.level % 5 === 0 ? ' · 대습격' : ''}</span>${intel}
+      ${A.scout < 2 && !marchNow ? `<span class="muted small" title="행동의 정찰로 더 알 수 있어요"> ${MG.ic('eye')} ${A.scout ? '구성 모름' : '세력·방향 모름'}</span>` : ''}</div>
     <div class="btns">${marchNow
-      ? `<button class="main danger" id="conquestBtn">정벌군이 ${MG.OUTPOSTS[S.march.id].name}에 도착 → 정벌 전투</button>`
+      ? `<button class="main danger" id="conquestBtn">${MG.ic('flag-3')} 정벌 전투</button>`
       : attackNow
-      ? '<button class="main danger" id="goBtn">습격이 왔어요 → 전투 준비</button>'
-      : '<button id="skipBtn">다음 습격까지 넘기기</button><button class="main" id="endBtn">한 달 마치기</button>'}</div>
+      ? `<button class="main danger" id="goBtn">${MG.ic('swords')} 전투 준비</button>`
+      : `<button id="skipBtn" title="다음 습격까지 넘기기">${MG.ic('player-skip-forward')}</button><button class="main" id="endBtn">${MG.ic('player-track-next')} 한 달 마치기</button>`}</div>
   </div>
-  ${S.starving ? '<div class="danger small">식량이 바닥났어요. 전투에서 공격력이 떨어지고 주민과 병사가 떠나요.</div>' : ''}
-  ${S.unpaid ? '<div class="danger small">급여가 밀렸어요. 전투에서 공격력이 떨어지고 병사가 탈영해요.</div>' : ''}
-  ${!S.unpaid && prod.gold < 0 && S.res.gold + prod.gold < 0 ? '<div class="warn small">이대로면 다음 달 급여를 다 못 줘요.</div>' : ''}
-  ${S.keep < MG.KEEP_HP * 0.5 ? `<div class="danger small">본성 체력이 ${Math.round(S.keep)} / ${MG.KEEP_HP}이에요. 이대로 습격을 받으면 금방 무너져요. 수리하세요.</div>` : ''}
-  ${MG.damageList().some(d => d.kind === 'wall' && d.hp <= 0) ? '<div class="warn small">무너진 성벽이 그대로예요. 수리하지 않으면 다음 습격 때 뚫린 채로 싸워요.</div>' : ''}
-  ${S.report && S.report.length ? `<div class="report small">${S.report.map(r => `<div>${r}</div>`).join('')}</div>` : ''}`;
+  ${warns.map(([ic, t, c]) => `<div class="warnLine ${c}">${MG.ic(ic)} ${t}</div>`).join('')}
+  ${S.report && S.report.length ? `<details class="report small" open><summary>${MG.ic('news')} 지난달 소식 ${S.report.length}</summary>${S.report.map(r => `<div>${r}</div>`).join('')}</details>` : ''}`;
 }
 
 // 연대기 사건이 남긴 지속 효과 표시
 function effectTags() {
   const names = { migration: '마물 대이동(습격 +30%, 전리품 2배)', harshWinter: '혹한(겨울 식량 소비 1.5배)', marriage: '혼인(출생 확률 2배)', lowtax: '세금 감면(-30%)' };
-  const endless = MG.S.ended ? ` <span class="effTag" title="검은 성채를 무너뜨린 뒤 해마다 습격이 커져요">평정 이후 · 습격 +${Math.round((MG.endlessMul() - 1) * 100)}%</span>` : '';
+  const icons = { migration: 'paw', harshWinter: 'snowflake', marriage: 'heart', lowtax: 'coins' };
+  const endless = MG.S.ended ? ` <span class="effTag" title="검은 성채를 무너뜨린 뒤 해마다 습격이 커져요">${MG.ic('infinity')} 습격 +${Math.round((MG.endlessMul() - 1) * 100)}%</span>` : '';
   return endless + (MG.S.effects || []).filter(e => e.until > MG.S.month)
-    .map(e => ` <span class="effTag" title="${MG.monthLabel(e.until)}까지">${names[e.type] || e.type} · ${e.until - MG.S.month}개월</span>`).join('');
+    .map(e => ` <span class="effTag" title="${names[e.type] || e.type} · ${MG.monthLabel(e.until)}까지">${MG.ic(icons[e.type] || 'clock')} ${e.until - MG.S.month}개월</span>`).join('');
 }
 
 // ---------- 성 안 지도 ----------
@@ -95,17 +109,19 @@ function mapBlock() {
   }
   const blds = S.buildings.map(b => {
     const d = MG.BUILDINGS[b.type], on = sel && sel.b === b;
-    return `<div class="bld ${b.hp <= 0 ? 'ruin' : ''} ${on ? 'on' : ''}" data-bld="${b.id}"
+    // 건물 칸: 아이콘(큰 건물은 이름도), 단계는 별, 이름·설명은 말풍선
+    return `<div class="bld ${b.hp <= 0 ? 'ruin' : ''} ${on ? 'on' : ''} ${d.w > 1 ? 'big' : ''}" data-bld="${b.id}" title="${d.name} ${b.level}단계 · ${d.desc(b.level)}${b.hp <= 0 ? ' · 부서짐' : ''}"
       style="left:${b.i * CELL_PX}px;top:${b.j * CELL_PX}px;width:${d.w * CELL_PX}px;height:${d.h * CELL_PX}px;background:${b.hp <= 0 ? '#4a4038' : d.color}">
-      <span>${d.name}${b.level > 1 ? ` ${b.level}` : ''}</span>${b.hp > 0 && b.hp < b.max ? `<em style="width:${pct(b.hp, b.max)}%"></em>` : ''}</div>`;
+      ${MG.ic(b.hp <= 0 ? 'barrier-block' : MG.ICONS.building[b.type])}${d.w > 1 ? `<span>${d.name}</span>` : ''}${b.level > 1 ? `<sup>${'★'.repeat(b.level - 1)}</sup>` : ''}
+      ${b.hp > 0 && b.hp < b.max ? `<em style="width:${pct(b.hp, b.max)}%"></em>` : ''}</div>`;
   }).join('');
-  const keep = `<div class="keepCell" style="left:${5 * CELL_PX}px;top:${5 * CELL_PX}px;width:${4 * CELL_PX}px;height:${4 * CELL_PX}px">본성
-    <small>${Math.round(S.keep)} / ${MG.KEEP_HP}</small></div>`;
+  const keep = `<div class="keepCell" style="left:${5 * CELL_PX}px;top:${5 * CELL_PX}px;width:${4 * CELL_PX}px;height:${4 * CELL_PX}px" title="본성 ${Math.round(S.keep)} / ${MG.KEEP_HP}">
+    ${MG.ic('building-castle')}<small>${Math.round(S.keep)}</small><em style="width:${pct(S.keep, MG.KEEP_HP)}%"></em></div>`;
   const gates = ['북', '동', '남', '서'].map((g, k) => {
     const pos = [[6.5, -0.9], [n - 0.1, 6.5], [6.5, n - 0.1], [-0.9, 6.5]][k];
     return `<div class="gateTag" style="left:${pos[0] * CELL_PX}px;top:${pos[1] * CELL_PX}px">${g}문</div>`;
   }).join('');
-  return `<section class="card castle"><h3>성 안 (빈 칸을 눌러 건설, 건물을 눌러 정보·강화)</h3>
+  return `<section class="card castle"><h3>${MG.ic('building-castle')} 성 안 <span class="muted">빈 칸: 건설 · 건물: 정보·강화</span></h3>
     <div class="mapWrap"><div class="map" style="width:${n * CELL_PX}px;height:${n * CELL_PX}px">${cells}${keep}${blds}${gates}</div></div>
     ${selBlock()}</section>`;
 }
@@ -124,7 +140,7 @@ function selBlock() {
   const opts = Object.entries(MG.BUILDINGS).map(([k, d]) => {
     const fit = MG.canPlace(k, sel.i, sel.j), ok = fit && S.ap && MG.canPay(d.cost);
     return `<button class="buildOpt" data-build="${k}" ${ok ? '' : 'disabled'}>
-      <b>${d.name}</b> <span class="muted">${d.w}×${d.h}</span><span>${d.desc(1)}</span>
+      <b>${MG.ic(MG.ICONS.building[k])} ${d.name}</b> <span class="muted">${d.w}×${d.h}</span><span>${d.desc(1)}</span>
       <span class="${MG.canPay(d.cost) ? 'muted' : 'danger'}">${MG.costText(d.cost)}${fit ? '' : ' · 자리 부족'}</span></button>`;
   }).join('');
   return `<div class="selPanel"><b>여기에 짓기</b> <span class="muted small">(${sel.i}, ${sel.j}칸을 왼쪽 위로) · 행동력 1</span>
@@ -154,11 +170,11 @@ function actionsBlock() {
       ok: MG.bLevel('smithy') && MG.canPay(MG.CRAFT_COST) },
   ];
   const promote = MG.canPromote()
-    ? `<div class="actRow"><span class="small"><b>발탁</b> <span class="muted">직할 병사를 장수로 · ${MG.costText(MG.PROMOTE_COST)}</span></span>
-        <span>${['infantry', 'archer'].map(t => `<button class="mini" data-promote="${t}" ${ap && S.garrison[t] > 0 && MG.canPay(MG.PROMOTE_COST) ? '' : 'disabled'}>${MG.UNIT_TYPES[t].name}</button>`).join(' ')}</span></div>`
+    ? `<div class="actRow"><span class="small"><b>${MG.ic('chevrons-up')} 발탁</b> <span class="muted">직할 병사를 장수로 · ${MG.costText(MG.PROMOTE_COST)}</span></span>
+        <span>${['infantry', 'archer'].map(t => `<button class="mini" data-promote="${t}" ${ap && S.garrison[t] > 0 && MG.canPay(MG.PROMOTE_COST) ? '' : 'disabled'}>${MG.icUnit(t)} ${MG.UNIT_TYPES[t].name}</button>`).join(' ')}</span></div>`
     : '<div class="actRow"><span class="small muted">발탁: 훈련장 2단계가 있으면 직할 병사를 장수로 키울 수 있어요</span></div>';
-  return `<section class="card"><h3>행동 (행동력 1씩)</h3>
-    ${rows.map(r => `<div class="actRow"><button data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
+  return `<section class="card"><h3>${MG.ic('bolt')} 행동 <span class="muted">행동력 1씩</span></h3>
+    ${rows.map(r => `<div class="actRow"><button class="actBtn" data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${MG.ic(MG.ICONS.act[r.id])} ${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
     ${promote}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
 }
@@ -166,22 +182,23 @@ function actionsBlock() {
 // 전투 소모품: 보유 수와 사기 (시장이 있어야)
 function itemShop() {
   const S = MG.S, market = MG.bLevel('market') > 0;
-  const rows = Object.entries(MG.ITEMS).map(([k, I]) => `<div class="tradeRow"><span><b>${I.name}</b> ${S.items[k] || 0}개</span>
+  const rows = Object.entries(MG.ITEMS).map(([k, I]) => `<div class="tradeRow" title="${I.desc}${I.defense ? ' (방어전에서만)' : ''}">
+    <span><b>${MG.ic(MG.ICONS.item[k])} ${I.name}</b> <span class="count">×${S.items[k] || 0}</span></span>
     <span class="small muted">${I.desc}${I.defense ? ' (방어전)' : ''}</span>
-    ${market ? `<button class="mini" data-buyitem="${k}" ${S.res.gold >= I.price && (S.items[k] || 0) < MG.ITEM_MAX ? '' : 'disabled'}>사기 · 골드 ${I.price}</button>` : ''}</div>`).join('');
-  return `<h3 style="margin-top:10px">전투 소모품 <span class="muted">(전투마다 ${MG.ITEM_CARRY}종까지 챙겨 가요)</span></h3>${rows}`;
+    ${market ? `<button class="mini" data-buyitem="${k}" ${S.res.gold >= I.price && (S.items[k] || 0) < MG.ITEM_MAX ? '' : 'disabled'}>${MG.icRes('gold')} ${I.price}</button>` : ''}</div>`).join('');
+  return `<h3 style="margin-top:10px">${MG.ic('gift')} 전투 소모품 <span class="muted">전투마다 ${MG.ITEM_CARRY}종까지</span></h3>${rows}`;
 }
 
 function fieldsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const list = S.fields.map((f, idx) => {
-    const d = MG.FIELDS[f.type], cost = MG.fieldUpgradeCost(f), prod = Object.entries(d.prod).map(([k, v]) => `${MG.RES[k]} ${v * f.level}`).join('');
-    return `<div class="actRow"><span><b>${d.name} ${f.level}</b> <span class="muted small">${prod}/월</span></span>
+    const d = MG.FIELDS[f.type], cost = MG.fieldUpgradeCost(f), prod = Object.entries(d.prod).map(([k, v]) => `${MG.icRes(k)}${v * f.level}`).join('');
+    return `<div class="actRow"><span><b>${MG.ic(MG.ICONS.field[f.type])} ${d.name}</b> ${'★'.repeat(f.level)} <span class="muted small">${prod}/월</span></span>
       ${f.level >= d.max ? '<span class="muted small">최고</span>' : `<button class="mini" data-fup="${idx}" ${ap && MG.canPay(cost) ? '' : 'disabled'}>강화 · ${MG.costText(cost)}</button>`}</div>`;
   }).join('');
   const add = S.fields.length < MG.FIELD_SLOTS ? Object.entries(MG.FIELDS).filter(([, d]) => !d.hidden).map(([k, d]) =>
-    `<button class="mini" data-field="${k}" ${ap && MG.canPay(d.cost) ? '' : 'disabled'}>${d.name} 짓기 · ${MG.costText(d.cost)}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
-  return `<section class="card"><h3>성 밖 들판 ${S.fields.length} / ${MG.FIELD_SLOTS} <span class="muted">(적이 부수지 않아요)</span></h3>
+    `<button class="mini" data-field="${k}" ${ap && MG.canPay(d.cost) ? '' : 'disabled'} title="${MG.costText(d.cost)}">${MG.ic('plus')} ${MG.ic(MG.ICONS.field[k])} ${d.name}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
+  return `<section class="card"><h3>${MG.ic('plant-2')} 성 밖 들판 ${S.fields.length} / ${MG.FIELD_SLOTS} <span class="muted">적이 부수지 않아요</span></h3>
     ${list}<div class="fieldAdd">${add}</div>
     <div class="muted small">가을엔 식량 2배, 겨울엔 식량 0·목재 절반</div></section>`;
 }
@@ -190,18 +207,18 @@ function marketBlock() {
   const S = MG.S;
   MG.ensureMarket();
   const l = MG.bLevel('market');
-  if (!l) return `<section class="card"><h3>시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔고, 전투 소모품도 살 수 있어요. 시세는 매달 바뀌어요.</div>${itemShop()}</section>`;
+  if (!l) return `<section class="card"><h3>${MG.ic('building-store')} 시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔고, 전투 소모품도 살 수 있어요. 시세는 매달 바뀌어요.</div>${itemShop()}</section>`;
   const arrow = r => {
     const d = S.prices[r] - S.prevPrices[r];
-    return Math.abs(d) < 0.01 ? '<span class="muted">–</span>' : d > 0 ? '<span class="danger">▲</span>' : '<span class="ok">▼</span>';
+    return Math.abs(d) < 0.01 ? `<span class="muted">${MG.ic('minus')}</span>` : d > 0 ? `<span class="danger">${MG.ic('trending-up')}</span>` : `<span class="ok">${MG.ic('trending-down')}</span>`;
   };
   const rows = Object.keys(MG.MARKET.base).map(r => `<div class="tradeRow">
-    <span><b>${MG.RES[r]}</b> ${arrow(r)}</span>
-    <span class="small">살 때 ${MG.buyPrice(r).toFixed(2)} · 팔 때 ${MG.sellPrice(r).toFixed(2)}</span>
-    <span class="tbtns">${[50, 10].map(q => `<button class="mini" data-trade="${r},${q}">사기 ${q}</button>`).join('')}
-      ${[10, 50].map(q => `<button class="mini" data-trade="${r},${-q}">팔기 ${q}</button>`).join('')}</span></div>`).join('');
-  return `<section class="card"><h3>시장 거래 <span class="muted">(행동력 안 씀 · 이번 달 남은 거래 ${MG.tradeLeft()}개)</span></h3>
-    ${rows}<div class="muted small">값은 1개당 골드. ▲ 지난달보다 비쌈, ▼ 쌈. 식량은 가을에 싸고 겨울·봄에 비싸요.</div>
+    <span><b>${MG.icRes(r)} ${MG.RES[r]}</b> ${arrow(r)}</span>
+    <span class="small">${MG.ic('shopping-cart')} ${MG.buyPrice(r).toFixed(2)} · ${MG.ic('cash')} ${MG.sellPrice(r).toFixed(2)}</span>
+    <span class="tbtns">${[50, 10].map(q => `<button class="mini buy" data-trade="${r},${q}" title="${q}개 사기">+${q}</button>`).join('')}
+      ${[10, 50].map(q => `<button class="mini sell" data-trade="${r},${-q}" title="${q}개 팔기">-${q}</button>`).join('')}</span></div>`).join('');
+  return `<section class="card"><h3>${MG.ic('building-store')} 시장 거래 <span class="muted">행동력 안 씀 · 남은 거래 ${MG.tradeLeft()}개</span></h3>
+    ${rows}<div class="muted small">1개당 골드 (${MG.ic('shopping-cart')} 살 때 · ${MG.ic('cash')} 팔 때). 화살표는 지난달보다 오름·내림. 식량은 가을에 싸고 겨울·봄에 비싸요.</div>
     ${itemShop()}</section>`;
 }
 
@@ -246,29 +263,42 @@ function genCard(g) {
   const role = { engineer: '전투 중 근처 성벽·건물·본성을 수리해요. 성에 있으면 수리 목재 -40%', artillery: '사거리가 아주 길지만 가까운 적은 못 쏴요',
     cavalry: '움직인 뒤 첫 타격이 몇 배. 성벽 위에는 못 올라가요' }[g.type];
   if (g.dead) {
-    return `<div class="gen dead"><div class="gtop"><b>${g.name}</b><span class="danger">세상을 떠남</span></div>
-      <div class="muted">${MG.genTitle(g)} · Lv.${g.level}</div>
-      <div class="muted small">남은 병사 ${g.healthy}명은 지휘관 없이 출전해요.</div></div>`;
+    return `<div class="gen dead"><div class="gtop"><span class="unitBadge">${MG.ic('skull')}</span><b>${g.name}</b><span class="danger small">세상을 떠남</span></div>
+      <div class="muted small">${MG.genTitle(g)} · Lv.${g.level} · 남은 병사 ${g.healthy}명은 지휘관 없이 출전해요.</div></div>`;
   }
-  const status = g.away ? `<span class="warn">${g.away.type === 'march' ? '정벌' : '원정'} 중 · ${g.away.months}개월 뒤 귀환</span>`
-    : g.injured ? `<span class="warn">부상 · ${g.injured}개월 남음</span>` : '<span class="ok">건강</span>';
-  const old = MG.ageMul(g.age) < 1 ? ` <span class="warn">(노쇠 ${Math.round((1 - MG.ageMul(g.age)) * 100)}%)</span>` : '';
-  return `<div class="gen ${g.injured ? 'hurt' : ''}">
-    <div class="gtop"><b>${g.name}${g.blood ? ' <span class="blood">가문</span>' : ''}</b>${status}</div>
-    <div class="muted">${MG.genTitle(g)} · 통솔 ${MG.genLead(g)} · ${g.age}세${old}</div>
+  // 상태는 아이콘 하나로 (원정·정벌 / 부상 / 건강), 자세한 건 말풍선
+  const status = g.away ? `<span class="warn" title="${g.away.type === 'march' ? '정벌' : '원정'} 중 · ${g.away.months}개월 뒤 귀환">${MG.ic(g.away.type === 'march' ? 'flag-3' : 'map-2')}${g.away.months}</span>`
+    : g.injured ? `<span class="warn" title="부상 · ${g.injured}개월 남음">${MG.ic('bandage')}${g.injured}</span>` : `<span class="ok" title="건강">${MG.ic('heart')}</span>`;
+  const old = MG.ageMul(g.age) < 1 ? ` <span class="warn" title="노쇠: 능력 -${Math.round((1 - MG.ageMul(g.age)) * 100)}%">${MG.ic('hourglass')}</span>` : '';
+  const K = MG.SKILLS[g.type], open = openGen.has(g.id), alert = MG.canClass(g) || MG.canAdvance(g);
+  const flags = [
+    g.weapon && `<span title="${g.weapon.name} · ${MG.weaponDesc(g.weapon)}" style="color:${MG.WEAPON_GRADES[g.weapon.grade].color}">${MG.ic('sword')}</span>`,
+    `<span title="스킬 ${K.name}: ${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''}">${MG.ic(MG.ICONS.skill[g.type])}</span>`,
+    g.wounded.length && `<span class="warn" title="부상병 ${g.wounded.length}명 (${woundCounts(g.wounded)})">${MG.ic('first-aid-kit')}${g.wounded.length}</span>`,
+    !g.deploy && !g.away && `<span class="muted" title="출전하지 않아요">${MG.ic('eye-off')}</span>`,
+    !MG.canRefill(g.type) && `<span class="warn" title="${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
+  ].filter(Boolean).join('');
+  return `<div class="gen ${g.injured ? 'hurt' : ''} ${open ? 'open' : ''}">
+    <div class="gtop" data-gopen="${g.id}" title="눌러서 ${open ? '접기' : '자세히'}">
+      <span class="unitBadge u-${g.type}">${MG.icUnit(g.type)}</span>
+      <div class="gname"><b>${g.name}${g.blood ? ` <span class="blood" title="가문 (후계 후보)">${MG.ic('crown')}</span>` : ''}</b>
+        <span class="muted small">${MG.genTitle(g)} · Lv.${g.level}${old}</span></div>
+      ${alert ? `<span class="tag ok" title="전직·승급할 수 있어요">${MG.ic('chevrons-up')}</span>` : ''}${status}
+      <span class="muted">${MG.ic(open ? 'chevron-up' : 'chevron-down')}</span></div>
+    <div class="bar thin" title="경험치 ${Math.floor(g.xp)} / ${need || '최고'}"><div style="width:${need ? pct(g.xp, need) : 100}%;background:#6aa8ff"></div></div>
+    <div class="gline small"><span title="병사 / 정원 (통솔 ${MG.genLead(g)})">${MG.ic('users')} ${g.healthy}/${cap}</span>${flags}</div>
+    ${open ? `<div class="gdetail">
+    <div class="muted small">통솔 ${MG.genLead(g)} · ${g.age}세</div>
     ${traitTags(g.traits)}
-    <div class="lv"><span>Lv.${g.level}</span><div class="bar"><div style="width:${pct(g.xp, need)}%;background:#6aa8ff"></div></div>
-      <span class="small muted">${need ? `${Math.floor(g.xp)} / ${need}` : '최고 레벨'}</span></div>
-    <div class="small">병사 ${g.healthy} / ${cap}${g.wounded.length ? ` · <span class="warn">부상 ${g.wounded.length}명 (${woundCounts(g.wounded)})</span>` : ''}</div>
     ${role ? `<div class="muted small">${role}</div>` : ''}${skillLine(g)}${refill}${classBlock(g)}${weaponBlock(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
       <span class="warn">부상병 ${g.wounded.length}명 동원 (체력 감소, 또 쓰러지면 사망 위험 큼)</span></label>` : ''}
     <div class="genBtns">
-      ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">은퇴시키기 (교관이 되어 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
-      ${MG.canDismiss(g) ? `<button class="mini ${dismissArmed === g.id ? 'danger' : ''}" data-dismiss="${g.id}">${dismissArmed === g.id ? '정말 해고? 한 번 더 누르세요' : '해고'}</button>` : ''}
-    </div>
+      ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">${MG.ic('school')} 은퇴 (교관, 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
+      ${MG.canDismiss(g) ? `<button class="mini ${dismissArmed === g.id ? 'danger' : ''}" data-dismiss="${g.id}">${MG.ic('door-exit')} ${dismissArmed === g.id ? '정말 해고? 한 번 더' : '해고'}</button>` : ''}
+    </div></div>` : (alert ? classBlock(g) : '')}
   </div>`;
 }
 
@@ -285,7 +315,7 @@ function lordStatsBlock(L) {
     cmd: `오라 ${Math.round(aura.r)} · +${Math.round(aura.bonus * 100)}%`, admin: `세금 ×${MG.adminMul(L.stats).toFixed(2)}` };
   return `<div class="lv"><span>Lv.${L.level}</span><div class="bar"><div style="width:${pct(L.xp || 0, need)}%;background:#e6b450"></div></div>
       <span class="small muted">${need ? `${Math.floor(L.xp || 0)} / ${need}` : '최고 레벨'}</span></div>
-    <table class="lordStats">${Object.entries(MG.LORD_STATS).map(([k, D]) => `<tr title="${D.desc}"><td>${D.name}</td><td><b>${L.stats[k]}</b></td>
+    <table class="lordStats">${Object.entries(MG.LORD_STATS).map(([k, D]) => `<tr title="${D.desc}"><td>${MG.ic(MG.ICONS.stat[k])} ${D.name}</td><td><b>${L.stats[k]}</b></td>
       <td class="muted small">${eff[k]}</td><td>${L.points ? `<button class="mini" data-lstat="${k}">+</button>` : ''}</td></tr>`).join('')}</table>
     ${L.points ? `<div class="warn small">분배할 능력치 ${L.points}점이 있어요</div>`
       : '<div class="muted small">전투에서 근위대가 적을 쓰러뜨리고 살아남으면 경험치를 얻어요. 레벨마다 능력치 1점은 자동, 1점은 직접 분배.</div>'}`;
@@ -295,7 +325,7 @@ function familyBlock() {
   const S = MG.S, L = S.lord;
   const kids = S.family.map(c => `<li>${c.name} · ${c.age}세 ${traitTags(c.traits)}</li>`).join('');
   const blood = S.generals.filter(g => g.blood && !g.dead).map(g => `<li>${g.name} · ${g.age}세 · 장수</li>`).join('');
-  return `<section class="card"><h3>가문 · ${L.gen}대 성주</h3>
+  return `<section class="card"><h3>${MG.ic('crown')} 가문 · ${L.gen}대 성주</h3>
     <div><b>${L.name}</b> · ${L.age}세${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}</div>
     ${traitTags(L.traits)}
     ${lordStatsBlock(L)}
@@ -308,13 +338,13 @@ function familyBlock() {
 
 function tavernBlock() {
   const S = MG.S, l = MG.bLevel('tavern');
-  if (!l) return `<section class="card"><h3>주점</h3><div class="muted small">주점을 지으면 떠돌이 장수가 찾아와요. 골드로 고용할 수 있어요.</div></section>`;
+  if (!l) return `<section class="card"><h3>${MG.ic('beer')} 주점</h3><div class="muted small">주점을 지으면 떠돌이 장수가 찾아와요. 골드로 고용할 수 있어요.</div></section>`;
   const list = S.tavern.map((t, i) => {
     const g = t.g, cost = MG.hireCost(g.level);
     return `<div class="hireRow"><div><b>${g.name}</b> <span class="muted small">${MG.UNIT_TYPES[g.type].name} · Lv.${g.level} · ${g.age}세 · ${t.left}개월 뒤 떠남</span>
       ${traitTags(g.traits)}</div><button class="mini" data-hire="${i}" ${S.res.gold >= cost ? '' : 'disabled'}>고용 · 골드 ${cost}</button></div>`;
   }).join('');
-  return `<section class="card"><h3>주점 (최대 ${l + 1}명)</h3>${list || '<div class="muted small">지금은 찾아온 장수가 없어요. 매달 찾아올 수 있어요.</div>'}
+  return `<section class="card"><h3>${MG.ic('beer')} 주점 (최대 ${l + 1}명)</h3>${list || '<div class="muted small">지금은 찾아온 장수가 없어요. 매달 찾아올 수 있어요.</div>'}
     <div class="muted small">고용한 장수의 부대는 빈 채로 시작해요. 모집으로 채워요.</div></section>`;
 }
 
@@ -325,15 +355,15 @@ function conquestBlock() {
   for (const id of [...marchPick]) if (!ready.some(g => g.id === id)) marchPick.delete(id);
   const rows = Object.entries(MG.OUTPOSTS).map(([id, O]) => {
     const info = MG.conquestInfo(id), done = MG.hasOutpost(id), boss = MG.ENEMY_TYPES[O.boss];
-    const head = `<b>${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
+    const head = `<b>${MG.ic(O.final ? 'building-fortress' : 'tent')} ${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
       <span class="muted small">${MG.BIOME_NAME[O.biome]} · 성을 ${O.months}개월 비움${info.fails ? ` · 실패 ${info.fails}번 (수비 +${Math.round(info.fails * MG.CONQUEST_FAIL_MUL * 100)}%)` : ''}</span>`;
     if (done) return `<div class="siteRow"><div>${head}<div class="ok small">${O.final ? '함락함' : '정벌함'} · ${O.reward}</div></div></div>`;
     if (O.final && !MG.citadelOpen()) return `<div class="siteRow"><div><b>${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
       <div class="muted small">거점 3곳을 모두 정벌하면 열려요. 이곳을 무너뜨리면 엔딩이에요.</div></div></div>`;
     const intel = info.scout
-      ? `<div class="small">보스 ${boss.name}: ${O.bossDesc}</div>
+      ? `<div class="small">${MG.ic('skull')} ${boss.name}: ${O.bossDesc}</div>
         <div class="muted small">${O.garrison.map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${Math.round(n * MG.conquestMul(id))}`).join(', ')} · 망루 ${O.towers} · 본진 체력 ${Math.round(O.hq * MG.conquestMul(id))}</div>`
-      : `<div class="muted small">보스 ${boss.name} · 수비 규모는 정찰해야 알 수 있어요</div>`;
+      : `<div class="muted small">${MG.ic('skull')} ${boss.name} · ${MG.ic('eye-off')} 수비 규모는 정찰해야 알 수 있어요</div>`;
     const go = M ? '' : `<div class="siteGo">
       ${info.scout ? '' : `<button class="mini" data-cscout="${id}" ${S.ap && MG.canPay(MG.CONQUEST_SCOUT) ? '' : 'disabled'}>정찰 · ${MG.costText(MG.CONQUEST_SCOUT)} · 행동력 1</button>`}
       <button class="mini" data-march="${id}" ${S.ap >= MG.MARCH_AP && S.res.food >= MG.MARCH_FOOD && marchPick.size >= MG.MARCH_MIN ? '' : 'disabled'}>
@@ -348,11 +378,11 @@ function conquestBlock() {
   } else {
     pickArea = `<div class="small"><b>정벌군 고르기</b> <span class="muted">(장수 부대 ${MG.MARCH_MIN}개 이상, 건강하고 병사가 있는 장수만)</span></div>
       <div class="marchPick">${ready.map(g => `<label class="tog"><input type="checkbox" data-mpick="${g.id}" ${marchPick.has(g.id) ? 'checked' : ''}>
-        ${g.name} <span class="muted small">${MG.genTitle(g)} Lv.${g.level} · 병사 ${g.healthy}</span></label>`).join('') || '<span class="muted small">보낼 수 있는 장수가 없어요</span>'}
+        ${MG.icUnit(g.type)} ${g.name} <span class="muted small">${MG.genTitle(g)} Lv.${g.level} · 병사 ${g.healthy}</span></label>`).join('') || '<span class="muted small">보낼 수 있는 장수가 없어요</span>'}
       ${S.lord.minor ? '' : `<label class="tog"><input type="checkbox" id="marchLord" ${marchLord ? 'checked' : ''}>
         <span>성주 친정 <span class="muted small">(근위대 ${MG.lordGuards(S.lord.stats)}명과 함께 · 성주 주변 아군 공격력 +${Math.round(MG.lordAura(S.lord.stats).bonus * 100)}% · 전사하면 후계 승계)</span></span></label>`}</div>`;
   }
-  return `<section class="card"><h3>정벌 <span class="muted">(정벌한 거점 ${(S.outposts || []).filter(id => !MG.OUTPOSTS[id].final).length} / 3${S.ended ? ' · 검은 성채 함락' : ''})</span></h3>
+  return `<section class="card"><h3>${MG.ic('flag-3')} 정벌 <span class="muted">(정벌한 거점 ${(S.outposts || []).filter(id => !MG.OUTPOSTS[id].final).length} / 3${S.ended ? ' · 검은 성채 함락' : ''})</span></h3>
     ${pickArea}${rows}
     <div class="muted small">출정하면 다음 달 도착해 싸우고, 이기든 지든 남은 달 동안 돌아와요. 그동안 남은 병력으로 성을 지켜야 해요.
       정벌에 성공하면 그 세력이 보복하러 크게 쳐들어와요.</div></section>`;
@@ -366,13 +396,13 @@ function expeditionBlock() {
     const d = MG.SITES[site.type];
     const opts = ready.map(g => `<option value="${g.id}">${g.name} (${MG.UNIT_TYPES[g.type].name} · 병사 ${g.healthy} · 성공 ${Math.round(MG.expeditionChance(g, site) * 100)}%)</option>`).join('');
     const risky = site.months >= left;
-    return `<div class="siteRow"><div><b>${d.name}</b> <span class="muted small">난이도 ${site.diff} · ${site.months}개월</span>
+    return `<div class="siteRow"><div><b>${MG.ic(MG.ICONS.site[site.type])} ${d.name}</b> <span class="muted small">${MG.ic('swords')} ${site.diff} · ${MG.ic('clock')} ${site.months}개월</span>
       <div class="small">${d.desc}</div>${risky ? `<div class="warn small">다음 습격(${fc.text}) 전에 못 돌아올 수 있어요</div>` : ''}</div>
       ${ready.length ? `<div class="siteGo"><select data-site-gen="${site.id}">${opts}</select>
         <button class="mini" data-site="${site.id}" ${S.ap >= MG.EXPEDITION_AP ? '' : 'disabled'}>보내기 · 행동력 ${MG.EXPEDITION_AP}</button></div>` : ''}</div>`;
   }).join('');
   const awayList = away.filter(g => g.away.type !== 'march').map(g => `<li>${g.name} 부대 → ${MG.SITES[g.away.type].name} (${g.away.months}개월 뒤, 성공 ${Math.round(g.away.chance * 100)}%)</li>`).join('');
-  return `<section class="card"><h3>원정 <span class="muted">(계절마다 원정지가 바뀌어요)</span></h3>
+  return `<section class="card"><h3>${MG.ic('map-2')} 원정 <span class="muted">(계절마다 원정지가 바뀌어요)</span></h3>
     ${sites || '<div class="muted small">이번 계절 원정지를 모두 썼어요.</div>'}
     ${!ready.length ? '<div class="muted small">보낼 수 있는 부대가 없어요 (건강하고 병사가 있는 장수만).</div>' : ''}
     ${awayList ? `<ul class="small">${awayList}</ul>` : ''}
@@ -382,7 +412,7 @@ function expeditionBlock() {
 function crownBlock() {
   const S = MG.S, c = S.crown;
   const sup = S.support ? `<div class="ok small">지원이 오는 중이에요 (${S.support.months}개월 뒤)</div>` : '';
-  return `<section class="card"><h3>본국과의 관계 ${c} / 100</h3>
+  return `<section class="card"><h3>${MG.ic('flag')} 본국과의 관계 ${c} / 100</h3>
     <div class="bar"><div style="width:${c}%;background:${c >= 70 ? '#6bdc8f' : c >= 40 ? '#e6b450' : '#ff6b6b'}"></div></div>
     ${sup}
     <div class="actRow"><button data-act="support" ${S.ap && !S.support && c >= MG.SUPPORT_MIN ? '' : 'disabled'}>지원 요청</button>
@@ -392,14 +422,14 @@ function crownBlock() {
 
 function eventModal() {
   const v = MG.eventView();
-  return `<div class="overlay"><div class="panel"><h1>${v.title}</h1><p>${v.text}</p>
+  return `<div class="overlay"><div class="panel"><h1>${MG.ic('bell-ringing')} ${v.title}</h1><p>${v.text}</p>
     <div class="row">${v.choices.map((c, i) => `<button class="main ${i ? 'alt' : ''}" data-event="${i}" ${c.ok ? '' : 'disabled'}>${c.label}</button>`).join('')}</div></div></div>`;
 }
 
 // 성주가 세상을 떠나면 다른 것을 하기 전에 후계자를 고른다
 function successionModal() {
   const S = MG.S, heirs = MG.heirs();
-  return `<div class="overlay"><div class="panel"><h1>후계자를 고르세요</h1>
+  return `<div class="overlay"><div class="panel"><h1>${MG.ic('crown')} 후계자를 고르세요</h1>
     <p class="muted">${S.lord.name}이(가) 세상을 떠났어요. 혈족 중에서 다음 성주를 골라요.</p>
     ${heirs.map(h => `<button class="heirBtn" data-heir="${h.kind},${h.id}">
       <b>${h.name}</b> · ${h.age}세${h.kind === 'general' ? ` · 장수 Lv.${h.level} (부대 병사는 직할로)` : h.age < MG.ADULT_AGE ? ' · 어린 자녀 (성년까지 전투 불참)' : ''}
@@ -409,9 +439,9 @@ function successionModal() {
 // 3택1 보상 카드 (습격을 막으면)
 function pickModal() {
   const S = MG.S, P = S.pendingPick, cost = MG.rerollCost(S.level);
-  return `<div class="overlay"><div class="panel wide"><div class="muted small">${P.big ? '대습격 승리 보상' : '승리 보상'}</div><h1>보상을 하나 고르세요</h1>
+  return `<div class="overlay"><div class="panel wide"><div class="muted small">${P.big ? '대습격 승리 보상' : '승리 보상'}</div><h1>${MG.ic('gift')} 보상을 하나 고르세요</h1>
     <div class="cards">${P.cards.map((c, i) => { const info = MG.cardInfo(c);
-      return `<button class="rcard" data-card="${i}" style="border-color:${info.color}"><span class="muted small">${MG.CARD_KINDS[c.kind]}</span>
+      return `<button class="rcard" data-card="${i}" style="border-color:${info.color}"><span class="cardIcon" style="color:${info.color}">${MG.ic(MG.ICONS.card[c.kind])}</span><span class="muted small">${MG.CARD_KINDS[c.kind]}</span>
         <b style="color:${info.color}">${info.title}</b><span class="small">${info.desc}</span></button>`; }).join('')}</div>
     <div class="row">${P.rerolled ? '<span class="muted small">이미 다시 뽑았어요</span>'
       : `<button id="rerollBtn" ${S.res.gold >= cost ? '' : 'disabled'}>다시 뽑기 (한 번) · 골드 ${cost}</button>`}</div>
@@ -422,7 +452,7 @@ function pickModal() {
 function relicBlock() {
   const list = (MG.S.relics || []).map(id => { const R = MG.RELICS[id], g = MG.RELIC_GRADES[R.grade];
     return `<li><b style="color:${g.color}">${R.name}</b> <span class="muted">${R.desc}</span></li>`; }).join('');
-  return `<section class="card"><h3>유물 ${(MG.S.relics || []).length} / ${Object.keys(MG.RELICS).length}</h3>
+  return `<section class="card"><h3>${MG.ic('diamond')} 유물 ${(MG.S.relics || []).length} / ${Object.keys(MG.RELICS).length}</h3>
     <ul class="small inv">${list || '<li class="muted">습격 보상 카드, 보스, 고대 유적에서 얻어요</li>'}</ul></section>`;
 }
 
@@ -440,11 +470,11 @@ function endingPanel() {
   const big = (S.chronicle || []).filter(c => c.kind === 'battle' && /정벌했어요|함락했어요/.test(c.text))
     .map(c => `<li><span class="muted">${MG.monthLabel(c.month)}</span> ${c.text}</li>`).join('');
   return `<div class="overlay"><div class="panel wide ending"><div class="muted small">엔딩</div>
-    <h1>🏰 변경에 평화가 찾아왔어요</h1>
+    <h1>${MG.ic('building-castle')} 변경에 평화가 찾아왔어요</h1>
     <p>${S.lord.name}이(가) 검은 성채를 무너뜨리고 고대 드래곤을 물리쳤어요. 변경백 가문은 ${lords}대, ${MG.year()}년에 걸쳐 왕국의 전진 기지를 지켰어요.
       치른 전투 ${S.stats.battles}(습격 승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}, 잃은 장수 ${S.stats.generalsLost}.</p>
     <h3>정벌의 기록</h3><ul class="chronList">${big}</ul>
-    <h3>성주 계보</h3>${lineageTable()}
+    <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
     <h3>지금 마치면 받는 명성 <b class="warn">+${r.total}</b> <span class="small muted">(엔딩 +${MG.ENDING_RENOWN} 포함)</span></h3>
     <p class="small muted">계속 다스리면 캠페인이 이어져요. 습격은 해마다 ${Math.round(MG.ENDLESS_STEP * 100)}%씩 더 거세지고, 끝날 때 그때까지의 명성(엔딩 보너스 포함)을 받아요.</p>
     <div class="row"><button class="main" id="continueBtn">계속 다스리기</button><button class="main alt" id="finishBtn">여기서 이야기를 마치기</button></div></div></div>`;
@@ -453,9 +483,9 @@ function endingPanel() {
 function overPanel() {
   const S = MG.S, r = S.renown || MG.renownOf(S), m = MG.meta();
   const title = S.overReason === '평정' ? '변경백 가문의 이야기가 끝났어요' : S.overReason === '가문 단절' ? '가문이 끊겼어요' : '변경 기지가 무너졌어요';
-  return `<div class="overlay"><div class="panel wide"><h1>${title}</h1>
+  return `<div class="overlay"><div class="panel wide"><h1>${MG.ic('flag-off')} ${title}</h1>
     <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}.</p>
-    <h3>성주 계보</h3>${lineageTable()}
+    <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
     <h3>얻은 명성 <b class="warn">+${r.total}</b></h3>
     <div class="small muted">버틴 햇수 ${r.parts.years} · 승리 ${r.parts.wins} · 거점 ${r.parts.outposts} · 이어진 대 ${r.parts.gens}${r.parts.ending ? ` · 엔딩 ${r.parts.ending}` : ''}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
     <p>모아 둔 명성: <b class="warn">${m.renown}</b> — 새 캠페인을 준비할 때 해금에 써요.</p>
@@ -464,17 +494,17 @@ function overPanel() {
 
 // 연대기 창: 계보와 기록 (최근 것이 위)
 function chronPanel() {
-  const S = MG.S, icon = { lord: '👑', battle: '⚔', general: '🛡', event: '📜', etc: '·' };
+  const S = MG.S, icon = { lord: MG.ic('crown'), battle: MG.ic('swords'), general: MG.ic('shield'), event: MG.ic('script'), etc: MG.ic('point') };
   const list = (S.chronicle || []).slice().reverse().map(c => `<li><span class="muted">${MG.monthLabel(c.month)}</span> ${icon[c.kind] || '·'} ${c.text}</li>`).join('');
-  return `<div class="overlay"><div class="panel wide"><h1>연대기</h1>
-    <h3>성주 계보</h3>${lineageTable()}
-    <h3>기록</h3><ul class="chronList">${list || '<li class="muted">아직 기록이 없어요</li>'}</ul>
+  return `<div class="overlay"><div class="panel wide"><h1>${MG.ic('book')} 연대기</h1>
+    <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
+    <h3>${MG.ic('list')} 기록</h3><ul class="chronList">${list || '<li class="muted">아직 기록이 없어요</li>'}</ul>
     <div class="row"><button class="main" id="chronCloseBtn">닫기</button></div></div></div>`;
 }
 
 function chronicleModal() {
   const v = MG.chronicleView();
-  return `<div class="overlay"><div class="panel"><div class="muted small">연대기 사건</div><h1>📜 ${v.title}</h1><p>${v.text}</p>
+  return `<div class="overlay"><div class="panel"><div class="muted small">연대기 사건</div><h1>${MG.ic('script')} ${v.title}</h1><p>${v.text}</p>
     <div class="row">${v.choices.map((c, i) => `<button class="main ${i ? 'alt' : ''}" data-chron="${i}" ${c.ok ? '' : 'disabled'}>${c.label}</button>`).join('')}</div></div></div>`;
 }
 
@@ -500,17 +530,17 @@ function setupPanel() {
   }
   const nextSiege = u.siege < MG.SIEGE_MAX ? `<button class="mini" data-buy="siege,next" ${m.renown >= MG.siegeCost(u.siege + 1) ? '' : 'disabled'}>${u.siege + 1}단계 해금 · 명성 ${MG.siegeCost(u.siege + 1)}</button>` : '';
   const hist = m.history.slice(0, 5).map(h => `<li>${h.lord} (${h.gens}대) · ${h.years}년 · 승리 ${h.wins}${h.siege ? ` · 포위 ${h.siege}` : ''} · ${h.reason} · 명성 +${h.renown}</li>`).join('');
-  return `<div class="overlay"><div class="panel wide"><h1>새 캠페인 준비</h1>
+  return `<div class="overlay"><div class="panel wide"><h1>${MG.ic('flag-3')} 새 캠페인 준비</h1>
     <p>모아 둔 명성: <b class="warn">${m.renown}</b> <span class="small muted">— 한 번 해금하면 다음 캠페인부터 계속 고를 수 있어요.</span></p>
-    <h3>가문 내력 <span class="small muted">(이번에 나온 셋 중 하나)</span></h3>${(setup.originOffer || []).map(k => `<div class="pick ${setup.origin === k ? 'on' : ''}">
+    <h3>${MG.ic('crown')} 가문 내력 <span class="small muted">(이번에 나온 셋 중 하나)</span></h3>${(setup.originOffer || []).map(k => `<div class="pick ${setup.origin === k ? 'on' : ''}">
       <div><b>${MG.ORIGINS[k].name}</b> <span class="small muted">${MG.ORIGINS[k].desc}</span></div>
       <button class="mini" data-setorigin="${k}">${setup.origin === k ? '선택됨' : '고르기'}</button></div>`).join('')}
-    <h3>시작 유물 <span class="small muted">(일반 유물 셋 중 하나)</span></h3>${(setup.relicOffer || []).map(k => `<div class="pick ${setup.relic === k ? 'on' : ''}">
+    <h3>${MG.ic('diamond')} 시작 유물 <span class="small muted">(일반 유물 셋 중 하나)</span></h3>${(setup.relicOffer || []).map(k => `<div class="pick ${setup.relic === k ? 'on' : ''}">
       <div><b>${MG.RELICS[k].name}</b> <span class="small muted">${MG.RELICS[k].desc}</span></div>
       <button class="mini" data-setrelic="${k}">${setup.relic === k ? '선택됨' : '고르기'}</button></div>`).join('')}
-    <h3>영지 특성 (하나)</h3>${domain}
-    <h3>시작 보너스 (해금한 것은 켜고 끌 수 있어요)</h3>${bonus}
-    <h3>포위 단계 <span class="small muted">단계마다 적 수·체력 +15%, 얻는 명성 +25%</span></h3>
+    <h3>${MG.ic('map-2')} 영지 특성 (하나)</h3>${domain}
+    <h3>${MG.ic('gift')} 시작 보너스 <span class="small muted">해금한 것은 켜고 끌 수 있어요</span></h3>${bonus}
+    <h3>${MG.ic('swords')} 포위 단계 <span class="small muted">단계마다 적 수·체력 +15%, 얻는 명성 +25%</span></h3>
     <div class="row">${sieges.join('')}${nextSiege}</div>
     ${hist ? `<h3>지난 캠페인</h3><ul class="small">${hist}</ul>` : ''}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}
@@ -536,7 +566,7 @@ function savePanel() {
         ${info ? btn('del', i, '지우기', '정말 지울까요? 한 번 더') : ''}
       </div></div>`);
   }
-  return `<div class="overlay"><div class="panel"><h1>저장 · 불러오기</h1>
+  return `<div class="overlay"><div class="panel"><h1>${MG.ic('device-floppy')} 저장 · 불러오기</h1>
     <p class="muted small">지금 진행은 내정 화면에서 행동할 때마다 자동으로 저장되고, 다시 켜면 이어져요. 슬롯은 따로 보관하는 저장이에요.
       불러오면 지금 진행(자동 저장)이 그 슬롯 내용으로 바뀌어요.</p>
     ${MG.isDesktop ? `<p class="small">저장 위치: <b>${MG.saveDir()}</b> <button class="mini" id="openDirBtn">폴더 열기</button></p>`
@@ -557,7 +587,7 @@ function hospitalBlock() {
   for (const g of S.generals) if (!g.dead && g.injured) lines.push(`<li>장수 ${g.name} — ${g.injured}개월 남음</li>`);
   for (const g of S.generals) if (!g.dead && g.wounded.length) lines.push(`<li>${g.name} 부대 ${g.wounded.length}명 (${woundCounts(g.wounded)})</li>`);
   if (S.garrison.wounded.length) lines.push(`<li>직할 병력 ${S.garrison.wounded.length}명 (${woundCounts(S.garrison.wounded)})</li>`);
-  return `<h3>병원 ${list.length} / ${cap}</h3>
+  return `<h3>${MG.ic('first-aid-kit')} 병원 ${list.length} / ${cap}</h3>
     <div class="bar"><div style="width:${pct(list.length, cap || 1)}%;background:${over ? '#ff6b6b' : '#6bdc8f'}"></div></div>
     ${!cap ? '<div class="danger small">병원이 없거나 부서져서 아무도 회복하지 못해요.</div>' : over ? `<div class="danger small">수용 인원을 넘은 ${over}명은 회복이 멈춰 있어요.</div>` : ''}
     <ul class="small">${lines.join('') || '<li class="muted">비어 있어요</li>'}</ul>`;
@@ -566,30 +596,36 @@ function hospitalBlock() {
 function render() {
   const S = MG.S;
   const inv = S.inventory.slice().sort((a, b) => Object.keys(MG.WEAPON_GRADES).indexOf(b.grade) - Object.keys(MG.WEAPON_GRADES).indexOf(a.grade));
+  const I = MG.ICONS.tab;
+  // 탭에 알림 점: 군대(전직 가능·부상), 원정·정벌(정벌군 도착), 가문(분배할 능력치)
+  const dot = { army: S.generals.some(g => MG.canClass(g) || MG.canAdvance(g)), war: !!S.pendingConquest, family: !!S.lord.points };
+  const tabs = [['castle', '성'], ['army', '군대'], ['war', '원정·정벌'], ['market', '시장'], ['family', '가문']]
+    .map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-tab="${k}">${MG.ic(I[k])} ${n}${dot[k] ? '<span class="dot"></span>' : ''}</button>`).join('');
+  const garrison = `<section class="card"><h3>${MG.ic('users-group')} 성주 직할 병력 <span class="muted">성벽 위</span></h3>
+        <div class="stat"><span>${MG.icUnit('archer')} 궁수</span><b>${S.garrison.archer}</b></div>
+        <div class="stat"><span>${MG.icUnit('infantry')} 보병</span><b>${S.garrison.infantry}</b></div>
+        <div class="muted small">모집하면 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 직할로 와요. 상한 없이 식량으로만 제한돼요.</div></section>`;
+  const weapons = `<section class="card"><h3>${MG.ic('sword')} 보유 무기 ${inv.length}</h3>
+        <ul class="small inv">${inv.map(w => `<li>${gradeTag(w)} <span class="muted">${MG.icUnit(w.type)} ${MG.weaponDesc(w)}</span></li>`).join('')
+          || '<li class="muted">전투에서 이기거나 대장간에서 만들어요</li>'}</ul></section>`;
+  const records = `<section class="card"><h3>${MG.ic('chart-bar')} 기록</h3>
+        <div class="stat"><span>${MG.ic('swords')} 치른 전투</span><b>${S.stats.battles}</b></div>
+        <div class="stat"><span>${MG.ic('skull')} 처치한 적</span><b>${S.stats.kills}</b></div>
+        <div class="stat"><span>${MG.ic('grave-2')} 잃은 장수 / 병사</span><b>${S.stats.generalsLost} / ${S.stats.soldiersLost}</b></div>
+        <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${MG.ic('refresh')} ${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>`;
+  const body = {
+    castle: `<div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${fieldsBlock()}</div></div>`,
+    army: `<section class="gens">${S.generals.map(genCard).join('')}</section>
+      <div class="campRow">${garrison}<section class="card">${hospitalBlock()}</section>${tavernBlock()}${weapons}</div>`,
+    war: `<div class="campRow two">${conquestBlock()}${expeditionBlock()}</div>`,
+    market: `<div class="campRow two">${marketBlock()}${crownBlock()}</div>`,
+    family: `<div class="campRow">${familyBlock()}${relicBlock()}${records}</div>`,
+  }[tab];
   el.innerHTML = `<div class="campWrap">
     ${headerBlock()}
-    <div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${conquestBlock()}${expeditionBlock()}${marketBlock()}${fieldsBlock()}</div></div>
-    <h2>장수 ${S.generals.filter(g => !g.dead).length}명</h2>
-    <section class="gens">${S.generals.map(genCard).join('')}</section>
-    <div class="campRow">
-      ${familyBlock()}
-      ${tavernBlock()}
-      ${crownBlock()}
-      <section class="card"><h3>성주 직할 병력 (성벽 위)</h3>
-        <div class="stat"><span>궁수</span><b>${S.garrison.archer}</b></div>
-        <div class="stat"><span>보병</span><b>${S.garrison.infantry}</b></div>
-        <div class="muted small">모집하면 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 모두 직할로 와요. 직할 병력에는 상한이 없고 식량으로만 제한돼요.</div></section>
-      <section class="card">${hospitalBlock()}</section>
-      ${relicBlock()}
-      <section class="card"><h3>보유 무기 ${inv.length}</h3>
-        <ul class="small inv">${inv.map(w => `<li>${gradeTag(w)} <span class="muted">${MG.UNIT_TYPES[w.type].name}용 · ${MG.weaponDesc(w)}</span></li>`).join('')
-          || '<li class="muted">전투에서 이기거나 대장간에서 만들어요</li>'}</ul></section>
-      <section class="card"><h3>기록</h3>
-        <div class="stat"><span>치른 전투</span><b>${S.stats.battles}</b></div>
-        <div class="stat"><span>처치한 적</span><b>${S.stats.kills}</b></div>
-        <div class="stat"><span>잃은 장수 / 병사</span><b>${S.stats.generalsLost} / ${S.stats.soldiersLost}</b></div>
-        <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>
-    </div>
+    <nav class="tabs">${tabs}</nav>
+    ${tab !== 'castle' && msg ? `<div class="msg small">${msg}</div>` : ''}
+    ${body}
   </div>
   ${setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
     : S.pendingSuccession ? successionModal() : S.pendingPick ? pickModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
@@ -612,6 +648,8 @@ function bind() {
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
+  q('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; render(); });
+  q('[data-gopen]').forEach(b => b.onclick = () => { const id = +b.dataset.gopen; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); });
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
   q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
@@ -668,7 +706,7 @@ function bind() {
     MG.saveCampaign();
     render(); window.scrollTo(0, 0);
   };
-  $('resetBtn').onclick = () => {
+  if ($('resetBtn')) $('resetBtn').onclick = () => {
     if (!resetArmed) { resetArmed = true; render(); return; }
     resetArmed = false; MG.openSetup();
   };
