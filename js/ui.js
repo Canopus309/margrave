@@ -141,7 +141,7 @@ const woundTable = s => `<table>
 
 function showConquestResult(B) {
   const r = B.result, s = r.summary, S = MG.S, O = B.outpost;
-  $('resTitle').textContent = r.win ? `${O.name} 정벌!` : B.retreated ? '퇴각했어요' : '정벌 실패…';
+  $('resTitle').textContent = r.win ? `${O.name} ${O.final ? '함락' : '정벌'}!` : B.retreated ? '퇴각했어요' : '정벌 실패…';
   const left = B.squads.reduce((a, q) => a + q.soldiers.length, 0);
   $('resBody').innerHTML = `
     <table>
@@ -155,10 +155,11 @@ function showConquestResult(B) {
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     ${woundTable(s)}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
-    ${r.win ? `<p>거점을 얻었어요: <b style="color:var(--ok)">${O.reward}</b></p>` : ''}
+    ${r.win && !O.final ? `<p>거점을 얻었어요: <b style="color:var(--ok)">${O.reward}</b></p>` : ''}
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
+    ${s.ending ? '<p style="color:var(--accent)"><b>검은 성채가 무너졌어요!</b> 내정 화면으로 돌아가면 엔딩을 봐요.</p>' : ''}
     ${s.retaliation ? `<p style="color:#ffb36b">거점을 잃은 마물들이 복수하러 와요. 다음 습격이 크게(×${MG.RETALIATION_MUL}) 늦어도 2개월 안에 와요.</p>` : ''}
     ${!r.win ? `<p class="muted">${O.name}의 수비가 다음 시도 때 +${Math.round(MG.CONQUEST_FAIL_MUL * 100)}% 강해져요.</p>` : ''}
     <p class="muted">정벌군은 ${S.march && S.march.left > 0 ? `${S.march.left}개월 뒤` : '다음 달'} 성으로 돌아와요.</p>

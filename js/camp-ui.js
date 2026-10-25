@@ -74,7 +74,8 @@ function headerBlock() {
 // 연대기 사건이 남긴 지속 효과 표시
 function effectTags() {
   const names = { migration: '마물 대이동(습격 +30%, 전리품 2배)', harshWinter: '혹한(겨울 식량 소비 1.5배)', marriage: '혼인(출생 확률 2배)', lowtax: '세금 감면(-30%)' };
-  return (MG.S.effects || []).filter(e => e.until > MG.S.month)
+  const endless = MG.S.ended ? ` <span class="effTag" title="검은 성채를 무너뜨린 뒤 해마다 습격이 커져요">평정 이후 · 습격 +${Math.round((MG.endlessMul() - 1) * 100)}%</span>` : '';
+  return endless + (MG.S.effects || []).filter(e => e.until > MG.S.month)
     .map(e => ` <span class="effTag" title="${MG.monthLabel(e.until)}까지">${names[e.type] || e.type} · ${e.until - MG.S.month}개월</span>`).join('');
 }
 
@@ -295,7 +296,9 @@ function conquestBlock() {
     const info = MG.conquestInfo(id), done = MG.hasOutpost(id), boss = MG.ENEMY_TYPES[O.boss];
     const head = `<b>${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
       <span class="muted small">${MG.BIOME_NAME[O.biome]} · 성을 ${O.months}개월 비움${info.fails ? ` · 실패 ${info.fails}번 (수비 +${Math.round(info.fails * MG.CONQUEST_FAIL_MUL * 100)}%)` : ''}</span>`;
-    if (done) return `<div class="siteRow"><div>${head}<div class="ok small">정벌함 · ${O.reward}</div></div></div>`;
+    if (done) return `<div class="siteRow"><div>${head}<div class="ok small">${O.final ? '함락함' : '정벌함'} · ${O.reward}</div></div></div>`;
+    if (O.final && !MG.citadelOpen()) return `<div class="siteRow"><div><b>${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
+      <div class="muted small">거점 3곳을 모두 정벌하면 열려요. 이곳을 무너뜨리면 엔딩이에요.</div></div></div>`;
     const intel = info.scout
       ? `<div class="small">보스 ${boss.name}: ${O.bossDesc}</div>
         <div class="muted small">${O.garrison.map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${Math.round(n * MG.conquestMul(id))}`).join(', ')} · 망루 ${O.towers} · 본진 체력 ${Math.round(O.hq * MG.conquestMul(id))}</div>`
@@ -306,9 +309,6 @@ function conquestBlock() {
         출정 · 식량 ${MG.MARCH_FOOD} · 행동력 ${MG.MARCH_AP}</button></div>`;
     return `<div class="siteRow"><div>${head}<div class="small">얻는 것: ${O.reward}</div>${intel}</div>${go}</div>`;
   }).join('');
-  const all = Object.keys(MG.OUTPOSTS).every(MG.hasOutpost);
-  const citadel = `<div class="siteRow"><div><b>검은 성채</b> <span class="warn">★★★★</span>
-    <div class="muted small">${all ? '고대 드래곤이 기다려요 (다음 단계에서 열려요)' : '거점 3곳을 모두 정벌하면 열려요'}</div></div></div>`;
   let pickArea = '';
   if (M) {
     const names = M.gids.map(id => (S.generals.find(g => g.id === id) || {}).name).filter(Boolean).join(', ');
@@ -321,8 +321,8 @@ function conquestBlock() {
       ${S.lord.minor ? '' : `<label class="tog"><input type="checkbox" id="marchLord" ${marchLord ? 'checked' : ''}>
         <span>성주 친정 <span class="muted small">(근위대와 함께 · 성주 주변 아군 공격력 +${Math.round(MG.LORD.auraBonus * 100)}% · 전사하면 후계 승계)</span></span></label>`}</div>`;
   }
-  return `<section class="card"><h3>정벌 <span class="muted">(정벌한 거점 ${(S.outposts || []).length} / 3)</span></h3>
-    ${pickArea}${rows}${citadel}
+  return `<section class="card"><h3>정벌 <span class="muted">(정벌한 거점 ${(S.outposts || []).filter(id => !MG.OUTPOSTS[id].final).length} / 3${S.ended ? ' · 검은 성채 함락' : ''})</span></h3>
+    ${pickArea}${rows}
     <div class="muted small">출정하면 다음 달 도착해 싸우고, 이기든 지든 남은 달 동안 돌아와요. 그동안 남은 병력으로 성을 지켜야 해요.
       정벌에 성공하면 그 세력이 보복하러 크게 쳐들어와요.</div></section>`;
 }
@@ -383,13 +383,30 @@ function lineageTable() {
       <td>${l.cause || (l.to == null ? '다스리는 중' : '')}</td></tr>`).join('')}</table>`;
 }
 
+// 엔딩: 검은 성채를 무너뜨린 뒤 한 번 뜬다. 계속 다스리거나 여기서 마친다.
+function endingPanel() {
+  const S = MG.S, r = MG.renownOf(S), lords = S.lineage.length;
+  const big = (S.chronicle || []).filter(c => c.kind === 'battle' && /정벌했어요|함락했어요/.test(c.text))
+    .map(c => `<li><span class="muted">${MG.monthLabel(c.month)}</span> ${c.text}</li>`).join('');
+  return `<div class="overlay"><div class="panel wide ending"><div class="muted small">엔딩</div>
+    <h1>🏰 변경에 평화가 찾아왔어요</h1>
+    <p>${S.lord.name}이(가) 검은 성채를 무너뜨리고 고대 드래곤을 물리쳤어요. 변경백 가문은 ${lords}대, ${MG.year()}년에 걸쳐 왕국의 전진 기지를 지켰어요.
+      치른 전투 ${S.stats.battles}(습격 승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}, 잃은 장수 ${S.stats.generalsLost}.</p>
+    <h3>정벌의 기록</h3><ul class="chronList">${big}</ul>
+    <h3>성주 계보</h3>${lineageTable()}
+    <h3>지금 마치면 받는 명성 <b class="warn">+${r.total}</b> <span class="small muted">(엔딩 +${MG.ENDING_RENOWN} 포함)</span></h3>
+    <p class="small muted">계속 다스리면 캠페인이 이어져요. 습격은 해마다 ${Math.round(MG.ENDLESS_STEP * 100)}%씩 더 거세지고, 끝날 때 그때까지의 명성(엔딩 보너스 포함)을 받아요.</p>
+    <div class="row"><button class="main" id="continueBtn">계속 다스리기</button><button class="main alt" id="finishBtn">여기서 이야기를 마치기</button></div></div></div>`;
+}
+
 function overPanel() {
   const S = MG.S, r = S.renown || MG.renownOf(S), m = MG.meta();
-  return `<div class="overlay"><div class="panel wide"><h1>${S.overReason === '가문 단절' ? '가문이 끊겼어요' : '변경 기지가 무너졌어요'}</h1>
+  const title = S.overReason === '평정' ? '변경백 가문의 이야기가 끝났어요' : S.overReason === '가문 단절' ? '가문이 끊겼어요' : '변경 기지가 무너졌어요';
+  return `<div class="overlay"><div class="panel wide"><h1>${title}</h1>
     <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}.</p>
     <h3>성주 계보</h3>${lineageTable()}
     <h3>얻은 명성 <b class="warn">+${r.total}</b></h3>
-    <div class="small muted">버틴 햇수 ${r.parts.years} · 승리 ${r.parts.wins} · 거점 ${r.parts.outposts} · 이어진 대 ${r.parts.gens}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
+    <div class="small muted">버틴 햇수 ${r.parts.years} · 승리 ${r.parts.wins} · 거점 ${r.parts.outposts} · 이어진 대 ${r.parts.gens}${r.parts.ending ? ` · 엔딩 ${r.parts.ending}` : ''}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
     <p>모아 둔 명성: <b class="warn">${m.renown}</b> — 새 캠페인을 준비할 때 해금에 써요.</p>
     <div class="row"><button class="main" id="newCampBtn">새 캠페인 준비</button><button class="main alt" id="chronBtn2">연대기 보기</button><button class="main alt" id="saveMenuBtn2">저장 불러오기</button></div></div></div>`;
 }
@@ -517,7 +534,7 @@ function render() {
     </div>
   </div>
   ${setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
-    : S.pendingSuccession ? successionModal() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
+    : S.pendingSuccession ? successionModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
   bind();
 }
 
@@ -560,6 +577,8 @@ function bind() {
     run(MG.dismiss(gen(id)));
   });
   q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
+  if ($('continueBtn')) $('continueBtn').onclick = () => { MG.continueReign(); render(); };
+  if ($('finishBtn')) $('finishBtn').onclick = () => { MG.finishStory(); render(); };
   const nc = $('newCampBtn');
   if (nc) nc.onclick = () => MG.openSetup();
   q('[data-chron]').forEach(b => b.onclick = () => run(MG.resolveChronicle(+b.dataset.chron)));
@@ -673,6 +692,7 @@ MG.startNextBattle = () => {
 };
 function showBattle() {
   MG.mode = 'battle';
+  $('result').classList.add('hidden');
   el.classList.add('hidden');
   $('app').classList.remove('hidden');
   window.dispatchEvent(new Event('resize'));

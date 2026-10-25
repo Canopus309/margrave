@@ -67,7 +67,7 @@ bg.width = W.w; bg.height = W.h;
 })();
 
 // 정벌 전투의 배경: 지형(숲·바위·물)은 움직이지 않으니 전투마다 한 번 그려 둔다
-const BIOME_BG = { forest: '#34502f', plain: '#55703c', swamp: '#3d4d3c' };
+const BIOME_BG = { forest: '#34502f', plain: '#55703c', swamp: '#3d4d3c', stone: '#4a4848' };
 MG.makeConquestBg = B => {
   const c = document.createElement('canvas');
   c.width = W.w; c.height = W.h;
@@ -111,11 +111,12 @@ function drawStructs(B) {
     ctx.fillStyle = e.hitT > 0 ? '#d8c8a8' : e.T.color;
     ctx.fillRect(x, y, e.w, e.h);
     ctx.strokeStyle = '#2a1a0a'; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, e.w, e.h);
-    if (e.struct === 'palisade') {
-      // 말뚝 무늬
+    if (e.struct === 'palisade' || e.struct === 'stonewall') {
+      // 목책은 말뚝 무늬, 돌벽은 돌 이음새
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      const horiz = e.w > e.h;
-      for (let i = 4; i < (horiz ? e.w : e.h); i += 8) horiz ? ctx.fillRect(x + i, y, 2, e.h) : ctx.fillRect(x, y + i, e.w, 2);
+      const horiz = e.w > e.h, gap = e.struct === 'palisade' ? 8 : 13;
+      for (let i = 4; i < (horiz ? e.w : e.h); i += gap) horiz ? ctx.fillRect(x + i, y, 2, e.h) : ctx.fillRect(x, y + i, e.w, 2);
+      if (e.struct === 'stonewall') { ctx.fillRect(horiz ? x : x + e.w / 2 - 1, horiz ? y + e.h / 2 - 1 : y, horiz ? e.w : 2, horiz ? 2 : e.h); }
     } else if (e.struct === 'tower') {
       ctx.fillStyle = '#4a321e'; ctx.fillRect(x + 8, y + 8, e.w - 16, e.h - 16);
     } else {
@@ -324,6 +325,15 @@ function drawFlags(B) {
 function drawEnemies(B) {
   for (const e of B.enemies) {
     if (e.struct) continue;
+    if (e.T.fly) {
+      // 드래곤 날개
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(e.x + 10, e.y + 16, e.r * 1.8, e.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#5a1414';
+      for (const sd of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(e.x + sd * e.r * 0.5, e.y - 4);
+        ctx.lineTo(e.x + sd * e.r * 2.6, e.y - e.r * 1.2); ctx.lineTo(e.x + sd * e.r * 2.2, e.y + 2); ctx.lineTo(e.x + sd * e.r * 1.4, e.y + 6); ctx.closePath(); ctx.fill();
+      }
+    }
     if (e.boss) {
       // 보스: 금빛 테두리와 이름, 큰 체력 막대
       ctx.fillStyle = 'rgba(255,200,60,0.18)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 8, 0, Math.PI * 2); ctx.fill();
@@ -394,6 +404,10 @@ function drawFx(B) {
     else if (f.kind === 'heal') { ctx.fillStyle = '#7dff9a'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('+', f.x, f.y - 8 - (1 - a) * 10); }
     else if (f.kind === 'repair') { ctx.fillStyle = '#ffd36b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('⚒', f.x, f.y - (1 - a) * 8); }
     else if (f.kind === 'charge') { ctx.strokeStyle = '#ffb36b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, 14 * (1.4 - a), 0, Math.PI * 2); ctx.stroke(); }
+    else if (f.kind === 'breath') {
+      ctx.fillStyle = 'rgba(255,110,30,0.5)'; ctx.beginPath(); ctx.moveTo(f.x, f.y);
+      ctx.arc(f.x, f.y, f.r * (1.15 - a * 0.4), f.ang - 0.62, f.ang + 0.62); ctx.closePath(); ctx.fill();
+    }
     else if (f.kind === 'shout') { ctx.strokeStyle = '#ff8a3a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.1 - a * 0.7), 0, Math.PI * 2); ctx.stroke(); }
     else if (f.kind === 'dust') { ctx.fillStyle = '#c8b89a'; ctx.beginPath(); ctx.arc(f.x, f.y, 4 * (1.6 - a), 0, Math.PI * 2); ctx.fill(); }
     ctx.globalAlpha = 1;

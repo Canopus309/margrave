@@ -41,6 +41,8 @@ MG.ENEMY_TYPES = {
   goblinKing:   { name: '고블린 왕',     color: '#d8c040', hp: 2700, atk: 22, cd: 1.0, speed: 50, r: 12, wallDmg: 0, aggro: 220, boss: true },
   orcWarlord:   { name: '오크 대족장',   color: '#2f6a2a', hp: 4800, atk: 35, cd: 1.3, speed: 40, r: 14, wallDmg: 0, aggro: 220, boss: true },
   trollChief:   { name: '거인 트롤 족장', color: '#4a7a6a', hp: 7500, atk: 50, cd: 1.8, speed: 34, r: 16, wallDmg: 0, aggro: 220, boss: true, regen: 0.008 },
+  // fly: 벽·지형을 무시하고 날아다닌다
+  ancientDragon: { name: '고대 드래곤',  color: '#8a2020', hp: 16000, atk: 60, cd: 1.5, speed: 62, r: 20, wallDmg: 0, aggro: 280, boss: true, fly: true },
 };
 MG.UPHILL_HIT = 0.5;      // 아래에서 성벽 위를 쏘면 명중률
 MG.RETREAT_AFTER = 60;    // 모든 적이 나온 뒤 이만큼(초) 적이 하나도 안 죽으면 남은 적은 물러난다
@@ -62,7 +64,7 @@ MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130
 MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
-MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, tower: 6, hq: 40 };
+MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, ancientDragon: 400, tower: 6, hq: 40 };
 MG.MAX_LEVEL = 15;
 MG.xpToNext = L => Math.round(60 * Math.pow(L, 1.4));
 MG.SURVIVE_XP = 20;
@@ -337,11 +339,11 @@ MG.siegeCost = l => 40 * l;
 MG.siegeEnemyMul = l => 1 + 0.15 * l;
 MG.siegeRenownMul = l => 1 + 0.25 * l;
 MG.WALL_DOMAIN_MUL = 1.3;
-// 명성: 버틴 햇수×2 + 승리×3 + 함락한 거점×50 + 이어진 대×10, 포위 단계 배율
+// 명성: 버틴 햇수×2 + 승리×3 + 함락한 거점×50 + 이어진 대×10 + 엔딩 100, 포위 단계 배율
 MG.renownOf = S => {
   const years = Math.floor((S.month - 2) / 12), outposts = (S.outposts || []).length;
-  const parts = { years: years * 2, wins: S.stats.wins * 3, outposts: outposts * 50, gens: S.lord.gen * 10 };
-  const base = parts.years + parts.wins + parts.outposts + parts.gens;
+  const parts = { years: years * 2, wins: S.stats.wins * 3, outposts: outposts * 50, gens: S.lord.gen * 10, ending: S.ended ? MG.ENDING_RENOWN : 0 };
+  const base = parts.years + parts.wins + parts.outposts + parts.gens + parts.ending;
   return { parts, base, total: Math.round(base * MG.siegeRenownMul(S.siege || 0)) };
 };
 MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
@@ -359,13 +361,20 @@ MG.OUTPOSTS = {
   troll: { name: '트롤 늪 요새', boss: 'trollChief', biome: 'swamp', stars: 3, months: 3,
     garrison: [['troll', 60], ['orc', 90], ['goblinArcher', 80]], towers: 4, hq: 12000, reinf: 'troll', power: 2.2,
     bossDesc: '체력이 계속 차오르고, 강타로 넓은 범위를 때려요', reward: '매달 목재 +30, 식량 +20' },
+  // 마지막 목표: 거점 3곳을 모두 정벌해야 열린다. 목책 대신 돌벽.
+  citadel: { name: '검은 성채', boss: 'ancientDragon', biome: 'stone', stars: 4, months: 3, final: true, wall: 'stonewall',
+    garrison: [['orc', 110], ['troll', 50], ['goblinArcher', 90], ['orcThrower', 20]], towers: 4, hq: 18000, reinf: 'orc', power: 2.6,
+    bossDesc: '날아다녀서 벽과 지형을 무시하고, 불숨으로 부채꼴 범위를 태워요', reward: '변경의 평화 (엔딩)' },
 };
 MG.STRUCTS = {
   palisade: { name: '목책', color: '#8a6a40', hp: 350 },
+  stonewall: { name: '돌벽', color: '#5a5660', hp: 900 },
   tower:    { name: '망루', color: '#7a5a3a', hp: 700, range: 210, atk: 9, cd: 1.6 },
   hq:       { name: '적 본진', color: '#6a3a2a' },
 };
-MG.BIOME_NAME = { forest: '숲', plain: '평원', swamp: '늪' };
+MG.BIOME_NAME = { forest: '숲', plain: '평원', swamp: '늪', stone: '돌 요새' };
+MG.ENDING_RENOWN = 100;      // 검은 성채를 함락하면 명성 +
+MG.ENDLESS_STEP = 0.1;       // 엔딩 뒤 계속 다스리면 해마다 습격 규모 +10%
 MG.MARCH_FOOD = 300;
 MG.MARCH_AP = 2;
 MG.MARCH_MIN = 2;            // 장수 부대 최소 수

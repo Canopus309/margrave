@@ -149,3 +149,4 @@ button.onBtn { border-color: var(--ok); color: var(--ok); }
 #retreatBtn { width: 100%; margin-top: 6px; color: #ffb36b; }
 #retreatBtn.hidden { display: none; }
 .marchPick { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 8px; }
+.panel.ending { border: 2px solid var(--accent); box-shadow: 0 0 40px rgba(230,180,80,0.25); }

@@ -328,7 +328,7 @@ function makeLord(roster, lx, ly, facing) {
 
 // ---------- 정벌 전투 ----------
 // 들판 왼쪽에서 출발해 오른쪽 적 진지의 본진을 부수면 이긴다. 지형과 진지 모양은 매번 무작위.
-const BIOME_OBST = { forest: { tree: 16, rock: 3 }, plain: { rock: 8, tree: 4 }, swamp: { water: 9, tree: 6 } };
+const BIOME_OBST = { forest: { tree: 16, rock: 3 }, plain: { rock: 8, tree: 4 }, swamp: { water: 9, tree: 6 }, stone: { rock: 14, water: 3 } };
 const START_X = 330;  // 이보다 왼쪽은 아군 출발 지역 (지형 없음)
 const CAMP_P = 200;   // 진지 목책의 반폭
 function addBlock(o) {
@@ -386,11 +386,11 @@ function layoutCamp(O, hx, hy, fort) {
   for (let k = 0; k < 2; k++) gaps.add(sides[(Math.random() * 4) | 0] + (2 + ((Math.random() * 6) | 0)));
   for (const sd of sides) for (let i = 0; i < 10; i++) {
     if (gaps.has(sd + i) || gaps.has(sd + (i - 1)) || Math.random() < 0.06) continue;
-    const a = -P + i * 40, hp = T.palisade.hp * fort;
-    if (sd === 'N') makeStruct('palisade', hx + a, hy - P, 40, 20, hp);
-    if (sd === 'S') makeStruct('palisade', hx + a, hy + P - 20, 40, 20, hp);
-    if (sd === 'W') makeStruct('palisade', hx - P, hy + a, 20, 40, hp);
-    if (sd === 'E') makeStruct('palisade', hx + P - 20, hy + a, 20, 40, hp);
+    const wk = O.wall || 'palisade', a = -P + i * 40, hp = T[wk].hp * fort;
+    if (sd === 'N') makeStruct(wk, hx + a, hy - P, 40, 20, hp);
+    if (sd === 'S') makeStruct(wk, hx + a, hy + P - 20, 40, 20, hp);
+    if (sd === 'W') makeStruct(wk, hx - P, hy + a, 20, 40, hp);
+    if (sd === 'E') makeStruct(wk, hx + P - 20, hy + a, 20, 40, hp);
   }
   // 망루: 목책 안쪽 모서리, 아군 쪽부터
   const corners = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
@@ -783,6 +783,8 @@ function doRepair(s, t) {
 function updateSoldier(s, dt, eGrid) {
   const T = s.T, noWall = !!T.noWall;
   s.cdT -= dt; s.retT -= dt; s.replanT -= dt;
+  // 드래곤 불숨에 맞으면 잠시 탄다
+  if (s.burnT > 0) { s.burnT -= dt; damageFriendly(s, s.burnDps * dt); if (s.dead) return; }
   if (T.repair && !s.moving && (s.repT = (s.repT || 0) - dt) <= 0) {
     s.repT = 1;
     const r = repairNear(s);
@@ -900,6 +902,12 @@ function updateStruct(e, dt, fGrid) {
 
 // 곧장 가다가 거의 나아가지 못하면(목책·지형에 막혀 미끄러지기만 하면) 길을 찾아 돌아간다
 function foeMove(e, tx, ty, sp, dt) {
+  if (e.T.fly) {
+    // 날아다니는 적은 벽과 지형을 그냥 넘는다
+    const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy);
+    if (d > 0.01) { const k = Math.min(sp, d) / d; e.x += dx * k; e.y += dy * k; }
+    return;
+  }
   if (e.path && e.path.length) {
     const p = e.path[0];
     if (dist(e, p) < 6) e.path.shift();
@@ -997,6 +1005,27 @@ function bossSkill(e, dt, fGrid) {
     if (e.chargeT <= 0) {
       const far = near(230).filter(s => dist(e, s) > 70);
       if (far.length) { e.chargeT = 7; const s = far[(Math.random() * far.length) | 0]; e.dash = { x: s.x, y: s.y, t: 1.2 }; return true; }
+    }
+    return false;
+  }
+  if (e.boss === 'ancientDragon') {
+    // 7초마다 불숨: 바라보는 쪽 부채꼴(반지름 170, 좌우 35도)을 태운다. 맞은 병사는 3초간 탄다.
+    if (e.skillT <= 0) {
+      const tgt = near(170)[0];
+      if (tgt) {
+        e.skillT = 7;
+        const ang = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+        for (const s of near(170)) {
+          let da = Math.abs(Math.atan2(s.y - e.y, s.x - e.x) - ang);
+          if (da > Math.PI) da = Math.PI * 2 - da;
+          if (da > 0.62) continue;
+          damageFriendly(s, eAtk(e) * 0.8);
+          s.burnT = 3; s.burnDps = 8;
+        }
+        B.fx.push({ kind: 'breath', x: e.x, y: e.y, ang, r: 170, t: 0.6, max: 0.6 });
+        log('고대 드래곤의 불숨!', '#ff6b4a');
+        return true;
+      }
     }
     return false;
   }

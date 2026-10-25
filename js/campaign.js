@@ -163,7 +163,8 @@ function setOver(reason) {
   S.over = true; S.overReason = reason;
   const cur = S.lineage[S.lineage.length - 1];
   if (cur && cur.to == null) { cur.to = S.month; cur.cause = reason; }
-  MG.chron(reason === '가문 단절' ? '이을 혈족이 없어 가문이 끊겼어요.' : '본성이 함락되어 변경 기지가 무너졌어요.', 'lord');
+  MG.chron(reason === '가문 단절' ? '이을 혈족이 없어 가문이 끊겼어요.' : reason === '평정'
+    ? `${S.lord.name}이(가) 변경을 지킨 이야기를 마쳤어요.` : '본성이 함락되어 변경 기지가 무너졌어요.', 'lord');
   S.renown = MG.renownOf(S);
   MG.awardRenown(S);
 }
@@ -292,7 +293,10 @@ MG.isAttackMonth = () => MG.S.nextAttack && MG.S.month >= MG.S.nextAttack.month;
 MG.mustFight = () => !!MG.S.pendingConquest || MG.isAttackMonth();
 // 정벌한 거점이 습격을 바꾼다: 고블린 소굴은 규모 -15%, 오크 야영지는 오크 -30%
 MG.hasOutpost = id => (MG.S.outposts || []).includes(id);
-MG.outpostWaveMul = () => (MG.hasOutpost('goblin') ? 0.85 : 1);
+// 엔딩 뒤 계속 다스리면 해마다 습격이 커진다
+MG.outpostWaveMul = () => (MG.hasOutpost('goblin') ? 0.85 : 1) * MG.endlessMul();
+MG.endlessMul = () => (MG.S.endedMonth != null ? 1 + MG.ENDLESS_STEP * Math.floor((MG.S.month - MG.S.endedMonth) / 12) : 1);
+MG.citadelOpen = () => Object.keys(MG.OUTPOSTS).filter(k => !MG.OUTPOSTS[k].final).every(MG.hasOutpost);
 MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 // 다음 습격의 적 구성 (고블린 둥지를 소탕하면 줄어든다)
 MG.attackGroups = () => {
@@ -563,6 +567,7 @@ MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * cq(id).fails) * MG.siegeEnemy
 MG.actMarch = (id, gids, withLord) => {
   const S = MG.S, O = MG.OUTPOSTS[id];
   if (!O || MG.hasOutpost(id)) return '정벌할 수 없는 곳이에요';
+  if (O.final && !MG.citadelOpen()) return '거점 3곳을 먼저 정벌해요';
   if (S.march) return '이미 정벌군이 나가 있어요';
   const gens = gids.map(i => S.generals.find(g => g.id === i)).filter(g => g && MG.canExpedition(g));
   if (gens.length < MG.MARCH_MIN) return `장수 부대를 ${MG.MARCH_MIN}개 이상 골라요`;
@@ -598,11 +603,6 @@ function advanceMarch(rep) {
 function applyConquest(B) {
   const S = MG.S, M = S.march, O = MG.OUTPOSTS[M.id], sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, ruined: [], conquest: M.id };
   applySquads(B, sum);
-  if (B.lordDead) {
-    const rep = [];
-    lordDied(rep, '정벌 전투에서 전사했어요.');
-    sum.lordDied = rep;
-  }
   S.pendingConquest = false;
   M.fought = true;
   S.stats.battles++;
@@ -617,21 +617,48 @@ function applyConquest(B) {
       sum.weapon.name = `${MG.ENEMY_TYPES[O.boss].name}의 ${sum.weapon.name.replace('전설의 ', '')}`;
       S.inventory.push(sum.weapon);
     }
-    addCrown(10);
-    // 보복 습격: 늦어도 두 달 안에 크게 온다
-    const A = S.nextAttack;
-    A.mul = (A.mul || 1) * MG.RETALIATION_MUL;
-    A.month = Math.min(A.month, S.month + 2);
-    A.retaliation = M.id;
-    sum.retaliation = true;
-    MG.chron(`${O.name}을(를) 정벌했어요!${B.bossDead ? ` ${MG.ENEMY_TYPES[O.boss].name}을(를) 쓰러뜨렸어요.` : ''}`, 'battle');
+    addCrown(O.final ? 30 : 10);
+    MG.chron(`${O.name}을(를) ${O.final ? '함락' : '정벌'}했어요!${B.bossDead ? ` ${MG.ENEMY_TYPES[O.boss].name}을(를) 쓰러뜨렸어요.` : ''}`, 'battle');
+    if (O.final) {
+      // 엔딩: 내정 화면에서 엔딩을 보고, 계속 다스릴지 마칠지 고른다
+      S.ended = true; S.endedMonth = S.month; S.endingPending = true;
+      sum.ending = true;
+      MG.chron(`${S.lord.name}이(가) 검은 성채를 무너뜨려 변경에 평화가 찾아왔어요.`, 'lord');
+    } else {
+      // 보복 습격: 늦어도 두 달 안에 크게 온다
+      const A = S.nextAttack;
+      A.mul = (A.mul || 1) * MG.RETALIATION_MUL;
+      A.month = Math.min(A.month, S.month + 2);
+      A.retaliation = M.id;
+      sum.retaliation = true;
+    }
   } else {
     cq(M.id).fails++;
     MG.chron(`${O.name} 정벌에 실패했어요${B.retreated ? ' (퇴각)' : ''}.`, 'battle');
   }
+  // 성주 전사는 승패를 반영한 뒤에 (가문이 끊겨도 검은 성채 함락의 명성은 받는다)
+  if (B.lordDead) {
+    const rep = [];
+    lordDied(rep, '정벌 전투에서 전사했어요.');
+    sum.lordDied = rep;
+    if (S.over) S.endingPending = false;
+  }
   save();
   return sum;
 }
+
+// 엔딩 뒤: 계속 다스리거나, 여기서 이야기를 마치고 명성을 받는다
+MG.continueReign = () => {
+  const S = MG.S;
+  S.endingPending = false;
+  MG.chron('변경백 가문은 계속 변경을 다스리기로 했어요. 마물은 해마다 더 거세져요.', 'lord');
+  save();
+};
+MG.finishStory = () => {
+  MG.S.endingPending = false;
+  setOver('평정');
+  save();
+};
 
 // ---------- 본국 ----------
 MG.crown = () => MG.S.crown;
