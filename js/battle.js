@@ -6,13 +6,14 @@ let B = null;  // 현재 전투
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const rand = (a, b) => a + Math.random() * (b - a);
 const cheb = p => Math.max(Math.abs(p.x - C.x), Math.abs(p.y - C.y));
-const cls = p => (cheb(p) > C.R ? 'out' : 'in');
+// 정벌 전투에는 성이 없다: 모두 '성 밖', 성벽 위도 없다
+const cls = p => (B && B.conquest ? 'out' : cheb(p) > C.R ? 'out' : 'in');
 const side = p => {
   const dx = p.x - C.x, dy = p.y - C.y;
   return Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
 };
 const along = (p, s) => (s === 'N' || s === 'S' ? p.x - C.x : p.y - C.y);
-const onWall = p => { const d = cheb(p); return d <= C.R && d >= C.R - C.T; };
+const onWall = p => { if (B && B.conquest) return false; const d = cheb(p); return d <= C.R && d >= C.R - C.T; };
 // 이 지점이 속한 성벽 조각 (성문 포함)
 const segAt = p => {
   const s = side(p), a = along(p, s), list = B.wallBySide[s];
@@ -35,9 +36,10 @@ const cellCenter = k => ({ x: (k % NX) * NC + NC / 2, y: ((k / NX) | 0) * NC + N
 const NEI = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
 
 // 성 안 건물: 칸마다 건물 번호(+1)를 적어 둔다. 부서진 건물은 지나갈 수 있다.
+// 정벌 전투의 지형·목책·망루·본진은 음수 번호(-1부터)로 B.blocks에 둔다.
 function buildingAt(p) {
   const v = B.bgrid[cellIdx(p)];
-  return v ? B.buildings[v - 1] : null;
+  return v > 0 ? B.buildings[v - 1] : v < 0 ? B.blocks[-v - 1] : null;
 }
 function markBuilding(b, idx) {
   for (let y = b.y0; y < b.y1; y += NC) for (let x = b.x0; x < b.x1; x += NC) B.bgrid[cellIdx({ x: x + 1, y: y + 1 })] = idx;
@@ -242,7 +244,8 @@ MG.createBattle = function (level, roster) {
   const waves = MG.buildWaves(level, roster.dirs);
   // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
   const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1);
-  if (countMul !== 1) for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * countMul));
+  const tm = roster.typeMul || {};
+  for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,
@@ -290,16 +293,7 @@ MG.createBattle = function (level, roster) {
     sq.initial = sq.soldiers.length;
     MG.orderMove(sq, x, y, { x: 0, y: -1 }, true);
   }
-  // 성주: 장수 출신이면 그 레벨만큼 강하다. 어린 성주는 전투에 나가지 않고 근위대만 싸운다.
-  const L = MG.LORD, RL = roster.lord, lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
-  const lx = C.x + L.at.x, ly = C.y + L.at.y, lv = (RL.level || 1) - 1, age = RL.ageMul || 1;
-  if (!RL.minor) {
-    B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
-      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age });
-  } else lsq.leaderDown = false;
-  for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
-  lsq.initial = lsq.soldiers.length;
-  MG.orderMove(lsq, lx, ly, { x: 0, y: -1 }, true);
+  makeLord(roster, C.x + MG.LORD.at.x, C.y + MG.LORD.at.y, { x: 0, y: -1 });
 
   const hpScale = Math.pow(1.1, level - 1) * (roster.siegeMul || 1);
   for (const g of B.waves) {
@@ -313,6 +307,174 @@ MG.createBattle = function (level, roster) {
     }
   }
   B.spawnQueue.sort((a, b) => a.t - b.t);
+  return B;
+};
+
+// 성주: 장수 출신이면 그 레벨만큼 강하다. 어린 성주는 전투에 나가지 않고 근위대만 싸운다.
+// 정벌에 나가 있으면(또는 정벌에 안 따라왔으면) 근위대째 없다.
+function makeLord(roster, lx, ly, facing) {
+  const L = MG.LORD, RL = roster.lord;
+  if (RL.away) return;
+  const lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
+  const lv = (RL.level || 1) - 1, age = RL.ageMul || 1;
+  if (!RL.minor) {
+    B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
+      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age });
+  } else lsq.leaderDown = false;
+  for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
+  lsq.initial = lsq.soldiers.length;
+  MG.orderMove(lsq, lx, ly, facing, true);
+}
+
+// ---------- 정벌 전투 ----------
+// 들판 왼쪽에서 출발해 오른쪽 적 진지의 본진을 부수면 이긴다. 지형과 진지 모양은 매번 무작위.
+const BIOME_OBST = { forest: { tree: 16, rock: 3 }, plain: { rock: 8, tree: 4 }, swamp: { water: 9, tree: 6 } };
+const START_X = 330;  // 이보다 왼쪽은 아군 출발 지역 (지형 없음)
+const CAMP_P = 200;   // 진지 목책의 반폭
+function addBlock(o) {
+  B.blocks.push(o);
+  o.idx = -B.blocks.length;
+  for (let y = o.y0; y < o.y1; y += NC) for (let x = o.x0; x < o.x1; x += NC) B.bgrid[cellIdx({ x: x + 1, y: y + 1 })] = o.idx;
+  return o;
+}
+function clearBlock(o) {
+  for (let y = o.y0; y < o.y1; y += NC) for (let x = o.x0; x < o.x1; x += NC) {
+    const k = cellIdx({ x: x + 1, y: y + 1 });
+    if (B.bgrid[k] === o.idx) B.bgrid[k] = 0;
+  }
+}
+// 출발 지역에서 목표 칸까지 갈 수 있는가 (격자 너비 우선 탐색)
+function reachableCell(from, to) {
+  const seen = new Uint8Array(NN), s = cellIdx(from), t = cellIdx(to), q = [s];
+  seen[s] = 1;
+  while (q.length) {
+    const u = q.pop();
+    if (u === t) return true;
+    const ux = u % NX, uy = (u / NX) | 0;
+    for (let k = 0; k < 4; k++) {
+      const vx = ux + NEI[k][0], vy = uy + NEI[k][1], v = vx + vy * NX;
+      if (vx < 0 || vy < 0 || vx >= NX || vy >= NY || seen[v] || B.bgrid[v]) continue;
+      seen[v] = 1; q.push(v);
+    }
+  }
+  return false;
+}
+// 진지 구조물(목책·망루·본진)은 적이자 길을 막는 블록이다
+function makeStruct(kind, x0, y0, w, h, hp) {
+  const T = MG.STRUCTS[kind];
+  hp = Math.round(hp);
+  const e = { id: B.nextId++, type: kind, struct: kind, T, x: x0 + w / 2, y: y0 + h / 2, w, h, r: Math.max(w, h) / 2,
+    hp, max: hp, cdT: rand(0, 1), hitT: 0, dead: false, slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 };
+  e.block = addBlock({ kind, x0, y0, x1: x0 + w, y1: y0 + h, struct: e });
+  B.enemies.push(e);
+  return e;
+}
+function makeFoe(type, x, y, o = {}) {
+  const T = MG.ENEMY_TYPES[type], hp = Math.round(T.hp * (o.hpScale || 1));
+  const e = { id: B.nextId++, type, T, x, y, hp, max: hp, r: T.r, home: { x, y }, leash: o.leash || 260,
+    aggro: o.aggro || Math.max(T.aggro, 170), boss: T.boss ? type : null, skillT: 5, chargeT: 7,
+    cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
+    slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 };
+  B.enemies.push(e);
+  return e;
+}
+const snap = v => Math.round(v / NC) * NC;
+function layoutCamp(O, hx, hy, fort) {
+  const P = CAMP_P, T = MG.STRUCTS;
+  // 목책: 한 면에 40px 조각 10개. 두 조각 너비의 문 3곳(하나는 아군 쪽 서쪽), 몇 조각은 원래 무너져 있다.
+  const sides = ['W', 'N', 'S', 'E'], gaps = new Set(['W' + (3 + ((Math.random() * 4) | 0))]);
+  for (let k = 0; k < 2; k++) gaps.add(sides[(Math.random() * 4) | 0] + (2 + ((Math.random() * 6) | 0)));
+  for (const sd of sides) for (let i = 0; i < 10; i++) {
+    if (gaps.has(sd + i) || gaps.has(sd + (i - 1)) || Math.random() < 0.06) continue;
+    const a = -P + i * 40, hp = T.palisade.hp * fort;
+    if (sd === 'N') makeStruct('palisade', hx + a, hy - P, 40, 20, hp);
+    if (sd === 'S') makeStruct('palisade', hx + a, hy + P - 20, 40, 20, hp);
+    if (sd === 'W') makeStruct('palisade', hx - P, hy + a, 20, 40, hp);
+    if (sd === 'E') makeStruct('palisade', hx + P - 20, hy + a, 20, 40, hp);
+  }
+  // 망루: 목책 안쪽 모서리, 아군 쪽부터
+  const corners = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+  for (let i = 0; i < Math.min(4, O.towers); i++) {
+    const [cx, cy] = corners[i];
+    makeStruct('tower', hx + cx * (P - 60) - 20, hy + cy * (P - 60) - 20, 40, 40, T.tower.hp * fort);
+  }
+  B.hq = makeStruct('hq', hx - 40, hy - 40, 80, 80, O.hq * fort);
+}
+function scatterTerrain(biome, hx, hy, scale) {
+  const W = MG.WORLD;
+  for (const [kind, n] of Object.entries(BIOME_OBST[biome])) {
+    for (let i = 0; i < Math.round(n * scale); i++) {
+      const r = kind === 'water' ? rand(50, 95) : kind === 'tree' ? rand(35, 70) : rand(20, 45);
+      const cx = rand(START_X + 60, W.w - 60), cy = rand(60, W.h - 60);
+      if (Math.max(Math.abs(cx - hx), Math.abs(cy - hy)) < CAMP_P + r + 70) continue;  // 진지 주변은 비운다
+      for (let y = snap(cy - r); y <= cy + r; y += NC) for (let x = snap(cx - r); x <= cx + r; x += NC) {
+        if (x < START_X || y < 0 || x >= W.w || y >= W.h) continue;
+        const d = Math.hypot(x + NC / 2 - cx, y + NC / 2 - cy) / r;
+        if (d > 1 || (kind !== 'water' && Math.random() < d * 0.5)) continue;
+        if (B.bgrid[cellIdx({ x: x + 1, y: y + 1 })]) continue;
+        addBlock({ kind, x0: x, y0: y, x1: x + NC, y1: y + NC, seed: Math.random() });
+      }
+    }
+  }
+}
+
+MG.createConquest = function (roster) {
+  const O = MG.OUTPOSTS[roster.outpost], W = MG.WORLD, fort = roster.fortMul || 1;
+  B = MG.B = {
+    level: 0, conquest: roster.outpost, outpost: O, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
+    keep: { hp: 1, max: 1 }, morale: roster.morale || 1, enemyMorale: 1,
+    squads: [], allSquads: [], soldiers: [], enemies: [], projectiles: [], fx: [], log: [], auras: [], roster,
+    garrison: {}, garrisonSquads: {}, garrisonPool: { archer: 0, infantry: 0 }, groups: {}, selected: new Set(),
+    waves: [], dirs: [], spawnQueue: [], wave: 0, fields: [], walls: [], wallBySide: {}, buildings: [], blocks: [],
+    stats: { kills: 0, fallen: [], spawned: 0 }, lordDead: false, lord: null, result: null, reinfT: MG.REINF_GAP,
+  };
+  for (const s of MG.SIDES) { B.wallBySide[s] = []; B.garrison[s] = { archer: 0, infantry: 0 }; }
+  B.bgrid = new Int16Array(NN);
+  const hx = snap(rand(1450, 1700)), hy = snap(rand(420, W.h - 420));
+  layoutCamp(O, hx, hy, fort);
+  // 지형: 진지 안까지 길이 없으면 줄여 가며 다시 깐다
+  const camp = B.blocks.length;
+  for (let k = 0; k < 5; k++) {
+    scatterTerrain(O.biome, hx, hy, 1 - k * 0.25);
+    if (reachableCell({ x: 160, y: W.h / 2 }, { x: hx - 100, y: hy })) break;
+    for (const b of B.blocks.slice(camp)) clearBlock(b);
+    B.blocks.length = camp;
+  }
+  B.camp = { x: hx, y: hy, r: CAMP_P };
+  // 진지 수비대: 진지 안팎에 흩어져 지킨다. 보스는 본진 앞에.
+  const hpScale = B.foeHp = (roster.siegeMul || 1) * (O.power || 1);
+  const spot = (r0, r1) => {
+    for (let i = 0; i < 30; i++) {
+      const a = rand(0, Math.PI * 2), d = rand(r0, r1), p = { x: hx + Math.cos(a) * d, y: hy + Math.sin(a) * d };
+      if (p.x > 20 && p.y > 20 && p.x < W.w - 20 && p.y < W.h - 20 && !buildingAt(p)) return p;
+    }
+    return { x: hx - 240, y: hy };
+  };
+  for (const [type, n] of O.garrison) {
+    const count = Math.max(1, Math.round(n * fort));
+    for (let i = 0; i < count; i++) {
+      const p = Math.random() < 0.6 ? spot(60, 180) : spot(230, 340);
+      makeFoe(type, p.x, p.y, { hpScale });
+      B.stats.spawned++;
+    }
+  }
+  B.boss = makeFoe(O.boss, hx - 75, hy, { hpScale: (roster.siegeMul || 1) * fort, leash: 320, aggro: 220 });
+  B.stats.spawned++;
+  // 아군: 왼쪽 출발 지역에 세로로 늘어선다
+  const n = roster.squads.length;
+  roster.squads.forEach((rs, i) => {
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods,
+      lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
+    const x = 230, y = W.h / 2 + (i - (n - 1) / 2) * Math.min(110, (W.h - 200) / n);
+    if (rs.general) {
+      sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
+        weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
+    } else sq.leaderDown = true;
+    for (let k = 0; k < rs.healthy; k++) makeSoldier(sq, rs.type, x, y);
+    sq.initial = sq.soldiers.length;
+    MG.orderMove(sq, x, y, { x: 1, y: 0 }, true);
+  });
+  makeLord(roster, 110, W.h / 2, { x: 1, y: 0 });
   return B;
 };
 
@@ -383,6 +545,16 @@ MG.orderMove = function (sq, tx, ty, facing, teleport) {
 };
 
 MG.orderAttack = function (sq, enemy) {
+  const c = MG.centroid(sq), d = dist(c, enemy), s0 = sq.soldiers[0];
+  const melee = s0 && s0.T.kind === 'melee', range = s0 ? s0.range : 150;
+  if (B.conquest && s0 && d > (melee ? 250 : range * 0.9)) {
+    // 정벌 전투에서 멀리 있는 목표: 손이 닿는 곳까지 걸어가서 친다
+    const stand = melee ? enemy.r + 30 : Math.max(enemy.r + 20, range * 0.8), ux = (c.x - enemy.x) / d, uy = (c.y - enemy.y) / d;
+    MG.orderMove(sq, enemy.x + ux * stand, enemy.y + uy * stand, { x: -ux, y: -uy });
+    sq.focus = enemy;
+    for (const s of sq.soldiers) { s.target = null; s.retT = 0; }
+    return;
+  }
   sq.focus = enemy;
   for (const s of sq.soldiers) { s.target = null; s.retT = 0; s.moving = false; s.path = []; }
 };
@@ -432,12 +604,18 @@ function hitEnemy(e, dmg, sq) {
   if (m.freeze && Math.random() < m.freeze) e.frozenT = 1;
 }
 
+// 진지 구조물에 주는 피해 배율: 포병·공병은 잘 부수고, 화살·칼은 잘 안 먹힌다
+const STRUCT_DMG = { artillery: 2.5, engineer: 2, mage: 0.5 };
 function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
-  e.hp -= dmg; e.hitT = 0.1;
+  if (e.struct) dmg *= (sq && STRUCT_DMG[sq.type]) || 0.25;
+  e.hp -= dmg; e.hitT = 0.1; B.lastHit = B.time;
   if (e.hp <= 0) {
-    e.dead = true; B.stats.kills++; B.lastKill = B.time;
+    e.dead = true; B.lastKill = B.time;
+    if (!e.struct) B.stats.kills++;
     if (sq) { sq.kills++; sq.xp += MG.ENEMY_XP[e.type] || 1; }
+    if (e.struct) structDown(e);
+    if (e.boss) bossDown(e);
     for (let i = 0; i < 6; i++) {
       const a = rand(0, Math.PI * 2), sp = rand(30, 90);
       B.fx.push({ kind: 'p', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0.45, max: 0.45, color: e.T.color });
@@ -516,7 +694,8 @@ function pickTarget(s, eGrid) {
     if (d > r || d < minR) return;  // 포병은 너무 가까운 적을 못 쏜다
     // 근접병은 같은 쪽(성 안/밖)의 적을 쫓고, 성벽 너머 적은 손이 닿을 때만 친다
     if (T.kind === 'melee' && (dist(e, slot) > 150 || (cls(e) !== cls(s) && d > s.range + e.r))) return;
-    const sc = m.tough && T.kind !== 'melee' ? -e.hp : d;  // 저격수는 체력 높은 적부터
+    // 저격수는 체력 높은 적부터. 진지 구조물은 다른 적이 없을 때만 스스로 노린다.
+    const sc = (m.tough && T.kind !== 'melee' ? -e.hp : d) + (e.struct ? 100000 : 0);
     if (sc < score) { score = sc; best = e; }
   });
   // 본성이 공격받으면 근처 근접병은 자리를 벗어나서라도 막으러 간다
@@ -703,6 +882,152 @@ function breach(w) {
   MG.orderMove(sq, to.x, to.y, { x: n.x, y: n.y }, false);
 }
 
+// 적의 공격력: 오크 대족장의 함성을 받으면 1.5배, 정벌 전투에서 보스가 쓰러지면 기가 꺾인다
+const eAtk = e => e.T.atk * (e.buffT > 0 ? 1.5 : 1) * (B.enemyMorale || 1);
+
+// ---------- 정벌 전투의 적 ----------
+// 망루는 사거리 안 아군을 쏘고, 본진은 보스가 살아 있는 동안 증원을 내보낸다
+// (상태 이상과 쿨다운은 updateEnemy 앞부분에서 이미 처리했다)
+function updateStruct(e, dt, fGrid) {
+  if (e.struct !== 'tower' || e.cdT > 0) return;
+  const T = e.T;
+  let best = null, bd = T.range;
+  nearby(fGrid, e, T.range, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
+  if (!best) return;
+  e.cdT = T.cd;
+  B.projectiles.push({ x: e.x, y: e.y - 10, enemy: true, target: best, tx: best.x, ty: best.y, kind: 'earrow', dmg: T.atk, speed: 440 });
+}
+
+// 곧장 가다가 거의 나아가지 못하면(목책·지형에 막혀 미끄러지기만 하면) 길을 찾아 돌아간다
+function foeMove(e, tx, ty, sp, dt) {
+  if (e.path && e.path.length) {
+    const p = e.path[0];
+    if (dist(e, p) < 6) e.path.shift();
+    else if (stepToward(e, p.x, p.y, sp, false)) return;
+    else e.path = null;
+    if (e.path && e.path.length) return;
+  }
+  const d0 = Math.hypot(tx - e.x, ty - e.y);
+  stepToward(e, tx, ty, sp, false);
+  e.stuckT = d0 - Math.hypot(tx - e.x, ty - e.y) < sp * 0.5 ? (e.stuckT || 0) + dt : 0;
+  if (e.stuckT > 0.4 && e.planT <= 0) { e.planT = 1.5; e.stuckT = 0; e.path = planPath(e, { x: tx, y: ty }) || null; }
+}
+
+// 수비대: 가까이 온 아군을 쫓다가 진지에서 너무 멀어지면 돌아간다. 증원(leash 무한)은 아군을 찾아 나선다.
+function updateFoe(e, dt, fGrid, sp) {
+  const T = e.T;
+  if (T.regen) e.hp = Math.min(e.max, e.hp + e.max * T.regen * dt * (e.burnT > 0 ? 0.3 : 1));
+  if (e.buffT > 0) e.buffT -= dt;
+  if (e.boss && bossSkill(e, dt, fGrid)) return;
+  if (e.hasteT > 0) { e.hasteT -= dt; sp *= 1.7; }
+  if (e.target && (e.target.dead || (e.leash < 9999 && dist(e.target, e.home) > e.leash + 60))) e.target = null;
+  if (e.retT <= 0) {
+    e.retT = rand(0.3, 0.45);
+    const r = T.ranged || e.aggro;
+    let best = null, bd = r;
+    if (e.leash >= 9999) {
+      bd = Infinity;
+      for (const s of B.soldiers) { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } }
+    } else nearby(fGrid, e, r, s => { const d = dist(e, s); if (!s.dead && d < bd && dist(s, e.home) <= e.leash) { bd = d; best = s; } });
+    e.target = best || (e.target && dist(e, e.target) < r * 1.5 ? e.target : null);
+  }
+  const t = e.target;
+  if (t) {
+    const d = dist(e, t);
+    if (T.ranged) {
+      if (d <= T.ranged) {
+        if (e.cdT <= 0) { e.cdT = T.cd; B.projectiles.push({ x: e.x, y: e.y, enemy: true, target: t, tx: t.x, ty: t.y, kind: T.siege ? 'rock' : 'earrow', dmg: eAtk(e), speed: T.siege ? 220 : 420 }); }
+        return;
+      }
+    } else if (d <= e.r + 10) {
+      if (e.cdT <= 0) { e.cdT = T.cd; damageFriendly(t, eAtk(e)); }
+      return;
+    }
+    foeMove(e, t.x, t.y, sp, dt);
+    return;
+  }
+  if (dist(e, e.home) > 10) foeMove(e, e.home.x, e.home.y, sp, dt);
+}
+
+// 보스 기술. true를 돌려주면 이번 프레임은 기술에 쓴다.
+function bossSkill(e, dt, fGrid) {
+  e.skillT -= dt; e.chargeT -= dt;
+  const near = r => { const out = []; nearby(fGrid, e, r, s => { if (!s.dead && dist(e, s) <= r) out.push(s); }); return out; };
+  if (e.boss === 'goblinKing') {
+    // 12초마다 졸개 4마리
+    if (e.skillT <= 0 && near(260).length) {
+      e.skillT = 12;
+      for (let i = 0; i < 4; i++) {
+        const a = rand(0, Math.PI * 2), p = { x: e.x + Math.cos(a) * 24, y: e.y + Math.sin(a) * 24 };
+        if (!buildingAt(p)) makeFoe('goblin', p.x, p.y, { leash: 9999, hpScale: B.foeHp });
+      }
+      log('고블린 왕이 졸개를 불러냈어요!', '#ffd36b');
+    }
+    // 체력이 35% 아래로 떨어지면 한 번, 본진 뒤로 달아나며 조금 회복한다
+    if (!e.fled && e.hp < e.max * 0.35) {
+      e.fled = true; e.hasteT = 4; e.target = null;
+      e.home = { x: B.camp.x + 80, y: B.camp.y + (Math.random() < 0.5 ? -70 : 70) };
+      e.hp = Math.min(e.max, e.hp + e.max * 0.15);
+      log('고블린 왕이 진지 안쪽으로 달아나요!', '#ffb36b');
+    }
+    if (e.hasteT > 0) { e.hasteT -= dt; foeMove(e, e.home.x, e.home.y, e.T.speed * 1.7 * dt, dt); return true; }
+    return false;
+  }
+  if (e.boss === 'orcWarlord') {
+    // 10초마다 함성: 주변 적 공격력 1.5배 6초
+    if (e.skillT <= 0 && near(220).length) {
+      e.skillT = 10;
+      for (const o of B.enemies) if (!o.dead && !o.struct && dist(o, e) < 170) o.buffT = 6;
+      B.fx.push({ kind: 'shout', x: e.x, y: e.y, r: 170, t: 0.6, max: 0.6 });
+      log('오크 대족장의 함성! 주변 적이 거세져요.', '#ffb36b');
+    }
+    // 7초마다 돌진: 떨어진 아군에게 뛰어들어 주변을 치고 밀쳐낸다
+    if (e.dash) {
+      const d = e.dash, step = 320 * dt;
+      if (dist(e, d) > step && d.t > 0 && stepToward(e, d.x, d.y, step, false)) { d.t -= dt; return true; }
+      e.dash = null;
+      for (const s of near(48)) {
+        damageFriendly(s, eAtk(e) * 1.2);
+        const dx = s.x - e.x, dy = s.y - e.y, l = Math.hypot(dx, dy) || 1, q = { x: s.x + dx / l * 26, y: s.y + dy / l * 26 };
+        if (canStep(s, q, false)) { s.x = q.x; s.y = q.y; }
+      }
+      B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 48, t: 0.3, max: 0.3 });
+      return true;
+    }
+    if (e.chargeT <= 0) {
+      const far = near(230).filter(s => dist(e, s) > 70);
+      if (far.length) { e.chargeT = 7; const s = far[(Math.random() * far.length) | 0]; e.dash = { x: s.x, y: s.y, t: 1.2 }; return true; }
+    }
+    return false;
+  }
+  if (e.boss === 'trollChief') {
+    // 6초마다 강타: 넓은 범위
+    if (e.skillT <= 0) {
+      const hit = near(75);
+      if (hit.length >= 3 || (hit.length && e.skillT < -4)) {
+        e.skillT = 6;
+        for (const s of hit) damageFriendly(s, eAtk(e) * 1.4);
+        B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 75, t: 0.4, max: 0.4 });
+        return true;
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
+function structDown(e) {
+  clearBlock(e.block);
+  B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: e.r + 10, t: 0.4, max: 0.4 });
+  if (e.struct === 'tower') log('망루를 무너뜨렸어요!', '#6bdc8f');
+  if (e.struct === 'hq') log('적 본진이 무너졌어요!', '#6bdc8f');
+}
+function bossDown(e) {
+  B.bossDead = true;
+  B.enemyMorale = 0.8;
+  log(`${e.T.name}을(를) 쓰러뜨렸어요! 증원이 끊기고 적의 기세가 꺾여요.`, '#ffd36b');
+}
+
 function updateEnemy(e, dt, fGrid) {
   const T = e.T;
   e.cdT -= dt; e.retT -= dt; e.planT -= dt; e.hitT -= dt;
@@ -710,6 +1035,7 @@ function updateEnemy(e, dt, fGrid) {
   if (e.slowT > 0) e.slowT -= dt;
   if (e.frozenT > 0) { e.frozenT -= dt; return; }
   const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1);
+  if (B.conquest) { if (e.struct) updateStruct(e, dt, fGrid); else updateFoe(e, dt, fGrid, sp); return; }
   if (T.ranged && updateRanged(e, dt, fGrid)) return;
   if (e.target && !reachable(e, e.target)) e.target = null;
   if (T.aggro > 0 && e.retT <= 0) {
@@ -722,7 +1048,7 @@ function updateEnemy(e, dt, fGrid) {
   if (e.target) {
     const t = e.target;
     if (dist(e, t) <= e.r + 10) {
-      if (e.cdT <= 0) { e.cdT = T.cd; damageFriendly(t, T.atk); }
+      if (e.cdT <= 0) { e.cdT = T.cd; damageFriendly(t, eAtk(e)); }
       return;
     }
     if (stepToward(e, t.x, t.y, sp, true)) return;
@@ -826,8 +1152,9 @@ function hitGarrison(s, dmg) {
 
 function separate(list, grid) {
   for (const a of list) {
+    if (a.struct) continue;
     nearby(grid, a, 16, b => {
-      if (b === a || b.dead) return;
+      if (b === a || b.dead || b.struct) return;
       const dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy), min = a.r + b.r;
       if (d > 0 && d < min) {
         const push = (min - d) * 0.25, n = { x: a.x + dx / d * push, y: a.y + dy / d * push };
@@ -924,7 +1251,8 @@ MG.update = function (dt) {
   for (const l of B.log) l.t -= dt;
   B.log = B.log.filter(l => l.t > 0);
 
-  if (B.keep.hp <= 0) { B.keep.hp = 0; finish(false); }
+  if (B.conquest) updateConquest(dt);
+  else if (B.keep.hp <= 0) { B.keep.hp = 0; finish(false); }
   else if (!B.spawnQueue.length && !B.enemies.length) finish(true);
   else if (!B.spawnQueue.length && B.time - Math.max(B.lastKill || 0, B.lastSpawn || 0) > MG.RETREAT_AFTER) {
     // 서로 닿지 않는 채로 버티면 남은 적은 물러난다 (끝나지 않는 전투 방지)
@@ -932,6 +1260,45 @@ MG.update = function (dt) {
     B.enemies = [];
     finish(true);
   }
+};
+
+// 정벌 전투: 본진을 부수면 승리, 아군이 다 쓰러지면 패배. 보스가 살아 있으면 본진에서 증원이 나온다.
+function updateConquest(dt) {
+  if (B.hq.dead) {
+    const left = B.enemies.filter(e => !e.struct).length;
+    if (left) log(`남은 적 ${left}이(가) 흩어져 달아났어요.`, '#6bdc8f');
+    B.enemies = B.enemies.filter(e => e.struct);
+    finish(true);
+    return;
+  }
+  if (!B.squads.length) { finish(false); return; }
+  // 90초 동안 아무도 적에게 피해를 주지 못하면(사제만 남는 등) 더 싸울 수 없어 물러난다
+  if (B.time - (B.lastHit || 0) > 90) { B.retreated = true; log('더 싸울 수 없어 물러났어요.', '#ffb36b'); finish(false); return; }
+  // 아군이 진지에 다가오면 경보: 수비대 전체가 맞서 나온다
+  if (!B.alarm && B.soldiers.some(s => Math.max(Math.abs(s.x - B.camp.x), Math.abs(s.y - B.camp.y)) < B.camp.r + 140)) {
+    B.alarm = true;
+    for (const e of B.enemies) if (!e.struct && e.leash < 9999) { e.aggro = Math.max(e.aggro, 380); e.leash = Math.max(e.leash, 460); }
+    log('진지에 경보가 울렸어요! 수비대가 몰려나와요.', '#ffd36b');
+  }
+  if (B.bossDead) return;
+  if ((B.reinfT -= dt) > 0) return;
+  B.reinfT = MG.REINF_GAP;
+  const O = B.outpost, n = 8 + 4 * O.stars, hq = B.hq;
+  for (let i = 0; i < n; i++) {
+    const p = { x: hq.x - hq.w / 2 - 14 - rand(0, 20), y: hq.y + rand(-30, 30) };
+    if (buildingAt(p)) continue;
+    makeFoe(O.reinf, p.x, p.y, { leash: 9999, hpScale: B.foeHp });
+    B.stats.spawned++;
+  }
+  log(`적 본진에서 증원 ${n}이(가) 나왔어요.`, '#ffd36b');
+}
+
+// 퇴각: 지금 살아 있는 병력은 그대로 돌아오고, 정벌은 실패로 끝난다
+MG.retreat = function () {
+  if (!B || !B.conquest || B.phase !== 'battle') return;
+  B.retreated = true;
+  log('퇴각했어요.', '#ffb36b');
+  finish(false);
 };
 
 // 부상·경험치 같은 전투 후 처리는 캠페인이 맡는다 (MG.applyResult)

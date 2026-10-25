@@ -145,3 +145,7 @@ button.onBtn { border-color: var(--ok); color: var(--ok); }
 .fieldAdd { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
 .msg { margin-top: 6px; color: var(--accent); }
 .dirTag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #5a2323; color: #ffd0d0; font-weight: 700; margin-right: 4px; }
+/* 정벌 */
+#retreatBtn { width: 100%; margin-top: 6px; color: #ffb36b; }
+#retreatBtn.hidden { display: none; }
+.marchPick { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 8px; }

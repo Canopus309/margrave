@@ -67,6 +67,9 @@ function migrate(s) {
   if (s.siege == null) s.siege = 0;
   if (!s.effects) s.effects = [];
   if (s.nextChronicle == null) s.nextChronicle = nextChronicleMonth(s.month);
+  if (!s.conquest) s.conquest = {};
+  if (!s.outposts) s.outposts = [];
+  if (s.march === undefined) s.march = null;
 }
 
 // opts: { domain, bonuses: [...], siege } — 캠페인 준비 화면에서 고른 것
@@ -77,6 +80,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
+    conquest: {}, outposts: [], march: null, pendingConquest: false,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
     garrison: { archer: MG.GARRISON.archer, infantry: MG.GARRISON.infantry, wounded: [] },
     res: { ...MG.START_RES }, pop: MG.START_POP, buildings: [], fields: [],
@@ -267,6 +271,7 @@ MG.dismiss = g => {
 };
 MG.retire = g => {
   if (g.dead || g.age < 45) return '45세부터 은퇴할 수 있어요';
+  if (g.away) return '돌아온 뒤에 은퇴할 수 있어요';
   disband(g);
   MG.S.retired++;
   save();
@@ -283,10 +288,17 @@ function scheduleAttack(gap) {
   S.nextAttack = { month: S.month + gap, dirs: MG.rollDirs(S.level), scout: 0 };
 }
 MG.isAttackMonth = () => MG.S.nextAttack && MG.S.month >= MG.S.nextAttack.month;
+// 이번 달에 꼭 치러야 하는 전투가 있는가 (정벌군 도착 또는 습격)
+MG.mustFight = () => !!MG.S.pendingConquest || MG.isAttackMonth();
+// 정벌한 거점이 습격을 바꾼다: 고블린 소굴은 규모 -15%, 오크 야영지는 오크 -30%
+MG.hasOutpost = id => (MG.S.outposts || []).includes(id);
+MG.outpostWaveMul = () => (MG.hasOutpost('goblin') ? 0.85 : 1);
+MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 // 다음 습격의 적 구성 (고블린 둥지를 소탕하면 줄어든다)
 MG.attackGroups = () => {
-  const S = MG.S, A = S.nextAttack, mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0);
-  return MG.buildWaves(S.level, A.dirs).groups.map(g => ({ ...g, count: Math.max(1, Math.round(g.count * mul)) }));
+  const S = MG.S, A = S.nextAttack, tm = MG.typeMul();
+  const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul();
+  return MG.buildWaves(S.level, A.dirs).groups.map(g => ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
 };
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
@@ -518,7 +530,7 @@ MG.actExpedition = (siteId, gid) => {
 function returnExpeditions(rep) {
   const S = MG.S;
   for (const g of S.generals) {
-    if (!g.away || --g.away.months > 0) continue;
+    if (!g.away || g.away.type === 'march' || --g.away.months > 0) continue;
     const a = g.away, ok = Math.random() < a.chance, name = MG.SITES[a.type].name;
     g.away = null;
     let gain = '';
@@ -536,6 +548,89 @@ function returnExpeditions(rep) {
     rep.push(ok ? `${g.name} 부대가 ${name} 원정에 성공했어요! ${gain}${hurt ? ` (다친 병사 ${hurt})` : ''}`
       : `${g.name} 부대가 ${name} 원정에 실패했어요. 다친 병사 ${hurt}${g.injured ? `, ${g.name}도 부상` : ''}`);
   }
+}
+
+// ---------- 거점 정벌 ----------
+// 거점마다 정찰 여부와 실패 횟수를 기억한다
+const cq = id => (MG.S.conquest[id] = MG.S.conquest[id] || { scout: false, fails: 0 });
+MG.conquestInfo = cq;
+MG.actConquestScout = id => {
+  if (cq(id).scout) return '이미 정찰했어요';
+  return act(MG.CONQUEST_SCOUT, () => { cq(id).scout = true; }) || `${MG.OUTPOSTS[id].name}을(를) 정찰했어요.`;
+};
+// 진지 수비대 규모: 실패할 때마다 +20%, 포위 단계 반영
+MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * cq(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0);
+MG.actMarch = (id, gids, withLord) => {
+  const S = MG.S, O = MG.OUTPOSTS[id];
+  if (!O || MG.hasOutpost(id)) return '정벌할 수 없는 곳이에요';
+  if (S.march) return '이미 정벌군이 나가 있어요';
+  const gens = gids.map(i => S.generals.find(g => g.id === i)).filter(g => g && MG.canExpedition(g));
+  if (gens.length < MG.MARCH_MIN) return `장수 부대를 ${MG.MARCH_MIN}개 이상 골라요`;
+  if (withLord && S.lord.minor) return '어린 성주는 출정할 수 없어요';
+  if (S.ap < MG.MARCH_AP) return `행동력이 ${MG.MARCH_AP} 필요해요`;
+  if (S.res.food < MG.MARCH_FOOD) return `식량이 ${MG.MARCH_FOOD} 필요해요`;
+  S.res.food -= MG.MARCH_FOOD;
+  S.ap -= MG.MARCH_AP;
+  for (const g of gens) g.away = { type: 'march', months: O.months };
+  // 다음 달 도착해서 싸우고, 남은 달 동안 돌아온다
+  S.march = { id, gids: gens.map(g => g.id), lord: !!withLord, left: O.months, fought: false };
+  MG.chron(`${O.name} 정벌군이 출정했어요 (${gens.map(g => g.name).join(', ')}${withLord ? ', 성주 친정' : ''}).`, 'battle');
+  save();
+  return `정벌군이 ${O.name}(으)로 떠났어요. 다음 달 도착해 전투를 벌여요.`;
+};
+function advanceMarch(rep) {
+  const S = MG.S, M = S.march;
+  if (!M) return;
+  M.left--;
+  for (const id of M.gids) { const g = S.generals.find(x => x.id === id); if (g && g.away) g.away.months = Math.max(1, M.left); }
+  if (!M.fought) {
+    S.pendingConquest = true;
+    rep.push(`정벌군이 ${MG.OUTPOSTS[M.id].name}에 도착했어요! 정벌 전투를 치러요.`);
+    return;
+  }
+  if (M.left > 0) return;
+  for (const id of M.gids) { const g = S.generals.find(x => x.id === id); if (g) g.away = null; }
+  S.march = null;
+  rep.push(`${MG.OUTPOSTS[M.id].name} 정벌군이 돌아왔어요.`);
+}
+
+// 정벌 전투 결과: 이기면 거점을 얻고 보복 습격이 오고, 지면 다음 시도 때 수비가 강해진다
+function applyConquest(B) {
+  const S = MG.S, M = S.march, O = MG.OUTPOSTS[M.id], sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, ruined: [], conquest: M.id };
+  applySquads(B, sum);
+  if (B.lordDead) {
+    const rep = [];
+    lordDied(rep, '정벌 전투에서 전사했어요.');
+    sum.lordDied = rep;
+  }
+  S.pendingConquest = false;
+  M.fought = true;
+  S.stats.battles++;
+  S.stats.kills += B.stats.kills;
+  if (B.result.win) {
+    S.outposts.push(M.id);
+    sum.gold = MG.conquestGold(O.stars);
+    S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
+    // 보스를 쓰러뜨렸으면 전설 무기
+    if (B.bossDead) {
+      sum.weapon = rollWeapon(S.level, 0, 'legendary');
+      sum.weapon.name = `${MG.ENEMY_TYPES[O.boss].name}의 ${sum.weapon.name.replace('전설의 ', '')}`;
+      S.inventory.push(sum.weapon);
+    }
+    addCrown(10);
+    // 보복 습격: 늦어도 두 달 안에 크게 온다
+    const A = S.nextAttack;
+    A.mul = (A.mul || 1) * MG.RETALIATION_MUL;
+    A.month = Math.min(A.month, S.month + 2);
+    A.retaliation = M.id;
+    sum.retaliation = true;
+    MG.chron(`${O.name}을(를) 정벌했어요!${B.bossDead ? ` ${MG.ENEMY_TYPES[O.boss].name}을(를) 쓰러뜨렸어요.` : ''}`, 'battle');
+  } else {
+    cq(M.id).fails++;
+    MG.chron(`${O.name} 정벌에 실패했어요${B.retreated ? ' (퇴각)' : ''}.`, 'battle');
+  }
+  save();
+  return sum;
 }
 
 // ---------- 본국 ----------
@@ -670,6 +765,9 @@ MG.economy = () => {
   // 영지 특성
   if (S.domain === 'mine') made.iron *= 1.5;
   if (S.domain === 'fertile') made.food *= 1.3;
+  // 정벌한 거점에서 들어오는 것
+  if (MG.hasOutpost('orc')) made.iron += 20;
+  if (MG.hasOutpost('troll')) { made.wood += 30; made.food += 20; }
   const generals = S.generals.filter(g => !g.dead).length;
   const soldiers = S.generals.reduce((a, g) => a + g.healthy + g.wounded.length, 0)
     + S.garrison.archer + S.garrison.infantry + S.garrison.wounded.length + MG.LORD.guards;
@@ -738,6 +836,7 @@ MG.endMonth = () => {
   S.ap = MG.AP_PER_MONTH;
   if (S.month % 12 === 0) newYear(rep);
   if (S.month % 3 === 2) rollSites();   // 계절이 바뀌면 원정지도 바뀐다
+  advanceMarch(rep);
   returnExpeditions(rep);
   arriveSupport(rep);
   refreshTavern(rep);
@@ -790,10 +889,10 @@ MG.equip = (g, weaponId) => {
 MG.unequip = g => { if (g.weapon) { MG.S.inventory.push(g.weapon); g.weapon = null; save(); } };
 
 // smithy: 대장간 단계(제작일 때). 단계가 높을수록 좋은 등급이 나온다.
-function rollWeapon(level, smithy) {
+function rollWeapon(level, smithy, force) {
   const r = Math.random();
-  let grade;
-  if (smithy) grade = smithy === 1 ? (r < 0.7 ? 'common' : 'rare') : smithy === 2 ? (r < 0.7 ? 'rare' : 'heroic') : (r < 0.75 ? 'heroic' : 'legendary');
+  let grade = force;
+  if (force) { /* 정해진 등급 */ } else if (smithy) grade = smithy === 1 ? (r < 0.7 ? 'common' : 'rare') : smithy === 2 ? (r < 0.7 ? 'rare' : 'heroic') : (r < 0.75 ? 'heroic' : 'legendary');
   else grade = r < 0.03 + 0.01 * level ? 'legendary' : r < 0.15 + 0.03 * level ? 'heroic' : r < 0.45 + 0.03 * level ? 'rare' : 'common';
   const type = pick(Object.keys(MG.WEAPON_KINDS)), kind = pick(MG.WEAPON_KINDS[type]);
   const opts = Object.keys(MG.WEAPON_OPTS).sort(() => Math.random() - 0.5).slice(0, MG.WEAPON_GRADES[grade].opts);
@@ -843,15 +942,16 @@ const newWound = sev => ({ sev, left: sev === 'light' ? 1 : randInt(3, 6) });
 
 // ---------- 전투 준비 ----------
 // 전투에 나갈 구성. 저장 상태는 건드리지 않는다(전투 중 새로고침하면 전투 전으로 돌아감).
-MG.buildRoster = () => {
+// march: 정벌군이면 그 부대만 (장수는 모두 출전, 부상병 동원 없음)
+MG.buildRoster = march => {
   const S = MG.S, squads = [];
   const train = 1 + 0.03 * MG.bLevel('training');
   const typeMods = { mage: { atk: 1 + 0.1 * MG.bLevel('tower') }, priest: { heal: 1 + 0.1 * MG.bLevel('temple') },
     artillery: { atk: 1 + 0.1 * MG.bLevel('workshop') }, cavalry: { hp: 1 + 0.1 * MG.bLevel('stable') } };
   for (const g of S.generals) {
-    if (g.away) continue;  // 원정 간 부대는 성을 지킬 수 없다
-    const withGeneral = !g.dead && g.deploy;
-    const mob = g.mobilize ? g.wounded.map((w, idx) => ({ idx, sev: w.sev })) : [];
+    if (march ? !march.gids.includes(g.id) : g.away) continue;  // 원정·정벌 간 부대는 성을 지킬 수 없다
+    const withGeneral = !g.dead && (march ? true : g.deploy);
+    const mob = !march && g.mobilize ? g.wounded.map((w, idx) => ({ idx, sev: w.sev })) : [];
     if (!withGeneral && g.healthy + mob.length === 0) continue;
     // 시작 자리는 출전 순서대로 큰길 → 성벽 안길
     const slot = MG.SQUAD_SLOTS[squads.length % MG.SQUAD_SLOTS.length];
@@ -862,51 +962,25 @@ MG.buildRoster = () => {
       weaponAtk: g.weapon ? MG.WEAPON_GRADES[g.weapon.grade].atk : 1 });
   }
   const L = S.lord;
-  return {
-    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, ageMul: MG.ageMul(L.age || 30) },
-    garrison: { archer: S.garrison.archer, infantry: S.garrison.infantry },
+  // 성주가 정벌에 나가 있으면 성을 지키지 못하고, 정벌에 안 따라갔으면 정벌 전투에 없다
+  const lordAway = march ? !march.lord : !!(S.march && S.march.lord);
+  const roster = {
+    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30) },
+    garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
-    dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1),
-    siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
+    dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
+    typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
+  if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id); }
+  return roster;
 };
 
 // ---------- 전투 결과 반영 ----------
 MG.applyResult = B => {
-  const S = MG.S, R = B.roster, sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, heir: null, lostPop: 0, ruined: [] };
-  const fallenOf = gid => B.stats.fallen.filter(f => f.gid === gid);
-
-  for (const rs of R.squads) {
-    const g = S.generals.find(x => x.id === rs.gid);
-    const sq = B.allSquads.find(q => q.gid === rs.gid);
-    const alive = sq ? sq.soldiers.filter(s => !s.dead) : [];
-    const mobbed = new Set(rs.mob.map(m => m.idx));
-    const wounded = g.wounded.filter((w, i) => !mobbed.has(i));
-    for (const s of alive) if (s.wound) wounded.push(g.wounded[s.wound.idx]);
-    g.healthy = alive.filter(s => !s.wound && !s.isGeneral).length;
-    for (const f of fallenOf(rs.gid)) {
-      if (f.general) continue;
-      const r = rollWound(f.wound && f.wound.sev);
-      sum.wound[r]++;
-      if (r === 'dead') S.stats.soldiersLost++; else wounded.push(newWound(r));
-    }
-    g.wounded = wounded;
-    if (!rs.general) continue;
-    const fell = fallenOf(rs.gid).some(f => f.general);
-    const line = { name: g.name, from: g.level, to: g.level, xp: 0, status: '생존' };
-    if (fell && rs.general.injured) {
-      g.dead = true; g.deploy = false; S.stats.generalsLost++;
-      line.status = '전사';
-      MG.chron(`장수 ${g.name}이(가) 전투 ${B.level}에서 전사했어요.`, 'general');
-    } else {
-      if (fell) { g.injured = randInt(2, 4); g.deploy = false; line.status = `부상 (${g.injured}개월)`; }
-      line.xp = Math.round((sq ? sq.xp : 0) + (fell ? 0 : MG.SURVIVE_XP));
-      addXp(g, line.xp);
-      line.to = g.level;
-    }
-    sum.gens.push(line);
-  }
+  if (B.conquest) return applyConquest(B);
+  const S = MG.S, sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, heir: null, lostPop: 0, ruined: [] };
+  applySquads(B, sum);
 
   // 직할 수비대: 성벽에 남은 병력 + 수비대 부대로 바뀐 생존자
   const gar = S.garrison;
@@ -945,7 +1019,8 @@ MG.applyResult = B => {
   S.stats.battles++;
   S.stats.kills += B.stats.kills;
   const big = B.level % 5 === 0 ? '대습격' : '습격';
-  MG.chron(`전투 ${B.level}(${big}): ${B.result.win ? '막아냈어요' : '본성이 함락됐어요'} · 처치 ${B.stats.kills}${sum.ruined.length ? ` · 부서진 건물 ${sum.ruined.length}` : ''}`, 'battle');
+  const ret = S.nextAttack.retaliation ? `${MG.OUTPOSTS[S.nextAttack.retaliation].name}의 보복 ` : '';
+  MG.chron(`전투 ${B.level}(${ret}${big}): ${B.result.win ? '막아냈어요' : '본성이 함락됐어요'} · 처치 ${B.stats.kills}${sum.ruined.length ? ` · 부서진 건물 ${sum.ruined.length}` : ''}`, 'battle');
   if (!B.result.win) {
     setOver('본성 함락');
   } else if (!S.over) {
@@ -962,6 +1037,42 @@ MG.applyResult = B => {
   save();
   return sum;
 };
+
+// 장수 부대: 살아남은 병사, 쓰러진 병사의 부상 판정, 장수 경험치·부상·전사
+function applySquads(B, sum) {
+  const S = MG.S, R = B.roster;
+  const fallenOf = gid => B.stats.fallen.filter(f => f.gid === gid);
+  for (const rs of R.squads) {
+    const g = S.generals.find(x => x.id === rs.gid);
+    const sq = B.allSquads.find(q => q.gid === rs.gid);
+    const alive = sq ? sq.soldiers.filter(s => !s.dead) : [];
+    const mobbed = new Set(rs.mob.map(m => m.idx));
+    const wounded = g.wounded.filter((w, i) => !mobbed.has(i));
+    for (const s of alive) if (s.wound) wounded.push(g.wounded[s.wound.idx]);
+    g.healthy = alive.filter(s => !s.wound && !s.isGeneral).length;
+    for (const f of fallenOf(rs.gid)) {
+      if (f.general) continue;
+      const r = rollWound(f.wound && f.wound.sev);
+      sum.wound[r]++;
+      if (r === 'dead') S.stats.soldiersLost++; else wounded.push(newWound(r));
+    }
+    g.wounded = wounded;
+    if (!rs.general) continue;
+    const fell = fallenOf(rs.gid).some(f => f.general);
+    const line = { name: g.name, from: g.level, to: g.level, xp: 0, status: '생존' };
+    if (fell && rs.general.injured) {
+      g.dead = true; g.deploy = false; S.stats.generalsLost++;
+      line.status = '전사';
+      MG.chron(`장수 ${g.name}이(가) ${B.conquest ? "정벌 전투" : `전투 ${B.level}`}에서 전사했어요.`, 'general');
+    } else {
+      if (fell) { g.injured = randInt(2, 4); g.deploy = false; line.status = `부상 (${g.injured}개월)`; }
+      line.xp = Math.round((sq ? sq.xp : 0) + (fell ? 0 : MG.SURVIVE_XP));
+      addXp(g, line.xp);
+      line.to = g.level;
+    }
+    sum.gens.push(line);
+  }
+}
 
 // ---------- 연대기 사건 ----------
 // 2~3년에 한 번 봄에 오는 큰 사건. 대부분 선택이 있고, 지속 효과를 남긴다.

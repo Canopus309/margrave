@@ -30,14 +30,30 @@ ui.refresh = function (force) {
   if (MG.mode !== 'battle' || !B) return;
   if (force) lastHtml = {};
   const phaseName = { prep: '전투 준비', battle: '전투 중', result: '전투 종료' }[B.phase];
+  if (B.conquest) refreshConquest(B, phaseName);
+  else refreshDefense(B, phaseName);
+  refreshSquads(B);
+
+  $('startBtn').style.display = B.phase === 'prep' ? '' : 'none';
+  $('pauseBtn').disabled = B.phase !== 'battle';
+  $('pauseBtn').textContent = B.paused ? '계속' : '일시정지';
+  $('speedBtn').textContent = '속도 x' + B.speed;
+  $('retreatBtn').classList.toggle('hidden', !(B.conquest && B.phase === 'battle'));
+
+  const res = $('result');
+  if (B.phase === 'result' && res.classList.contains('hidden')) showResult(B);
+};
+
+function refreshDefense(B, phaseName) {
   const next = B.spawnQueue[0];
+  $('wallsTitle').textContent = '성벽과 본성';
   setHtml('statusCard', `<h3>${phaseName} · 전투 ${B.level}${B.level % 5 === 0 ? ' (대습격)' : ''}</h3>
     <div class="stat"><span>경과 시간</span><b>${Math.floor(B.time)}초</b></div>
     <div class="stat"><span>습격</span><b>${B.wave} / 3파</b></div>
     <div class="stat"><span>전장의 적</span><b>${B.enemies.length}</b></div>
     <div class="stat"><span>처치</span><b>${B.stats.kills}</b></div>
     ${next && B.phase === 'battle' && next.wave > B.wave ? `<div class="stat"><span>다음 습격까지</span><b>${Math.ceil(next.t - B.time)}초</b></div>` : ''}
-    <div class="stat"><span>성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.lordDead ? '전사' : '생존'}</b></div>`);
+    <div class="stat"><span>성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '정벌 중' : B.lordDead ? '전사' : '생존'}</b></div>`);
 
   // 한 면을 성벽 조각 4개 + 가운데 성문으로 보여준다
   const piece = w => {
@@ -66,7 +82,30 @@ ui.refresh = function (force) {
       b.onclick = () => { const [s, k, d] = b.dataset.g.split(','); MG.moveGarrison(s, k, +d); ui.refresh(); };
     });
   }
+}
 
+// 정벌 전투: 적 본진·보스·망루 상태
+function refreshConquest(B, phaseName) {
+  const O = B.outpost, boss = B.boss, towers = B.enemies.filter(e => e.struct === 'tower').length;
+  $('wallsTitle').textContent = '적 진지';
+  setHtml('statusCard', `<h3>${phaseName} · ${O.name} 정벌</h3>
+    <div class="stat"><span>경과 시간</span><b>${Math.floor(B.time)}초</b></div>
+    <div class="stat"><span>전장의 적</span><b>${B.enemies.filter(e => !e.struct).length}</b></div>
+    <div class="stat"><span>처치</span><b>${B.stats.kills}</b></div>
+    ${!B.bossDead && B.phase === 'battle' ? `<div class="stat"><span>다음 증원까지</span><b>${Math.ceil(B.reinfT)}초</b></div>` : ''}
+    <div class="stat"><span>성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '성에 남음' : B.lordDead ? '전사' : '친정 중'}</b></div>`);
+  setHtml('walls', bar('적 본진', B.hq.dead ? 0 : B.hq.hp, B.hq.max)
+    + bar(boss.T.name, boss.dead ? 0 : boss.hp, boss.max)
+    + `<div class="stat"><span>남은 망루</span><b>${towers}</b></div>
+    <div class="wallLegend">본진을 부수면 이겨요. 보스를 먼저 쓰러뜨리면 증원이 끊기고 적의 기세가 꺾이며, 전설 무기를 얻어요.</div>`);
+  $('scoutCard').classList.toggle('hidden', B.phase !== 'prep');
+  setHtml('scoutCard', `<h3>정찰 보고</h3>
+    <div>${O.bossDesc}</div>
+    <div style="color:var(--muted);margin-top:4px">${O.garrison.map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${Math.round(n * (B.roster.fortMul || 1))}`).join(', ')} · 망루 ${O.towers}</div>`);
+  $('garrisonCard').classList.add('hidden');
+}
+
+function refreshSquads(B) {
   if (setHtml('squads', B.squads.map(sq => {
     const T = MG.UNIT_TYPES[sq.type];
     const lead = sq.general ? (sq.general.dead ? ' · 지휘관 쓰러짐' : '') : ' · 지휘관 없음';
@@ -86,17 +125,50 @@ ui.refresh = function (force) {
       };
     });
   }
+}
 
-  $('startBtn').style.display = B.phase === 'prep' ? '' : 'none';
-  $('pauseBtn').disabled = B.phase !== 'battle';
-  $('pauseBtn').textContent = B.paused ? '계속' : '일시정지';
-  $('speedBtn').textContent = '속도 x' + B.speed;
+// 장수 줄과 부상 표는 습격·정벌 결과 화면이 같이 쓴다
+function genTable(s) {
+  return s.gens.map(g => `<tr><td>${g.name}</td><td>${g.status === '전사' ? '—' : `+${g.xp} 경험치`}</td>
+    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}</td>
+    <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
+}
+const woundTable = s => `<table>
+      <tr><th>경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>
+      <tr><th>중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
+      <tr><th>사망</th><td>${s.wound.dead}명</td></tr>
+    </table>`;
 
-  const res = $('result');
-  if (B.phase === 'result' && res.classList.contains('hidden')) showResult(B);
-};
+function showConquestResult(B) {
+  const r = B.result, s = r.summary, S = MG.S, O = B.outpost;
+  $('resTitle').textContent = r.win ? `${O.name} 정벌!` : B.retreated ? '퇴각했어요' : '정벌 실패…';
+  const left = B.squads.reduce((a, q) => a + q.soldiers.length, 0);
+  $('resBody').innerHTML = `
+    <table>
+      <tr><th>싸운 시간</th><td>${Math.floor(r.time)}초</td></tr>
+      <tr><th>처치한 적</th><td>${B.stats.kills}</td></tr>
+      <tr><th>${O.boss ? MG.ENEMY_TYPES[O.boss].name : '보스'}</th><td>${B.bossDead ? '<b style="color:var(--ok)">쓰러뜨림</b>' : '살아 있음'}</td></tr>
+      <tr><th>남은 병력</th><td>${left}명</td></tr>
+    </table>
+    <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
+    <table>${genTable(s) || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
+    <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
+    ${woundTable(s)}
+    ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
+    ${r.win ? `<p>거점을 얻었어요: <b style="color:var(--ok)">${O.reward}</b></p>` : ''}
+    ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
+    ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
+      <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
+    ${s.retaliation ? `<p style="color:#ffb36b">거점을 잃은 마물들이 복수하러 와요. 다음 습격이 크게(×${MG.RETALIATION_MUL}) 늦어도 2개월 안에 와요.</p>` : ''}
+    ${!r.win ? `<p class="muted">${O.name}의 수비가 다음 시도 때 +${Math.round(MG.CONQUEST_FAIL_MUL * 100)}% 강해져요.</p>` : ''}
+    <p class="muted">정벌군은 ${S.march && S.march.left > 0 ? `${S.march.left}개월 뒤` : '다음 달'} 성으로 돌아와요.</p>
+    ${S.over ? '<p style="color:#ff6b6b">가문이 끊겨 캠페인이 끝났어요.</p>' : ''}`;
+  $('contBtn').textContent = S.over ? '계보와 명성 보기' : '정비 화면으로';
+  $('result').classList.remove('hidden');
+}
 
 function showResult(B) {
+  if (B.conquest) { showConquestResult(B); return; }
   const r = B.result;
   $('resTitle').textContent = r.win ? '방어 성공!' : '본성 함락…';
   const broken = B.walls.filter(w => w.hp <= 0);
@@ -147,9 +219,10 @@ $('startBtn').onclick = () => { MG.startBattle(); ui.refresh(true); };
 $('pauseBtn').onclick = ui.togglePause;
 $('speedBtn').onclick = () => { const B = MG.B; B.speed = B.speed === 1 ? 2 : B.speed === 2 ? 3 : 1; ui.refresh(); };
 // 습격이 있던 달은 전투가 끝나야 지나간다
+$('retreatBtn').onclick = () => MG.retreat();
 $('contBtn').onclick = () => {
-  // 끝났으면 내정 화면의 종료 창(계보·명성)으로 간다
-  if (!MG.S.over) MG.endMonth();
+  // 끝났으면 내정 화면의 종료 창(계보·명성)으로 간다. 정벌 전투는 달이 지나지 않는다.
+  if (!MG.S.over && !(MG.B && MG.B.conquest)) MG.endMonth();
   MG.enterCamp();
 };
 })();

@@ -16,6 +16,12 @@ MG.clampView = () => {
 MG.screenToWorld = (sx, sy) => ({ x: (sx - view.w / 2) / view.zoom + view.x, y: (sy - view.h / 2) / view.zoom + view.y });
 MG.worldToScreen = p => ({ x: (p.x - view.x) * view.zoom + view.w / 2, y: (p.y - view.y) * view.zoom + view.h / 2 });
 MG.resetView = () => {
+  if (MG.B && MG.B.conquest) {
+    // 정벌 전투: 들판 전체가 보이게
+    view.x = W.w / 2; view.y = W.h / 2; view.zoom = 0;
+    MG.clampView();
+    return;
+  }
   view.x = C.x; view.y = C.y;
   view.zoom = Math.min(view.w, view.h) / ((C.R + 150) * 2);
   MG.clampView();
@@ -59,6 +65,71 @@ bg.width = W.w; bg.height = W.h;
   g.strokeStyle = '#93805f'; g.lineWidth = road;
   g.strokeRect(C.x - ring, C.y - ring, ring * 2, ring * 2);
 })();
+
+// 정벌 전투의 배경: 지형(숲·바위·물)은 움직이지 않으니 전투마다 한 번 그려 둔다
+const BIOME_BG = { forest: '#34502f', plain: '#55703c', swamp: '#3d4d3c' };
+MG.makeConquestBg = B => {
+  const c = document.createElement('canvas');
+  c.width = W.w; c.height = W.h;
+  const g = c.getContext('2d'), biome = B.outpost.biome;
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.fillStyle = BIOME_BG[biome]; g.fillRect(0, 0, W.w, W.h);
+  for (let i = 0; i < 1600; i++) {
+    g.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.07)' : biome === 'swamp' ? 'rgba(120,160,140,0.05)' : 'rgba(255,255,255,0.04)';
+    g.beginPath(); g.arc(rnd() * W.w, rnd() * W.h, 6 + rnd() * 30, 0, Math.PI * 2); g.fill();
+  }
+  // 아군 출발 지역과 적 진지 바닥
+  g.fillStyle = 'rgba(230,200,120,0.08)'; g.fillRect(0, 0, 330, W.h);
+  const cp = B.camp;
+  g.fillStyle = '#6b5638'; g.globalAlpha = 0.7;
+  g.fillRect(cp.x - cp.r - 30, cp.y - cp.r - 30, (cp.r + 30) * 2, (cp.r + 30) * 2); g.globalAlpha = 1;
+  for (let i = 0; i < 300; i++) { g.fillStyle = 'rgba(0,0,0,0.1)'; g.fillRect(cp.x - cp.r - 30 + rnd() * (cp.r + 30) * 2, cp.y - cp.r - 30 + rnd() * (cp.r + 30) * 2, 3, 3); }
+  for (const b of B.blocks) {
+    if (b.struct) continue;
+    const x = b.x0, y = b.y0, cx = x + 10, cy = y + 10, r = b.seed;
+    if (b.kind === 'water') {
+      g.fillStyle = '#2f5a6e'; g.fillRect(x - 1, y - 1, 22, 22);
+      g.fillStyle = 'rgba(160,210,230,0.15)'; g.fillRect(x + 3 + r * 8, y + 4, 6, 2);
+    } else if (b.kind === 'rock') {
+      g.fillStyle = '#6e6a62'; g.beginPath(); g.moveTo(cx - 10, cy + 6); g.lineTo(cx - 6, cy - 9); g.lineTo(cx + 7, cy - 8); g.lineTo(cx + 11, cy + 5); g.lineTo(cx + 2, cy + 10); g.closePath(); g.fill();
+      g.strokeStyle = '#3e3a34'; g.lineWidth = 1; g.stroke();
+    } else {
+      g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.arc(cx + 3, cy + 3, 11 + r * 3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = r < 0.5 ? '#244a22' : '#2d5a28'; g.beginPath(); g.arc(cx, cy, 11 + r * 3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.07)'; g.beginPath(); g.arc(cx - 3, cy - 3, 5, 0, Math.PI * 2); g.fill();
+    }
+  }
+  return c;
+};
+
+// 진지 구조물: 목책·망루·본진
+function drawStructs(B) {
+  for (const e of B.enemies) {
+    if (!e.struct) continue;
+    const x = e.x - e.w / 2, y = e.y - e.h / 2;
+    ctx.fillStyle = e.hitT > 0 ? '#d8c8a8' : e.T.color;
+    ctx.fillRect(x, y, e.w, e.h);
+    ctx.strokeStyle = '#2a1a0a'; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, e.w, e.h);
+    if (e.struct === 'palisade') {
+      // 말뚝 무늬
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      const horiz = e.w > e.h;
+      for (let i = 4; i < (horiz ? e.w : e.h); i += 8) horiz ? ctx.fillRect(x + i, y, 2, e.h) : ctx.fillRect(x, y + i, e.w, 2);
+    } else if (e.struct === 'tower') {
+      ctx.fillStyle = '#4a321e'; ctx.fillRect(x + 8, y + 8, e.w - 16, e.h - 16);
+    } else {
+      ctx.fillStyle = '#8a2a1a'; ctx.beginPath(); ctx.moveTo(x + 6, y + e.h - 8); ctx.lineTo(e.x, y + 8); ctx.lineTo(x + e.w - 6, y + e.h - 8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e04a3a'; ctx.fillRect(e.x - 1, y - 20, 2, 22);
+      ctx.beginPath(); ctx.moveTo(e.x + 1, y - 20); ctx.lineTo(e.x + 16, y - 15); ctx.lineTo(e.x + 1, y - 10); ctx.fill();
+    }
+    if (e.hp < e.max) {
+      const w = Math.max(24, e.w);
+      ctx.fillStyle = '#300'; ctx.fillRect(e.x - w / 2, y - 6, w, 3);
+      ctx.fillStyle = '#ff6b6b'; ctx.fillRect(e.x - w / 2, y - 6, w * e.hp / e.max, 3);
+    }
+  }
+}
 
 // 성 밖 들판 시설 자리 (모서리마다 2곳)
 MG.fieldPos = i => {
@@ -252,6 +323,12 @@ function drawFlags(B) {
 
 function drawEnemies(B) {
   for (const e of B.enemies) {
+    if (e.struct) continue;
+    if (e.boss) {
+      // 보스: 금빛 테두리와 이름, 큰 체력 막대
+      ctx.fillStyle = 'rgba(255,200,60,0.18)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 8, 0, Math.PI * 2); ctx.fill();
+      if (e.buffT > 0 || e.hasteT > 0) { ctx.strokeStyle = '#ff8a3a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 5, 0, Math.PI * 2); ctx.stroke(); }
+    } else if (e.buffT > 0) { ctx.fillStyle = 'rgba(255,120,40,0.35)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 3, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = e.hitT > 0 ? '#fff' : e.T.color;
     ctx.beginPath();
     if (e.type === 'wolf') ctx.ellipse(e.x, e.y, e.r + 2, e.r - 1, 0, 0, Math.PI * 2);
@@ -262,6 +339,19 @@ function drawEnemies(B) {
     ctx.strokeStyle = e.frozenT > 0 ? '#bfe8ff' : e.slowT > 0 ? '#6cc6ff' : '#5a1010';
     ctx.lineWidth = e.frozenT > 0 ? 2.5 : 1.2; ctx.stroke();
     if (e.burnT > 0) { ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.arc(e.x + e.r * 0.6, e.y - e.r * 0.6, 2, 0, Math.PI * 2); ctx.fill(); }
+    if (e.boss) {
+      ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#ffd36b';  // 왕관
+      ctx.beginPath(); ctx.moveTo(e.x - 7, e.y - e.r - 2); ctx.lineTo(e.x - 7, e.y - e.r - 9); ctx.lineTo(e.x - 3, e.y - e.r - 5); ctx.lineTo(e.x, e.y - e.r - 11);
+      ctx.lineTo(e.x + 3, e.y - e.r - 5); ctx.lineTo(e.x + 7, e.y - e.r - 9); ctx.lineTo(e.x + 7, e.y - e.r - 2); ctx.closePath(); ctx.fill();
+      const w = 50;
+      ctx.fillStyle = '#300'; ctx.fillRect(e.x - w / 2, e.y + e.r + 5, w, 4);
+      ctx.fillStyle = '#ffb347'; ctx.fillRect(e.x - w / 2, e.y + e.r + 5, w * e.hp / e.max, 4);
+      ctx.font = 'bold 11px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(e.T.name, e.x, e.y + e.r + 11);
+      ctx.fillStyle = '#ffd36b'; ctx.fillText(e.T.name, e.x, e.y + e.r + 11);
+      continue;
+    }
     if (e.hp < e.max) {
       const w = e.r * 2.4;
       ctx.fillStyle = '#300'; ctx.fillRect(e.x - w / 2, e.y - e.r - 5, w, 2.5);
@@ -304,6 +394,7 @@ function drawFx(B) {
     else if (f.kind === 'heal') { ctx.fillStyle = '#7dff9a'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('+', f.x, f.y - 8 - (1 - a) * 10); }
     else if (f.kind === 'repair') { ctx.fillStyle = '#ffd36b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('⚒', f.x, f.y - (1 - a) * 8); }
     else if (f.kind === 'charge') { ctx.strokeStyle = '#ffb36b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, 14 * (1.4 - a), 0, Math.PI * 2); ctx.stroke(); }
+    else if (f.kind === 'shout') { ctx.strokeStyle = '#ff8a3a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.1 - a * 0.7), 0, Math.PI * 2); ctx.stroke(); }
     else if (f.kind === 'dust') { ctx.fillStyle = '#c8b89a'; ctx.beginPath(); ctx.arc(f.x, f.y, 4 * (1.6 - a), 0, Math.PI * 2); ctx.fill(); }
     ctx.globalAlpha = 1;
   }
@@ -342,12 +433,18 @@ MG.render = function (B, input) {
   ctx.fillStyle = '#0d1016'; ctx.fillRect(0, 0, view.w, view.h);
   // 월드 좌표
   ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, (view.w / 2 - view.x * zoom) * dpr, (view.h / 2 - view.y * zoom) * dpr);
-  ctx.drawImage(bg, 0, 0);
-  drawFields(B);
-  drawBuildings(B);
-  drawWalls(B);
-  drawGarrison(B);
-  drawKeep(B);
+  if (B.conquest) {
+    if (!B.bg) B.bg = MG.makeConquestBg(B);
+    ctx.drawImage(B.bg, 0, 0);
+    drawStructs(B);
+  } else {
+    ctx.drawImage(bg, 0, 0);
+    drawFields(B);
+    drawBuildings(B);
+    drawWalls(B);
+    drawGarrison(B);
+    drawKeep(B);
+  }
   drawEnemies(B);
   drawSoldiers(B);
   drawProjectiles(B);

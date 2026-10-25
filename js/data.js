@@ -36,6 +36,11 @@ MG.ENEMY_TYPES = {
   // ranged: 사거리. 성벽 밖에서 멈춰 쏜다. siege: 성벽을 겨냥해 돌을 던진다
   goblinArcher: { name: '고블린 궁수',  color: '#b4d050', hp: 28, atk: 6,  cd: 1.6, speed: 42, r: 5, wallDmg: 2,  aggro: 0, ranged: 170 },
   orcThrower:   { name: '오크 투석병',  color: '#6a8a40', hp: 90, atk: 10, cd: 3.5, speed: 30, r: 7, wallDmg: 40, aggro: 0, ranged: 220, siege: true },
+  // 정벌 전투에만 나온다. regen: 1초에 최대 체력의 비율만큼 회복
+  troll:        { name: '늪 트롤',      color: '#5f8a7a', hp: 260, atk: 18, cd: 1.6, speed: 32, r: 9, wallDmg: 20, aggro: 60, regen: 0.01 },
+  goblinKing:   { name: '고블린 왕',     color: '#d8c040', hp: 2700, atk: 22, cd: 1.0, speed: 50, r: 12, wallDmg: 0, aggro: 220, boss: true },
+  orcWarlord:   { name: '오크 대족장',   color: '#2f6a2a', hp: 4800, atk: 35, cd: 1.3, speed: 40, r: 14, wallDmg: 0, aggro: 220, boss: true },
+  trollChief:   { name: '거인 트롤 족장', color: '#4a7a6a', hp: 7500, atk: 50, cd: 1.8, speed: 34, r: 16, wallDmg: 0, aggro: 220, boss: true, regen: 0.008 },
 };
 MG.UPHILL_HIT = 0.5;      // 아래에서 성벽 위를 쏘면 명중률
 MG.RETREAT_AFTER = 60;    // 모든 적이 나온 뒤 이만큼(초) 적이 하나도 안 죽으면 남은 적은 물러난다
@@ -57,7 +62,7 @@ MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130
 MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
-MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7 };
+MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, tower: 6, hq: 40 };
 MG.MAX_LEVEL = 15;
 MG.xpToNext = L => Math.round(60 * Math.pow(L, 1.4));
 MG.SURVIVE_XP = 20;
@@ -340,6 +345,35 @@ MG.renownOf = S => {
   return { parts, base, total: Math.round(base * MG.siegeRenownMul(S.siege || 0)) };
 };
 MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
+
+// ---------- C2: 거점 정벌 ----------
+// 정벌 전투: 넓은 들판에서 적 진지(목책·망루·본진)를 친다. 본진을 부수면 이긴다.
+// garrison: 진지 수비대 [적 종류, 수], reinf: 보스가 살아 있는 동안 본진에서 나오는 증원, power: 적 체력 배율
+MG.OUTPOSTS = {
+  goblin: { name: '고블린 소굴', boss: 'goblinKing', biome: 'forest', stars: 1, months: 2,
+    garrison: [['goblin', 140], ['goblinArcher', 40], ['wolf', 30]], towers: 2, hq: 5000, reinf: 'goblin', power: 1.3,
+    bossDesc: '졸개를 불러내고, 체력이 낮아지면 진지 안쪽으로 달아나요', reward: '앞으로의 습격 규모 -15%' },
+  orc: { name: '오크 전쟁 야영지', boss: 'orcWarlord', biome: 'plain', stars: 2, months: 2,
+    garrison: [['orc', 90], ['goblin', 120], ['orcThrower', 15]], towers: 3, hq: 8000, reinf: 'orc', power: 1.7,
+    bossDesc: '함성으로 주변 적을 강하게 하고, 돌진해서 병사들을 밀쳐내요', reward: '매달 철 +20, 습격에서 오크 -30%' },
+  troll: { name: '트롤 늪 요새', boss: 'trollChief', biome: 'swamp', stars: 3, months: 3,
+    garrison: [['troll', 60], ['orc', 90], ['goblinArcher', 80]], towers: 4, hq: 12000, reinf: 'troll', power: 2.2,
+    bossDesc: '체력이 계속 차오르고, 강타로 넓은 범위를 때려요', reward: '매달 목재 +30, 식량 +20' },
+};
+MG.STRUCTS = {
+  palisade: { name: '목책', color: '#8a6a40', hp: 350 },
+  tower:    { name: '망루', color: '#7a5a3a', hp: 700, range: 210, atk: 9, cd: 1.6 },
+  hq:       { name: '적 본진', color: '#6a3a2a' },
+};
+MG.BIOME_NAME = { forest: '숲', plain: '평원', swamp: '늪' };
+MG.MARCH_FOOD = 300;
+MG.MARCH_AP = 2;
+MG.MARCH_MIN = 2;            // 장수 부대 최소 수
+MG.CONQUEST_SCOUT = { gold: 50 };
+MG.CONQUEST_FAIL_MUL = 0.2;  // 실패할 때마다 거점 수비 +20%
+MG.RETALIATION_MUL = 1.5;    // 정벌 직후 보복 습격 규모
+MG.REINF_GAP = 30;           // 본진 증원 간격(초)
+MG.conquestGold = stars => 200 * stars;
 
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {
