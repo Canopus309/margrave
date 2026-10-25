@@ -28,6 +28,41 @@ function enemyAt(B, p) {
 
 const usable = B => MG.mode === 'battle' && B && (B.phase === 'prep' || B.phase === 'battle');
 
+// ---------- 스킬·소모품 조준 ----------
+// 지점을 찍는 스킬·소모품은 조준 모드로 들어가서, 다음 좌클릭 지점에 쓴다 (우클릭·Esc로 취소)
+input.aim = null;
+input.mouse = { x: 0, y: 0 };
+const report = why => { if (why) MG.log(why, '#ffb36b'); };
+MG.beginSkill = squads => {
+  const B = MG.B;
+  if (!B || B.phase !== 'battle') { report('전투가 시작된 뒤에 써요'); return; }
+  const aimers = [];
+  for (const sq of squads) {
+    const K = MG.skillOf(sq), st = MG.skillState(sq);
+    if (!K || !st) continue;
+    if (!st.ok) { report(`${sq.name} ${K.name}: ${st.cd ? `아직 ${st.why}` : st.why}`); continue; }
+    if (K.target === 'point') aimers.push(sq); else report(MG.useSkill(sq));
+  }
+  if (aimers.length) input.aim = { kind: 'skill', squads: aimers, r: 60 };
+  MG.ui.refresh(true);
+};
+MG.beginItem = k => {
+  const B = MG.B, I = MG.ITEMS[k];
+  if (!B || B.phase !== 'battle') { report('전투가 시작된 뒤에 써요'); return; }
+  if (I.target === 'none') report(MG.useItem(k));
+  else if (I.target === 'squad') report(MG.useItem(k, null, [...B.selected][0]));
+  else input.aim = { kind: 'item', id: k, r: I.target === 'wall' ? 30 : 50 };
+  MG.ui.refresh(true);
+};
+function fireAim(p) {
+  const a = input.aim;
+  input.aim = null;
+  if (a.kind === 'skill') for (const sq of a.squads) { if (MG.B.squads.includes(sq)) report(MG.useSkill(sq, p)); }
+  else report(MG.useItem(a.id, p));
+  input.marks.push({ x: p.x, y: p.y, t: 0.6, color: '#9fd4ff' });
+  MG.ui.refresh(true);
+}
+
 // 여러 부대를 함께 옮길 때는 옆으로 나란히 세운다
 function moveSelected(B, p) {
   const sel = [...B.selected];
@@ -65,6 +100,11 @@ cv.addEventListener('mousedown', ev => {
   }
   if (!usable(B)) return;
   const p = toWorld(ev);
+  if (input.aim) {
+    if (ev.button === 0) fireAim(p);
+    else { input.aim = null; MG.log('조준을 취소했어요.'); }
+    return;
+  }
   if (ev.button === 0) input.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, shift: ev.shiftKey, sx: toScreen(ev) };
   if (ev.button === 2 && B.selected.size) {
     const e = enemyAt(B, p);
@@ -75,6 +115,7 @@ cv.addEventListener('mousedown', ev => {
   }
 });
 window.addEventListener('mousemove', ev => {
+  if (MG.mode === 'battle') { const r = cv.getBoundingClientRect(); input.mouse = MG.screenToWorld(ev.clientX - r.left, ev.clientY - r.top); }
   if (input.pan) {
     const v = MG.view;
     v.x = input.pan.vx - (ev.clientX - input.pan.sx) / v.zoom;
@@ -120,7 +161,10 @@ window.addEventListener('keydown', ev => {
   } else if (ev.key === ' ') {
     ev.preventDefault();
     MG.ui.togglePause();
+  } else if (ev.key === 'q' || ev.key === 'Q') {
+    MG.beginSkill([...B.selected]);
   } else if (ev.key === 'Escape') {
+    if (input.aim) { input.aim = null; return; }
     B.selected.clear();
     MG.ui.refresh(true);
   } else if (ev.key === 'h' || ev.key === 'H') {

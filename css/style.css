@@ -150,3 +150,8 @@ button.onBtn { border-color: var(--ok); color: var(--ok); }
 #retreatBtn.hidden { display: none; }
 .marchPick { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 8px; }
 .panel.ending { border: 2px solid var(--accent); box-shadow: 0 0 40px rgba(230,180,80,0.25); }
+/* 스킬·소모품 */
+.skillBtn { width: 100%; margin-top: 4px; font-size: 11px; }
+.skillBtn.ready { border-color: #6aa8ff; color: #9fd4ff; }
+.itemBtns { display: flex; flex-wrap: wrap; gap: 4px; }
+#itemCard.hidden { display: none; }

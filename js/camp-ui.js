@@ -161,6 +161,15 @@ function actionsBlock() {
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
 }
 
+// 전투 소모품: 보유 수와 사기 (시장이 있어야)
+function itemShop() {
+  const S = MG.S, market = MG.bLevel('market') > 0;
+  const rows = Object.entries(MG.ITEMS).map(([k, I]) => `<div class="tradeRow"><span><b>${I.name}</b> ${S.items[k] || 0}개</span>
+    <span class="small muted">${I.desc}${I.defense ? ' (방어전)' : ''}</span>
+    ${market ? `<button class="mini" data-buyitem="${k}" ${S.res.gold >= I.price && (S.items[k] || 0) < MG.ITEM_MAX ? '' : 'disabled'}>사기 · 골드 ${I.price}</button>` : ''}</div>`).join('');
+  return `<h3 style="margin-top:10px">전투 소모품 <span class="muted">(전투마다 ${MG.ITEM_CARRY}종까지 챙겨 가요)</span></h3>${rows}`;
+}
+
 function fieldsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const list = S.fields.map((f, idx) => {
@@ -179,7 +188,7 @@ function marketBlock() {
   const S = MG.S;
   MG.ensureMarket();
   const l = MG.bLevel('market');
-  if (!l) return `<section class="card"><h3>시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔 수 있어요. 시세는 매달 바뀌어요.</div></section>`;
+  if (!l) return `<section class="card"><h3>시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔고, 전투 소모품도 살 수 있어요. 시세는 매달 바뀌어요.</div>${itemShop()}</section>`;
   const arrow = r => {
     const d = S.prices[r] - S.prevPrices[r];
     return Math.abs(d) < 0.01 ? '<span class="muted">–</span>' : d > 0 ? '<span class="danger">▲</span>' : '<span class="ok">▼</span>';
@@ -190,7 +199,8 @@ function marketBlock() {
     <span class="tbtns">${[50, 10].map(q => `<button class="mini" data-trade="${r},${q}">사기 ${q}</button>`).join('')}
       ${[10, 50].map(q => `<button class="mini" data-trade="${r},${-q}">팔기 ${q}</button>`).join('')}</span></div>`).join('');
   return `<section class="card"><h3>시장 거래 <span class="muted">(행동력 안 씀 · 이번 달 남은 거래 ${MG.tradeLeft()}개)</span></h3>
-    ${rows}<div class="muted small">값은 1개당 골드. ▲ 지난달보다 비쌈, ▼ 쌈. 식량은 가을에 싸고 겨울·봄에 비싸요.</div></section>`;
+    ${rows}<div class="muted small">값은 1개당 골드. ▲ 지난달보다 비쌈, ▼ 쌈. 식량은 가을에 싸고 겨울·봄에 비싸요.</div>
+    ${itemShop()}</section>`;
 }
 
 // ---------- 장수 ----------
@@ -198,7 +208,7 @@ function classBlock(g) {
   const C = MG.CLASSES[g.type];
   if (MG.canClass(g)) {
     return `<div class="choose"><div class="hint">Lv.5 전직을 고르세요</div>
-      ${['A', 'B'].map(k => `<button data-cls="${g.id},${k}"><b>${C[k].name}</b><span>${C[k].desc}</span></button>`).join('')}</div>`;
+      ${['A', 'B'].map(k => `<button data-cls="${g.id},${k}"><b>${C[k].name}</b><span>${C[k].desc}</span><span class="muted">스킬 강화: ${MG.SKILLS[g.type][k]}</span></button>`).join('')}</div>`;
   }
   if (MG.canAdvance(g)) {
     const n = C[g.cls].lv10;
@@ -208,6 +218,11 @@ function classBlock(g) {
   const c = MG.genClass(g);
   if (c) return `<div class="clsDesc">${c.desc}</div>`;
   return `<div class="clsDesc muted">Lv.5에 전직할 수 있어요</div>`;
+}
+
+function skillLine(g) {
+  const K = MG.SKILLS[g.type];
+  return `<div class="small">스킬 <b>${K.name}</b> <span class="muted">${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''} · 쿨 ${K.cd}초</span></div>`;
 }
 
 function weaponBlock(g) {
@@ -243,7 +258,7 @@ function genCard(g) {
     <div class="lv"><span>Lv.${g.level}</span><div class="bar"><div style="width:${pct(g.xp, need)}%;background:#6aa8ff"></div></div>
       <span class="small muted">${need ? `${Math.floor(g.xp)} / ${need}` : '최고 레벨'}</span></div>
     <div class="small">병사 ${g.healthy} / ${cap}${g.wounded.length ? ` · <span class="warn">부상 ${g.wounded.length}명 (${woundCounts(g.wounded)})</span>` : ''}</div>
-    ${role ? `<div class="muted small">${role}</div>` : ''}${refill}${classBlock(g)}${weaponBlock(g)}
+    ${role ? `<div class="muted small">${role}</div>` : ''}${skillLine(g)}${refill}${classBlock(g)}${weaponBlock(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
@@ -554,6 +569,7 @@ function bind() {
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
+  q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
   q('[data-site]').forEach(b => b.onclick = () => {
     const sel = el.querySelector(`[data-site-gen="${b.dataset.site}"]`);

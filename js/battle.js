@@ -233,7 +233,8 @@ const NO_MODS = MG.combineMods([]);
 function makeSquad(name, type, opts = {}) {
   const sq = { id: B.nextId++, name, type, soldiers: [], general: null, focus: null, anchor: null,
     facing: { x: 0, y: -1 }, leaderDown: false, isLord: !!opts.lord, isGarrison: !!opts.garrison, initial: 0,
-    gid: opts.gid || null, title: opts.title || null, mods: opts.mods || NO_MODS, lvBonus: opts.lvBonus || 1, xp: 0, kills: 0 };
+    gid: opts.gid || null, title: opts.title || null, mods: opts.mods || NO_MODS, lvBonus: opts.lvBonus || 1, xp: 0, kills: 0,
+    cls: opts.cls || null, skillCd: 0, shieldT: 0 };
   B.squads.push(sq);
   B.allSquads.push(sq);
   return sq;
@@ -281,7 +282,7 @@ MG.createBattle = function (level, roster) {
     MG.SIDES.forEach((s, i) => { B.garrison[s][kind] = Math.floor(n / 4) + (i < n % 4 ? 1 : 0); });
   }
   for (const rs of roster.squads) {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods,
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
     const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
     if (rs.general) {
@@ -307,6 +308,7 @@ MG.createBattle = function (level, roster) {
     }
   }
   B.spawnQueue.sort((a, b) => a.t - b.t);
+  initExtras(roster);
   return B;
 };
 
@@ -463,7 +465,7 @@ MG.createConquest = function (roster) {
   // 아군: 왼쪽 출발 지역에 세로로 늘어선다
   const n = roster.squads.length;
   roster.squads.forEach((rs, i) => {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods,
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
     const x = 230, y = W.h / 2 + (i - (n - 1) / 2) * Math.min(110, (W.h - 200) / n);
     if (rs.general) {
@@ -475,6 +477,7 @@ MG.createConquest = function (roster) {
     MG.orderMove(sq, x, y, { x: 1, y: 0 }, true);
   });
   makeLord(roster, 110, W.h / 2, { x: 1, y: 0 });
+  initExtras(roster);
   return B;
 };
 
@@ -586,7 +589,7 @@ function auraBonus(s, key) {
 }
 
 function atkMult(s) {
-  let m = (1 + auraBonus(s, 'atk')) * B.morale;
+  let m = (1 + auraBonus(s, 'atk') + blessBonus(s)) * B.morale * (B.flagT > 0 ? 1.15 : 1);
   if (s.squad.leaderDown && !s.isGeneral) m *= MG.LEADER_DOWN_MULT;
   if (B.lordDead) m *= MG.LORD_DEAD_MULT;
   else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura) m *= 1 + MG.LORD.auraBonus;
@@ -625,7 +628,7 @@ function damageEnemy(e, dmg, sq) {
 
 function damageFriendly(s, dmg) {
   if (s.dead) return;
-  s.hp -= dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def'));
+  s.hp -= dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def')) * (s.squad.shieldT > 0 ? s.squad.shieldMul : 1);
   if (s.hp > 0) return;
   s.dead = true;
   const sq = s.squad;
@@ -785,6 +788,7 @@ function updateSoldier(s, dt, eGrid) {
   s.cdT -= dt; s.retT -= dt; s.replanT -= dt;
   // 드래곤 불숨에 맞으면 잠시 탄다
   if (s.burnT > 0) { s.burnT -= dt; damageFriendly(s, s.burnDps * dt); if (s.dead) return; }
+  if (s.dash) { dashStep(s, dt); return; }
   if (T.repair && !s.moving && (s.repT = (s.repT || 0) - dt) <= 0) {
     s.repT = 1;
     const r = repairNear(s);
@@ -798,9 +802,9 @@ function updateSoldier(s, dt, eGrid) {
   if (t) {
     const d = dist(s, t);
     if (t.squad) {
-      if (d <= s.range && s.cdT <= 0) { s.cdT = s.cd; heal(s, t); }
+      if (d <= s.range && s.cdT <= 0) { s.cdT = s.cd * cdMul(); heal(s, t); }
     } else if (d <= effRange(s) + (t.r || 0)) {
-      if (s.cdT <= 0) { s.cdT = s.cd; attack(s, t); }
+      if (s.cdT <= 0) { s.cdT = s.cd * cdMul(); attack(s, t); }
       return;
     } else if (T.kind === 'melee' && !s.moving) {
       const leash = s.squad.focus === t || dist(t, C) < C.keepR + 40 ? 320 : 170;
@@ -1244,9 +1248,206 @@ function updateProjectiles(dt) {
   B.projectiles = B.projectiles.filter(p => !p.done);
 }
 
+// ---------- 전투 스킬 ----------
+function initExtras(roster) {
+  B.zones = []; B.blessings = []; B.flagT = 0; B.drumT = 0;
+  // 소모품: 가진 것 중 앞의 3종을 기본으로 챙긴다 (준비 단계에서 바꿀 수 있다)
+  B.items = { ...(roster.items || {}) }; B.itemsUsed = {};
+  B.carry = new Set(Object.keys(B.items).filter(k => B.items[k] > 0 && MG.ITEMS[k] && MG.itemUsable(k)).slice(0, MG.ITEM_CARRY));
+}
+const cdMul = () => (B.drumT > 0 ? 0.83 : 1);
+// 축복(전투사제 갈래): 그 사제 장수 주변 아군 공격력 +25%
+function blessBonus(s) {
+  for (const b of B.blessings) if (!b.s.dead && dist(s, b.s) < 130) return 0.25;
+  return 0;
+}
+const squadAtk = sq => MG.UNIT_TYPES[sq.type].atk * sq.lvBonus * sq.mods.atk;
+const skillOf = sq => MG.SKILLS[sq.isLord ? 'guard' : sq.type];
+// 스킬을 쓸 수 있는가: 장수(성주 근위대는 성주)가 살아 있어야 한다
+MG.skillState = sq => {
+  if (sq.isGarrison || !skillOf(sq)) return null;
+  const leader = sq.isLord ? B.lord : sq.general;
+  if (!leader || leader.dead) return { ok: false, why: '지휘관이 없어요' };
+  if (sq.skillCd > 0) return { ok: false, why: `${Math.ceil(sq.skillCd)}초`, cd: true };
+  return { ok: true };
+};
+MG.skillOf = skillOf;
+function skillCooldown(sq) {
+  const K = skillOf(sq);
+  sq.skillCd = K.cd * (sq.type === 'cavalry' && sq.cls === 'B' ? 0.5 : 1);
+}
+// p: point 스킬의 목표 지점. 쓰면 null, 못 쓰면 이유를 돌려준다
+MG.useSkill = function (sq, p) {
+  const st = MG.skillState(sq), K = skillOf(sq);
+  if (!st) return '스킬이 없는 부대예요';
+  if (!st.ok) return st.cd ? `${K.name}: 아직 ${st.why}` : `${K.name}: ${st.why}`;
+  const c = MG.centroid(sq), A = sq.cls === 'A', Bb = sq.cls === 'B', atk = squadAtk(sq);
+  if (K.target === 'point') {
+    if (!p) return '목표 지점이 필요해요';
+    if (dist(c, p) > MG.SKILL_RANGE) return `${K.name}: 너무 멀어요`;
+  }
+  const t = sq.isLord ? 'guard' : sq.type;
+  if (t === 'infantry') {
+    sq.shieldT = A ? 12 : 8; sq.shieldMul = A ? 0.3 : 0.5; sq.counter = Bb;
+  } else if (t === 'archer') {
+    B.zones.push({ kind: 'arrows', x: p.x, y: p.y, r: A ? 40 : 60, t: Bb ? 5 : 3, tick: 0, dmg: atk * (A ? 1.2 : 0.6), src: sq });
+  } else if (t === 'mage') {
+    blast(p.x, p.y, 70, atk * 8, sq, Bb ? { freeze: 2 } : null);
+    if (A) B.zones.push({ kind: 'fire', x: p.x, y: p.y, r: 60, t: 4, tick: 0, dmg: atk * 0.5, src: sq });
+  } else if (t === 'priest') {
+    const heal = A ? 0.5 : 0.3, targets = A ? B.squads.filter(q => q === sq || dist(MG.centroid(q), c) < 140) : [sq];
+    for (const q of targets) for (const s of q.soldiers) { s.hp = Math.min(s.max, s.hp + s.max * heal); B.fx.push({ kind: 'heal', x: s.x, y: s.y, t: 0.5, max: 0.5 }); }
+    if (Bb && sq.general) B.blessings.push({ s: sq.general, t: 8 });
+  } else if (t === 'engineer') {
+    if (Bb && B.conquest) {
+      // 폭약: 근처 구조물에 큰 피해 (공병의 구조물 배율 ×2가 붙어 900)
+      const hit = B.enemies.filter(e => e.struct && !e.dead && dist(e, c) < 110 + e.r);
+      if (!hit.length) return '긴급 보수: 근처에 부술 구조물이 없어요';
+      for (const e of hit) { damageEnemy(e, 450, sq); B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: e.r + 20, t: 0.4, max: 0.4 }); }
+    } else if (!quickRepair(c, A ? 800 : 400)) return '긴급 보수: 근처에 고칠 곳이 없어요';
+  } else if (t === 'artillery') {
+    B.zones.push({ kind: 'barrage', x: p.x, y: p.y, r: A ? 65 : 45, shots: 5, tick: 0, t: 3, dmg: atk * 1.5, src: sq, burn: Bb });
+  } else if (t === 'cavalry') {
+    const dx = p.x - c.x, dy = p.y - c.y;
+    for (const s of sq.soldiers) s.dash = { x: s.x + dx, y: s.y + dy, t: 2, hit: new Set(), mul: A ? 3 : 2 };
+    sq.dashTo = { x: p.x, y: p.y, facing: { x: dx / (Math.hypot(dx, dy) || 1), y: dy / (Math.hypot(dx, dy) || 1) } };
+  } else if (t === 'guard') {
+    B.flagT = 10;
+  }
+  skillCooldown(sq);
+  log(`${sq.name}: ${K.name}!`, '#9fd4ff');
+  return null;
+};
+
+// 범위 피해 (스킬·소모품). extra: { freeze, burn }
+function blast(x, y, r, dmg, sq, extra) {
+  B.fx.push({ kind: 'boom', x, y, r, t: 0.35, max: 0.35 });
+  for (const e of B.enemies) {
+    if (e.dead || dist(e, { x, y }) > r + e.r) continue;
+    damageEnemy(e, dmg, sq);
+    if (e.dead || !extra) continue;
+    if (extra.freeze) e.frozenT = Math.max(e.frozenT, extra.freeze);
+    if (extra.burn) { e.burnT = 4; e.burnDps = Math.max(e.burnDps || 0, extra.burn); e.burnSrc = sq; }
+  }
+}
+// 근처(120) 성벽·건물·본성을 amount만큼 고친다. 고친 곳이 있으면 true
+function quickRepair(c, amount) {
+  let any = false;
+  for (const w of B.walls) {
+    if (w.hp >= w.max) continue;
+    const a = Math.max(w.a0, Math.min(w.a1, along(c, w.side))), p = wallPoint(w.side, C.R - C.T / 2, a);
+    if (dist(c, p) > 120) continue;
+    const was = w.hp;
+    w.hp = Math.min(w.max, Math.max(0, w.hp) + amount); any = true;
+    if (was <= 0) { B.fieldDirty = true; log(`${MG.SIDE_NAME[w.side]}쪽 ${w.gate ? '성문' : '성벽'}을 다시 세웠어요!`, '#6bdc8f'); }
+    B.fx.push({ kind: 'repair', x: p.x, y: p.y, t: 0.6, max: 0.6 });
+  }
+  for (const b of B.buildings) {
+    if (b.hp >= b.max) continue;
+    const dx = Math.max(b.x0 - c.x, 0, c.x - b.x1), dy = Math.max(b.y0 - c.y, 0, c.y - b.y1);
+    if (Math.hypot(dx, dy) > 120) continue;
+    const was = b.hp;
+    b.hp = Math.min(b.max, b.hp + amount); any = true;
+    if (was <= 0) { markBuilding(b, B.buildings.indexOf(b) + 1); B.fieldDirty = true; }
+  }
+  if (!B.conquest && B.keep.hp < B.keep.max && dist(c, C) < C.keepR + 120) { B.keep.hp = Math.min(B.keep.max, B.keep.hp + amount); any = true; }
+  return any;
+}
+// 기병 돌파: 지정한 곳까지 빠르게 달리며 닿는 적을 한 번씩 치고 밀쳐낸다
+function dashStep(s, dt) {
+  const d = s.dash, step = 260 * dt;
+  d.t -= dt;
+  if (d.t <= 0 || dist(s, d) < 6 || !stepToward(s, d.x, d.y, step, false, true)) {
+    s.dash = null;
+    const sq = s.squad;
+    if (sq.dashTo && !sq.soldiers.some(o => o.dash)) { MG.orderMove(sq, sq.dashTo.x, sq.dashTo.y, sq.dashTo.facing, false); sq.dashTo = null; }
+    return;
+  }
+  for (const e of B.enemies) {
+    if (e.dead || e.struct || d.hit.has(e) || dist(e, s) > e.r + 9) continue;
+    d.hit.add(e);
+    hitEnemy(e, s.atk * d.mul, s.squad);
+    if (e.boss || e.dead) continue;
+    const dx = e.x - s.x, dy = e.y - s.y, l = Math.hypot(dx, dy) || 1, q = { x: e.x + dx / l * 18, y: e.y + dy / l * 18 };
+    if (canStep(e, q, true)) { e.x = q.x; e.y = q.y; }
+  }
+}
+
+function tickSkills(dt) {
+  if (B.flagT > 0) B.flagT -= dt;
+  if (B.drumT > 0) B.drumT -= dt;
+  for (const b of B.blessings) b.t -= dt;
+  B.blessings = B.blessings.filter(b => b.t > 0);
+  for (const sq of B.squads) {
+    if (sq.skillCd > 0) sq.skillCd -= dt;
+    if (sq.shieldT > 0 && (sq.shieldT -= dt) <= 0 && sq.counter) {
+      // 검투사 갈래: 방패벽이 끝나면 주변 적에게 반격
+      for (const s of sq.soldiers) for (const e of B.enemies) if (!e.dead && !e.struct && dist(e, s) < e.r + 16) hitEnemy(e, s.atk * 2, sq);
+      B.fx.push({ kind: 'charge', ...MG.centroid(sq), t: 0.4, max: 0.4 });
+    }
+  }
+  for (const z of B.zones) {
+    z.t -= dt; z.tick -= dt;
+    if (z.tick > 0) continue;
+    if (z.kind === 'barrage') {
+      z.tick = 0.5;
+      if (z.shots-- <= 0) { z.t = 0; continue; }
+      blast(z.x + rand(-30, 30), z.y + rand(-30, 30), z.r, z.dmg, z.src, z.burn ? { burn: 6 } : null);
+      continue;
+    }
+    z.tick = 0.25;
+    for (const e of B.enemies) {
+      if (e.dead || dist(e, z) > z.r + e.r) continue;
+      damageEnemy(e, z.dmg, z.src);
+      if (z.kind === 'fire' && !e.dead) { e.burnT = Math.max(e.burnT, 1); e.burnDps = Math.max(e.burnDps || 0, 4); e.burnSrc = z.src; }
+    }
+  }
+  B.zones = B.zones.filter(z => z.t > 0);
+}
+
+// ---------- 소모품 ----------
+MG.itemUsable = k => !(MG.ITEMS[k].defense && B && B.conquest);
+MG.itemLeft = k => (B.items[k] || 0) - (B.itemsUsed[k] || 0);
+MG.toggleCarry = k => {
+  if (B.phase !== 'prep') return;
+  if (B.carry.has(k)) B.carry.delete(k);
+  else if (B.carry.size < MG.ITEM_CARRY && MG.itemLeft(k) > 0 && MG.itemUsable(k)) B.carry.add(k);
+};
+// p: 지점, sq: 대상 부대(치유 물약). 쓰면 null, 못 쓰면 이유
+MG.useItem = function (k, p, sq) {
+  const I = MG.ITEMS[k];
+  if (B.phase !== 'battle') return '전투가 시작된 뒤에 써요';
+  if (!B.carry.has(k) || MG.itemLeft(k) <= 0) return `${I.name}이(가) 없어요`;
+  if (k === 'potion') {
+    if (!sq) return '치유 물약: 부대를 먼저 고르세요';
+    for (const s of sq.soldiers) { s.hp = Math.min(s.max, s.hp + s.max * 0.4); B.fx.push({ kind: 'heal', x: s.x, y: s.y, t: 0.5, max: 0.5 }); }
+  } else if (k === 'firepot') {
+    blast(p.x, p.y, 50, 60, null, { burn: 8 });
+  } else if (k === 'drum') {
+    B.drumT = 15;
+  } else {
+    // 성벽 한 조각: 찍은 곳에서 가장 가까운 조각
+    const w = B.walls.slice().sort((a, b) => dist(p, segMid(a, C.R - C.T / 2)) - dist(p, segMid(b, C.R - C.T / 2)))[0];
+    if (!w || dist(p, segMid(w, C.R - C.T / 2)) > 140) return `${I.name}: 성벽을 찍어 주세요`;
+    if (k === 'timber') {
+      const was = w.hp;
+      w.hp = Math.min(w.max, Math.max(0, w.hp) + 500);
+      if (was <= 0) B.fieldDirty = true;
+      B.fx.push({ kind: 'repair', ...segMid(w, C.R - C.T / 2), t: 0.6, max: 0.6 });
+    } else {
+      const m = segMid(w, C.R + 30);
+      blast(m.x, m.y, 75, 120, null, { burn: 6 });
+    }
+  }
+  B.itemsUsed[k] = (B.itemsUsed[k] || 0) + 1;
+  log(`${I.name}을(를) 썼어요.`, '#ffd36b');
+  return null;
+};
+
 MG.update = function (dt) {
   if (B.phase !== 'battle') return;
   B.time += dt;
+  tickSkills(dt);
   while (B.spawnQueue.length && B.spawnQueue[0].t <= B.time) {
     const q = B.spawnQueue.shift();
     if (q.wave > B.wave) { B.wave = q.wave; log(`제${q.wave}파 습격! (${MG.SIDE_NAME[q.dir]}쪽)`, '#ffd36b'); }

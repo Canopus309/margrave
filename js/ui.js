@@ -33,6 +33,7 @@ ui.refresh = function (force) {
   if (B.conquest) refreshConquest(B, phaseName);
   else refreshDefense(B, phaseName);
   refreshSquads(B);
+  refreshItems(B);
 
   $('startBtn').style.display = B.phase === 'prep' ? '' : 'none';
   $('pauseBtn').disabled = B.phase !== 'battle';
@@ -105,6 +106,32 @@ function refreshConquest(B, phaseName) {
   $('garrisonCard').classList.add('hidden');
 }
 
+// 소모품: 준비 단계에서는 챙길 것을 고르고(최대 3종), 전투 중에는 쓴다
+function refreshItems(B) {
+  const kinds = Object.keys(MG.ITEMS).filter(k => (B.items[k] || 0) > 0 && MG.itemUsable(k));
+  const card = $('itemCard');
+  card.classList.toggle('hidden', !kinds.length || B.phase === 'result');
+  const html = B.phase === 'prep'
+    ? `<h3>소모품 챙기기 (${B.carry.size} / ${MG.ITEM_CARRY}종)</h3>${kinds.map(k => `<label class="tog"><input type="checkbox" data-carry="${k}" ${B.carry.has(k) ? 'checked' : ''}
+        ${!B.carry.has(k) && B.carry.size >= MG.ITEM_CARRY ? 'disabled' : ''}> ${MG.ITEMS[k].name} ${B.items[k]}개 <span class="muted small">${MG.ITEMS[k].desc}</span></label>`).join('')}`
+    : `<h3>소모품</h3><div class="itemBtns">${[...B.carry].map(k => `<button class="mini" data-useitem="${k}" ${MG.itemLeft(k) > 0 ? '' : 'disabled'} title="${MG.ITEMS[k].desc}">
+        ${MG.ITEMS[k].name} ${MG.itemLeft(k)}</button>`).join('') || '<span class="muted small">챙겨 온 소모품이 없어요</span>'}</div>
+        ${B.drumT > 0 ? `<div class="ok small">전투 북: ${Math.ceil(B.drumT)}초</div>` : ''}`;
+  if (setHtml('itemCard', html)) {
+    card.querySelectorAll('[data-carry]').forEach(c => c.onchange = () => { MG.toggleCarry(c.dataset.carry); ui.refresh(true); });
+    card.querySelectorAll('[data-useitem]').forEach(b => b.onmousedown = ev => { ev.preventDefault(); MG.beginItem(b.dataset.useitem); });
+  }
+}
+
+// 스킬 버튼: 준비됨 / 남은 쿨 / 지휘관 없음
+function skillBtn(sq) {
+  const K = MG.skillOf(sq), st = MG.skillState(sq);
+  if (!K || !st) return '';
+  const label = st.ok ? `${K.name} (Q)` : `${K.name} · ${st.why}`;
+  return `<button class="mini skillBtn ${st.ok ? 'ready' : ''}" data-skill="${sq.id}" ${st.ok && B_().phase === 'battle' ? '' : 'disabled'} title="${K.desc}${sq.cls && K[sq.cls] ? ` · 강화: ${K[sq.cls]}` : ''}">${label}</button>`;
+}
+const B_ = () => MG.B;
+
 function refreshSquads(B) {
   if (setHtml('squads', B.squads.map(sq => {
     const T = MG.UNIT_TYPES[sq.type];
@@ -113,8 +140,14 @@ function refreshSquads(B) {
     const hp = sq.soldiers.reduce((a, s) => a + s.hp, 0), max = sq.soldiers.reduce((a, s) => a + s.max, 0);
     return `<div class="squad ${B.selected.has(sq) ? 'sel' : ''} ${sq.leaderDown ? 'down' : ''}" data-id="${sq.id}">
       <div class="top"><span>${sq.name}</span><span>${sq.soldiers.length} / ${sq.initial}</span></div>
-      <div class="sub">${sub} · 체력 ${Math.round(hp / max * 100)}%</div></div>`;
+      <div class="sub">${sub} · 체력 ${Math.round(hp / max * 100)}%${sq.shieldT > 0 ? ' · 방패벽' : ''}</div>${skillBtn(sq)}</div>`;
   }).join('') || '<div style="color:var(--muted)">남은 부대가 없어요.</div>')) {
+    $('squads').querySelectorAll('[data-skill]').forEach(b => b.onmousedown = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const sq = B.squads.find(q => q.id === +b.dataset.skill);
+      if (sq) MG.beginSkill([sq]);
+    });
+    $('squads').querySelectorAll('[data-skill]').forEach(b => b.onclick = ev => ev.stopPropagation());
     $('squads').querySelectorAll('.squad').forEach(el => {
       el.onclick = ev => {
         const sq = B.squads.find(q => q.id === +el.dataset.id);

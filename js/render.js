@@ -414,6 +414,55 @@ function drawFx(B) {
   }
 }
 
+// 스킬이 남기는 구역: 화살비, 불바다, 포격 예고
+function drawZones(B) {
+  for (const z of B.zones || []) {
+    if (z.kind === 'fire') {
+      ctx.fillStyle = 'rgba(255,110,30,0.28)'; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+    } else if (z.kind === 'arrows') {
+      ctx.strokeStyle = 'rgba(240,230,200,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#f0e6c8';
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * z.r, x = z.x + Math.cos(a) * d, y = z.y + Math.sin(a) * d;
+        ctx.beginPath(); ctx.moveTo(x - 3, y - 8); ctx.lineTo(x, y); ctx.stroke();
+      }
+    } else if (z.kind === 'barrage') {
+      ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(255,150,80,0.6)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r + 30, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  // 방패벽·축복·깃발 표시
+  for (const sq of B.squads) {
+    if (!(sq.shieldT > 0)) continue;
+    ctx.strokeStyle = 'rgba(120,190,255,0.8)'; ctx.lineWidth = 1.5;
+    for (const s of sq.soldiers) { ctx.beginPath(); ctx.arc(s.x, s.y, 5.5, 0, Math.PI * 2); ctx.stroke(); }
+  }
+  for (const b of B.blessings || []) {
+    ctx.strokeStyle = 'rgba(255,241,168,0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.s.x, b.s.y, 130, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (B.flagT > 0 && B.lord && !B.lord.dead) {
+    const l = B.lord;
+    ctx.fillStyle = '#e6b450'; ctx.fillRect(l.x + 6, l.y - 26, 2, 22);
+    ctx.fillStyle = '#b8282a'; ctx.fillRect(l.x + 8, l.y - 26, 14, 9);
+  }
+}
+// 조준 중: 커서 원, 부대에서 닿는 거리 밖이면 빨갛게
+function drawAim(B, input) {
+  const a = input.aim, m = input.mouse;
+  let ok = true;
+  if (a.kind === 'skill') {
+    for (const sq of a.squads) {
+      const c = MG.centroid(sq), far = MG.dist(c, m) > MG.SKILL_RANGE;
+      if (far) ok = false;
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = far ? 'rgba(255,107,107,0.7)' : 'rgba(159,212,255,0.7)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(m.x, m.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  ctx.strokeStyle = ok ? '#9fd4ff' : '#ff6b6b'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(m.x, m.y, a.r, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = ok ? 'rgba(159,212,255,0.12)' : 'rgba(255,107,107,0.12)'; ctx.fill();
+}
+
 // 준비 단계: 정찰된 습격 방향 표시
 function drawScout(B) {
   ctx.font = 'bold 20px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -469,6 +518,8 @@ MG.render = function (B, input) {
     ctx.strokeStyle = '#6bdc8f'; ctx.lineWidth = 1 / zoom; ctx.fillStyle = 'rgba(107,220,143,0.1)';
     ctx.fillRect(d.x0, d.y0, d.x1 - d.x0, d.y1 - d.y0); ctx.strokeRect(d.x0, d.y0, d.x1 - d.x0, d.y1 - d.y0);
   }
+  drawZones(B);
+  if (input.aim) drawAim(B, input);
   for (const m of input.marks) {
     ctx.globalAlpha = m.t / 0.6; ctx.strokeStyle = m.color; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(m.x, m.y, 10 * (1.4 - m.t), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
@@ -477,6 +528,12 @@ MG.render = function (B, input) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawFlags(B);
   drawLog(B);
+  if (input.aim) {
+    const name = input.aim.kind === 'skill' ? input.aim.squads.map(sq => MG.skillOf(sq).name).filter((v, i, a) => a.indexOf(v) === i).join('·') : MG.ITEMS[input.aim.id].name;
+    ctx.font = 'bold 16px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(view.w / 2 - 230, view.h - 64, 460, 28);
+    ctx.fillStyle = '#9fd4ff'; ctx.fillText(`${name}: 쓸 곳을 클릭하세요 · 우클릭/Esc 취소`, view.w / 2, view.h - 50);
+  }
   if (B.paused && B.phase === 'battle') {
     ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, 0, view.w, view.h);
     ctx.font = 'bold 26px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

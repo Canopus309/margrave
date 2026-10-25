@@ -413,3 +413,28 @@ MG.START_BUILDINGS = [
 ];
 MG.START_FIELDS = ['farm', 'farm', 'farm', 'lumber', 'mine'];
 MG.START_POP = 90;
+
+// ---------- A: 전투 스킬과 소모품 ----------
+// 스킬은 병종마다 하나. 장수가 살아 있는 부대만 쓸 수 있고, Lv.5 전직 갈래(A/B)에 따라 강해진다.
+// target: self(바로), point(땅을 찍음, 부대에서 SKILL_RANGE 안)
+MG.SKILLS = {
+  infantry:  { name: '방패벽',      cd: 30, target: 'self',  desc: '8초간 받는 피해 -50%', A: '피해 -70%, 12초', B: '끝날 때 주변 적에게 반격' },
+  archer:    { name: '화살비',      cd: 25, target: 'point', desc: '지정한 곳 반경 60에 3초간 화살', A: '범위가 좁고 피해 2배', B: '5초로 늘어남' },
+  mage:      { name: '대폭발',      cd: 30, target: 'point', desc: '지정한 곳에 큰 폭발', A: '불바다가 4초간 남음', B: '맞은 적이 2초간 얼어붙음' },
+  priest:    { name: '축복',        cd: 35, target: 'self',  desc: '부대 전원 체력 30% 회복', A: '50%, 주변 부대도', B: '주변 아군 공격력 +25% 8초' },
+  engineer:  { name: '긴급 보수',   cd: 40, target: 'self',  desc: '근처 성벽·건물·본성 즉시 +400', A: '+800', B: '폭약: 근처 진지 구조물에 큰 피해' },
+  artillery: { name: '집중 포격',   cd: 40, target: 'point', desc: '지정한 곳에 5발 연속 포격', A: '범위 확대', B: '맞은 곳이 불탐' },
+  cavalry:   { name: '돌파',        cd: 25, target: 'point', desc: '지정한 곳까지 돌진, 지나는 적에게 피해와 넉백', A: '피해 증가', B: '쿨 절반' },
+  guard:     { name: '변경백의 깃발', cd: 60, target: 'self', desc: '전군 공격력 +15% 10초 (성주가 살아 있어야)' },
+};
+MG.SKILL_RANGE = 420;
+// 소모품: 시장에서 사고, 전투마다 최대 3종을 챙겨 간다. defense: 방어전에서만
+MG.ITEMS = {
+  potion:  { name: '치유 물약',   price: 60, target: 'squad', desc: '고른 부대 체력 40% 회복' },
+  firepot: { name: '화염 항아리', price: 80, target: 'point', desc: '던진 곳 반경 50에 피해와 화상' },
+  drum:    { name: '전투 북',     price: 70, target: 'none',  desc: '전군 공격 속도 +20%, 15초' },
+  oil:     { name: '끓는 기름',   price: 90, target: 'wall',  defense: true, desc: '성벽 한 조각 앞의 적에게 큰 피해' },
+  timber:  { name: '응급 목재',   price: 50, target: 'wall',  defense: true, desc: '성벽 한 조각 즉시 +500' },
+};
+MG.ITEM_CARRY = 3;   // 전투마다 챙겨 가는 종류 수
+MG.ITEM_MAX = 9;     // 종류마다 보관 한도

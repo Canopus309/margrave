@@ -70,6 +70,7 @@ function migrate(s) {
   if (!s.conquest) s.conquest = {};
   if (!s.outposts) s.outposts = [];
   if (s.march === undefined) s.march = null;
+  if (!s.items) s.items = {};
 }
 
 // opts: { domain, bonuses: [...], siege } — 캠페인 준비 화면에서 고른 것
@@ -80,7 +81,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false,
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {},
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
     garrison: { archer: MG.GARRISON.archer, infantry: MG.GARRISON.infantry, wounded: [] },
     res: { ...MG.START_RES }, pop: MG.START_POP, buildings: [], fields: [],
@@ -473,6 +474,17 @@ MG.buyPrice = r => MG.S.prices[r];
 MG.sellPrice = r => MG.S.prices[r] * MG.MARKET.sellRate(MG.bLevel('market'));
 MG.tradeLeft = () => Math.max(0, MG.MARKET.volume(MG.bLevel('market')) - MG.S.traded);
 // 사기(qty>0) 또는 팔기(qty<0). 행동력은 쓰지 않는다.
+// 소모품: 시장이 있으면 골드로 산다 (행동력 안 씀)
+MG.buyItem = k => {
+  const S = MG.S, I = MG.ITEMS[k];
+  if (!MG.bLevel('market')) return '시장이 필요해요';
+  if ((S.items[k] || 0) >= MG.ITEM_MAX) return `${I.name}은(는) ${MG.ITEM_MAX}개까지 보관해요`;
+  if (S.res.gold < I.price) return '골드가 모자라요';
+  S.res.gold -= I.price;
+  S.items[k] = (S.items[k] || 0) + 1;
+  save();
+  return `${I.name}을(를) 샀어요.`;
+};
 MG.trade = (r, qty) => {
   const S = MG.S;
   MG.ensureMarket();
@@ -543,6 +555,8 @@ function returnExpeditions(rep) {
       if (a.type === 'mine') { const n = Math.round(randInt(150, 300) * (1 + 0.1 * S.level)); S.res.iron = Math.min(MG.storageCap(), S.res.iron + n); gain = `철 +${n}`; }
       if (a.type === 'escort') { const n = Math.round(randInt(200, 400) * (1 + 0.1 * S.level)); S.res.gold = Math.min(MG.storageCap(), S.res.gold + n); gain = `골드 +${n}`; }
       if (a.type === 'ruins') { const w = rollWeapon(S.level + 4); S.inventory.push(w); gain = `${MG.WEAPON_GRADES[w.grade].name} ${w.name}`; }
+      // 성공하면 가끔 소모품도 챙겨 온다
+      if (Math.random() < 0.4) { const k = pick(['potion', 'firepot', 'drum']); S.items[k] = Math.min(MG.ITEM_MAX, (S.items[k] || 0) + 1); gain += `${gain ? ' · ' : ''}${MG.ITEMS[k].name} +1`; }
     }
     // 피해: 실패하면 병사 30%, 성공해도 10%가 다친다. 실패하면 장수도 25% 확률로 부상.
     const hurt = Math.round(g.healthy * (ok ? 0.1 : 0.3));
@@ -984,7 +998,7 @@ MG.buildRoster = march => {
     const slot = MG.SQUAD_SLOTS[squads.length % MG.SQUAD_SLOTS.length];
     squads.push({ gid: g.id, name: g.name, type: g.type, slot, title: MG.genTitle(g),
       general: withGeneral ? { name: g.name, injured: g.injured > 0, ageMul: MG.ageMul(g.age) } : null,
-      healthy: g.healthy, mob, level: g.level, train,
+      healthy: g.healthy, mob, level: g.level, train, cls: g.cls,
       mods: MG.combineMods([MG.genMods(g), typeMods[g.type]]),
       weaponAtk: g.weapon ? MG.WEAPON_GRADES[g.weapon.grade].atk : 1 });
   }
@@ -997,7 +1011,7 @@ MG.buildRoster = march => {
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
-    typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
+    items: { ...S.items }, typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
   if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id); }
   return roster;
@@ -1067,6 +1081,8 @@ MG.applyResult = B => {
 
 // 장수 부대: 살아남은 병사, 쓰러진 병사의 부상 판정, 장수 경험치·부상·전사
 function applySquads(B, sum) {
+  // 전투에서 쓴 소모품
+  for (const [k, n] of Object.entries(B.itemsUsed || {})) MG.S.items[k] = Math.max(0, (MG.S.items[k] || 0) - n);
   const S = MG.S, R = B.roster;
   const fallenOf = gid => B.stats.fallen.filter(f => f.gid === gid);
   for (const rs of R.squads) {
