@@ -564,6 +564,31 @@ MG.orderAttack = function (sq, enemy) {
 
 // ---------- 전투 처리 ----------
 function log(text, color) { B.log.push({ text, color: color || '#e8ecf4', t: 6 }); if (B.log.length > 6) B.log.shift(); }
+
+// ---------- 연출: 화면 흔들림, 배너, 피해 숫자, 전장 흔적 ----------
+const sfx = name => MG.sfx && MG.sfx(name);
+const shake = a => { B.shake = Math.max(B.shake || 0, a); };
+function banner(text, sub, color) { B.banner = { text, sub: sub || '', color: color || '#ffd36b', t: 2.6, max: 2.6 }; }
+// 장수·성주·보스·구조물이 받은 피해는 0.35초씩 모아 숫자로 띄운다
+function trackDmg(o, dmg, color) {
+  if (!B.dmgTrack) B.dmgTrack = new Set();
+  o.accDmg = (o.accDmg || 0) + dmg;
+  if (!B.dmgTrack.has(o)) { o.accT = 0.35; o.accColor = color; B.dmgTrack.add(o); }
+}
+function flushDmg(dt) {
+  if (!B.dmgTrack) return;
+  for (const o of B.dmgTrack) {
+    if ((o.accT -= dt) > 0) continue;
+    if (o.accDmg >= 1) B.fx.push({ kind: 'num', x: o.x + rand(-6, 6), y: o.y - (o.r || 6) - 4, text: Math.round(o.accDmg), color: o.accColor, t: 0.9, max: 0.9 });
+    o.accDmg = 0; B.dmgTrack.delete(o);
+  }
+}
+// 쓰러진 자리에 옅은 흔적 (오래되면 사라진다)
+function decal(x, y, color, r) {
+  if (!B.decals) B.decals = [];
+  B.decals.push({ x: x + rand(-2, 2), y: y + rand(-2, 2), color, r: r || 3, born: B.time });
+  if (B.decals.length > 700) B.decals.shift();
+}
 MG.log = log;
 
 function spawnEnemy(q) {
@@ -613,8 +638,10 @@ function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
   if (e.struct) dmg *= (sq && STRUCT_DMG[sq.type]) || 0.25;
   e.hp -= dmg; e.hitT = 0.1; B.lastHit = B.time;
+  if (e.boss || e.struct) trackDmg(e, dmg, e.boss ? '#ffb347' : '#e8d8b8');
   if (e.hp <= 0) {
     e.dead = true; B.lastKill = B.time;
+    if (!e.struct) decal(e.x, e.y, e.boss ? '#3a1010' : '#2a3a18', e.boss ? 10 : 3);
     if (!e.struct) B.stats.kills++;
     if (sq) { sq.kills++; sq.xp += MG.ENEMY_XP[e.type] || 1; }
     if (e.struct) structDown(e);
@@ -628,9 +655,12 @@ function damageEnemy(e, dmg, sq) {
 
 function damageFriendly(s, dmg) {
   if (s.dead) return;
-  s.hp -= dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def')) * (s.squad.shieldT > 0 ? s.squad.shieldMul : 1);
+  const real = dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def')) * (s.squad.shieldT > 0 ? s.squad.shieldMul : 1);
+  s.hp -= real;
+  if (s.isGeneral || s.isLord) trackDmg(s, real, '#ff8080');
   if (s.hp > 0) return;
   s.dead = true;
+  decal(s.x, s.y, '#5a1414', 3);
   const sq = s.squad;
   B.stats.fallen.push({ name: s.name, type: s.type, squad: sq.name, gid: sq.gid, garrison: sq.isGarrison,
     general: s.isGeneral, lord: s.isLord, wound: s.wound, injured: s.injuredStart });
@@ -638,6 +668,7 @@ function damageFriendly(s, dmg) {
   if (s.isLord) {
     B.lordDead = true; B.lord = null;
     log(`${s.name}이(가) 전사했어요! 전군의 사기가 떨어져요.`, '#ff6b6b');
+    banner('성주 전사!', s.name, '#ff6b6b'); sfx('lose');
   } else if (s.isGeneral) {
     sq.leaderDown = true;
     log(`${s.name}이(가) 쓰러졌어요. ${sq.name}의 공격력이 떨어져요.`, '#ffb36b');
@@ -731,6 +762,7 @@ function attack(s, t) {
   s.run = 0;
   if (T.kind === 'melee') {
     hitEnemy(t, dmg, sq);
+    sfx('hit');
     B.fx.push({ kind: 'hit', x: t.x, y: t.y, t: 0.15, max: 0.15 });
     if (m.cleave) for (const o of B.enemies) if (o !== t && !o.dead && dist(o, t) < 22) hitEnemy(o, dmg * m.cleave, sq);
     return;
@@ -740,6 +772,7 @@ function attack(s, t) {
   const shoot = e => B.projectiles.push({ x: s.x, y: s.y, target: e, tx: e.x, ty: e.y, kind, src: sq,
     dmg: kind === 'holy' ? dmg * 0.6 : dmg, speed, splash: s.splash });
   shoot(t);
+  if (kind === 'arrow') sfx('arrow');
   // 폭풍궁수: 다른 적에게 한 발 더
   for (let i = 1; i < m.multishot; i++) {
     const others = B.enemies.filter(o => o !== t && !o.dead && dist(s, o) <= effRange(s));
@@ -868,6 +901,7 @@ function breach(w) {
   B.fieldDirty = true;
   const s = w.side;
   log(`${MG.SIDE_NAME[s]}쪽 ${w.gate ? '성문' : '성벽'}이 부서졌어요!`, '#ff6b6b');
+  sfx('wall'); shake(7);
   if (w.gate) return;
   // 직할 수비대는 멀쩡한 성벽 조각에 고르게 서 있다. 무너진 조각에 있던 몫이 성 안쪽 부대가 된다.
   const g = B.garrison[s], n = MG.NORMAL[s];
@@ -974,6 +1008,7 @@ function bossSkill(e, dt, fGrid) {
         if (!buildingAt(p)) makeFoe('goblin', p.x, p.y, { leash: 9999, hpScale: B.foeHp });
       }
       log('고블린 왕이 졸개를 불러냈어요!', '#ffd36b');
+      sfx('horn');
     }
     // 체력이 35% 아래로 떨어지면 한 번, 본진 뒤로 달아나며 조금 회복한다
     if (!e.fled && e.hp < e.max * 0.35) {
@@ -992,6 +1027,7 @@ function bossSkill(e, dt, fGrid) {
       for (const o of B.enemies) if (!o.dead && !o.struct && dist(o, e) < 170) o.buffT = 6;
       B.fx.push({ kind: 'shout', x: e.x, y: e.y, r: 170, t: 0.6, max: 0.6 });
       log('오크 대족장의 함성! 주변 적이 거세져요.', '#ffb36b');
+      sfx('shout'); shake(3);
     }
     // 7초마다 돌진: 떨어진 아군에게 뛰어들어 주변을 치고 밀쳐낸다
     if (e.dash) {
@@ -1004,6 +1040,7 @@ function bossSkill(e, dt, fGrid) {
         if (canStep(s, q, false)) { s.x = q.x; s.y = q.y; }
       }
       B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 48, t: 0.3, max: 0.3 });
+      sfx('boom'); shake(4);
       return true;
     }
     if (e.chargeT <= 0) {
@@ -1028,6 +1065,7 @@ function bossSkill(e, dt, fGrid) {
         }
         B.fx.push({ kind: 'breath', x: e.x, y: e.y, ang, r: 170, t: 0.6, max: 0.6 });
         log('고대 드래곤의 불숨!', '#ff6b4a');
+        sfx('breath'); shake(5);
         return true;
       }
     }
@@ -1041,6 +1079,7 @@ function bossSkill(e, dt, fGrid) {
         e.skillT = 6;
         for (const s of hit) damageFriendly(s, eAtk(e) * 1.4);
         B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 75, t: 0.4, max: 0.4 });
+        sfx('boom'); shake(6);
         return true;
       }
     }
@@ -1052,13 +1091,16 @@ function bossSkill(e, dt, fGrid) {
 function structDown(e) {
   clearBlock(e.block);
   B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: e.r + 10, t: 0.4, max: 0.4 });
+  decal(e.x, e.y, '#3a2e22', e.r * 0.8);
+  sfx('wall'); shake(e.struct === 'hq' ? 10 : e.struct === 'tower' ? 5 : 2);
   if (e.struct === 'tower') log('망루를 무너뜨렸어요!', '#6bdc8f');
-  if (e.struct === 'hq') log('적 본진이 무너졌어요!', '#6bdc8f');
+  if (e.struct === 'hq') { log('적 본진이 무너졌어요!', '#6bdc8f'); banner('적 본진 함락!', B.outpost.name, '#6bdc8f'); }
 }
 function bossDown(e) {
   B.bossDead = true;
   B.enemyMorale = 0.8;
   log(`${e.T.name}을(를) 쓰러뜨렸어요! 증원이 끊기고 적의 기세가 꺾여요.`, '#ffd36b');
+  banner(`${e.T.name} 격파!`, '증원이 끊기고 적의 기세가 꺾여요'); sfx('horn'); shake(8);
 }
 
 function updateEnemy(e, dt, fGrid) {
@@ -1241,6 +1283,8 @@ function updateProjectiles(dt) {
         } else if (p.target && !p.target.dead && (!p.uphill || Math.random() < MG.UPHILL_HIT)) damageFriendly(p.target, p.dmg);
       } else if (p.kind === 'fire' || p.kind === 'boulder') {
         B.fx.push({ kind: 'boom', x: p.tx, y: p.ty, r: p.splash, t: 0.3, max: 0.3 });
+        sfx('boom');
+        if (p.kind === 'boulder') shake(1.5);
         for (const e of B.enemies) if (!e.dead && dist(e, { x: p.tx, y: p.ty }) <= p.splash) hitEnemy(e, p.dmg, p.src);
       } else if (p.target && !p.target.dead) hitEnemy(p.target, p.dmg, p.src);
     } else { p.x += dx / d * step; p.y += dy / d * step; }
@@ -1316,12 +1360,14 @@ MG.useSkill = function (sq, p) {
   }
   skillCooldown(sq);
   log(`${sq.name}: ${K.name}!`, '#9fd4ff');
+  sfx(t === 'priest' ? 'heal' : t === 'guard' ? 'horn' : 'skill');
   return null;
 };
 
 // 범위 피해 (스킬·소모품). extra: { freeze, burn }
 function blast(x, y, r, dmg, sq, extra) {
   B.fx.push({ kind: 'boom', x, y, r, t: 0.35, max: 0.35 });
+  sfx('boom'); shake(3);
   for (const e of B.enemies) {
     if (e.dead || dist(e, { x, y }) > r + e.r) continue;
     damageEnemy(e, dmg, sq);
@@ -1441,6 +1487,7 @@ MG.useItem = function (k, p, sq) {
   }
   B.itemsUsed[k] = (B.itemsUsed[k] || 0) + 1;
   log(`${I.name}을(를) 썼어요.`, '#ffd36b');
+  sfx(k === 'potion' ? 'heal' : 'item');
   return null;
 };
 
@@ -1448,9 +1495,15 @@ MG.update = function (dt) {
   if (B.phase !== 'battle') return;
   B.time += dt;
   tickSkills(dt);
+  flushDmg(dt);
+  if (B.shake > 0) B.shake = Math.max(0, B.shake - dt * 18);
+  if (B.banner && (B.banner.t -= dt) <= 0) B.banner = null;
   while (B.spawnQueue.length && B.spawnQueue[0].t <= B.time) {
     const q = B.spawnQueue.shift();
-    if (q.wave > B.wave) { B.wave = q.wave; log(`제${q.wave}파 습격! (${MG.SIDE_NAME[q.dir]}쪽)`, '#ffd36b'); }
+    if (q.wave > B.wave) {
+      B.wave = q.wave; log(`제${q.wave}파 습격! (${MG.SIDE_NAME[q.dir]}쪽)`, '#ffd36b');
+      if (q.wave > 1) { banner(`제${q.wave}파 습격!`, `${MG.SIDE_NAME[q.dir]}쪽`); sfx('horn'); }
+    }
     spawnEnemy(q);
     B.lastSpawn = B.time;
   }
@@ -1509,6 +1562,7 @@ function updateConquest(dt) {
     B.alarm = true;
     for (const e of B.enemies) if (!e.struct && e.leash < 9999) { e.aggro = Math.max(e.aggro, 380); e.leash = Math.max(e.leash, 460); }
     log('진지에 경보가 울렸어요! 수비대가 몰려나와요.', '#ffd36b');
+    banner('진지에 경보!', `${B.boss.T.name}과(와) 수비대가 몰려나와요`, '#ff9a6b'); sfx('horn');
   }
   if (B.bossDead) return;
   if ((B.reinfT -= dt) > 0) return;
@@ -1535,6 +1589,7 @@ MG.retreat = function () {
 function finish(win) {
   B.phase = 'result';
   B.result = { win, lordDead: B.lordDead, time: B.time };
+  sfx(win ? 'win' : 'lose');
   if (MG.onBattleEnd) MG.onBattleEnd(B);
 }
 
@@ -1543,6 +1598,9 @@ MG.startBattle = function () {
   B.phase = 'battle';
   B.paused = false;
   log('전투 시작!', '#ffd36b');
+  if (B.conquest) banner(`${B.outpost.name} 정벌`, `보스: ${B.boss.T.name}`);
+  else banner(`전투 ${B.level}${B.level % 5 === 0 ? ' · 대습격' : ''}`, '성을 지켜라');
+  sfx('horn');
 };
 
 MG.moveGarrison = function (s, kind, delta) {

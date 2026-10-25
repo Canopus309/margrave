@@ -414,6 +414,97 @@ function drawFx(B) {
   }
 }
 
+// ---------- 연출 ----------
+// 쓰러진 자리의 흔적: 90초에 걸쳐 옅어진다
+function drawDecals(B) {
+  for (const d of B.decals || []) {
+    const a = 0.45 * (1 - (B.time - d.born) / 90);
+    if (a <= 0) continue;
+    ctx.globalAlpha = a; ctx.fillStyle = d.color;
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+// 피해 숫자 (화면 좌표: 확대해도 같은 크기)
+function drawNumbers(B) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const f of B.fx) {
+    if (f.kind !== 'num') continue;
+    const a = f.t / f.max, p = MG.worldToScreen({ x: f.x, y: f.y }), y = p.y - (1 - a) * 26;
+    ctx.globalAlpha = Math.min(1, a * 1.6);
+    ctx.font = `bold ${f.text >= 100 ? 16 : 13}px "Malgun Gothic", sans-serif`;
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(f.text, p.x, y);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, p.x, y);
+  }
+  ctx.globalAlpha = 1;
+}
+// 배너: 가운데 위에 큰 글씨, 들어올 때 커졌다가 줄어들고 끝에 사라진다
+function drawBanner(B) {
+  const b = B.banner;
+  if (!b) return;
+  const el = b.max - b.t, a = Math.min(1, el * 4, b.t * 2), sc = el < 0.25 ? 1.3 - el * 1.2 : 1;
+  const y = view.h * 0.22;
+  ctx.globalAlpha = a * 0.55; ctx.fillStyle = '#000'; ctx.fillRect(0, y - 38, view.w, b.sub ? 76 : 56);
+  ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.save(); ctx.translate(view.w / 2, y - 6); ctx.scale(sc, sc);
+  ctx.font = 'bold 34px "Malgun Gothic", sans-serif'; ctx.strokeStyle = '#000'; ctx.lineWidth = 5;
+  ctx.strokeText(b.text, 0, 0); ctx.fillStyle = b.color; ctx.fillText(b.text, 0, 0);
+  ctx.restore();
+  if (b.sub) { ctx.font = '15px "Malgun Gothic", sans-serif'; ctx.fillStyle = '#e8ecf4'; ctx.fillText(b.sub, view.w / 2, y + 26); }
+  ctx.globalAlpha = 1;
+}
+// 계절 날씨 (화면 효과만): 겨울 눈, 가을 낙엽, 늪 안개
+MG.weatherOf = B => {
+  if (B.conquest) return B.outpost.biome === 'swamp' ? 'fog' : B.outpost.biome === 'stone' ? 'ash' : season();
+  return season();
+};
+const season = () => {
+  const s = MG.S ? MG.SEASON(MG.S.month) : '봄';
+  return s === '겨울' ? 'snow' : s === '가을' ? 'leaves' : 'none';
+};
+// 겨울이면 땅에 옅게 눈이 덮인다 (월드 좌표)
+function drawGround(B) {
+  const w = MG.weatherOf(B);
+  if (w === 'snow') { ctx.fillStyle = 'rgba(235,240,250,0.16)'; ctx.fillRect(0, 0, W.w, W.h); }
+  if (w === 'ash') { ctx.fillStyle = 'rgba(20,10,10,0.15)'; ctx.fillRect(0, 0, W.w, W.h); }
+}
+let flakes = [], flakeKind = null, lastW = 0;
+function drawWeather(B) {
+  const w = MG.weatherOf(B), now = performance.now(), dt = Math.min(0.05, (now - (lastW || now)) / 1000);
+  lastW = now;
+  if (w === 'none') return;
+  if (w === 'fog') {
+    // 천천히 흐르는 안개 덩어리
+    const t = now / 1000;
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 0.37 + t * 0.012 * (1 + i % 3)) % 1.4 - 0.2) * view.w, y = (0.15 + (i * 0.29) % 0.8) * view.h, r = view.w * 0.35;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(200,215,205,0.16)'); g.addColorStop(1, 'rgba(200,215,205,0)');
+      ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    return;
+  }
+  const n = w === 'snow' ? 140 : w === 'ash' ? 70 : 45;
+  if (flakeKind !== w) { flakes = []; flakeKind = w; }
+  while (flakes.length < n) flakes.push({ x: Math.random() * view.w, y: Math.random() * view.h, s: Math.random(), a: Math.random() * 6 });
+  const paused = B.paused || B.phase !== 'battle' ? 0.3 : 1;
+  for (const f of flakes) {
+    if (w === 'snow') { f.y += (30 + f.s * 40) * dt * paused; f.x += Math.sin(f.a += dt) * 12 * dt; }
+    else if (w === 'ash') { f.y -= (10 + f.s * 15) * dt * paused; f.x += Math.sin(f.a += dt * 0.7) * 10 * dt; }
+    else { f.y += (35 + f.s * 30) * dt * paused; f.x += (25 + Math.sin(f.a += dt * 2) * 30) * dt * paused; }
+    if (f.y > view.h + 10) { f.y = -10; f.x = Math.random() * view.w; }
+    if (f.y < -10) { f.y = view.h + 10; f.x = Math.random() * view.w; }
+    if (f.x > view.w + 10) f.x = -10;
+    if (w === 'snow') { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.arc(f.x, f.y, 1.2 + f.s * 1.6, 0, Math.PI * 2); ctx.fill(); }
+    else if (w === 'ash') { ctx.fillStyle = f.s < 0.3 ? 'rgba(255,140,60,0.7)' : 'rgba(80,70,70,0.6)'; ctx.fillRect(f.x, f.y, 2, 2); }
+    else {
+      ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.a);
+      ctx.fillStyle = ['#c8742a', '#d89a3a', '#a8502a'][(f.s * 3) | 0]; ctx.beginPath(); ctx.ellipse(0, 0, 4, 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
 // 스킬이 남기는 구역: 화살비, 불바다, 포격 예고
 function drawZones(B) {
   for (const z of B.zones || []) {
@@ -495,7 +586,9 @@ MG.render = function (B, input) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#0d1016'; ctx.fillRect(0, 0, view.w, view.h);
   // 월드 좌표
-  ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, (view.w / 2 - view.x * zoom) * dpr, (view.h / 2 - view.y * zoom) * dpr);
+  // 화면 흔들림: 화면 좌표로 흔든다
+  const sh = B.shake || 0, ox = sh ? (Math.random() - 0.5) * 2 * sh : 0, oy = sh ? (Math.random() - 0.5) * 2 * sh : 0;
+  ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, (view.w / 2 - view.x * zoom + ox) * dpr, (view.h / 2 - view.y * zoom + oy) * dpr);
   if (B.conquest) {
     if (!B.bg) B.bg = MG.makeConquestBg(B);
     ctx.drawImage(B.bg, 0, 0);
@@ -508,6 +601,8 @@ MG.render = function (B, input) {
     drawGarrison(B);
     drawKeep(B);
   }
+  drawGround(B);
+  drawDecals(B);
   drawEnemies(B);
   drawSoldiers(B);
   drawProjectiles(B);
@@ -527,6 +622,9 @@ MG.render = function (B, input) {
   // 화면 좌표
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawFlags(B);
+  drawWeather(B);
+  drawNumbers(B);
+  drawBanner(B);
   drawLog(B);
   if (input.aim) {
     const name = input.aim.kind === 'skill' ? input.aim.squads.map(sq => MG.skillOf(sq).name).filter((v, i, a) => a.indexOf(v) === i).join('·') : MG.ITEMS[input.aim.id].name;

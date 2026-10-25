@@ -690,6 +690,7 @@ function bindSave() {
 }
 
 MG.enterCamp = () => {
+  if (MG.music) MG.music('camp');
   MG.mode = 'camp';
   MG.B = null;
   $('result').classList.add('hidden');
@@ -707,6 +708,7 @@ MG.startNextBattle = () => {
   showBattle();
 };
 function showBattle() {
+  if (MG.music) MG.music('battle');
   MG.mode = 'battle';
   $('result').classList.add('hidden');
   el.classList.add('hidden');
