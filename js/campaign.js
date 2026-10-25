@@ -52,6 +52,7 @@ function newGeneral(o) {
 // 예전 저장에 없는 값을 채운다 (나이·특성·가문·주점)
 function migrate(s) {
   if (!s.lord.given) s.lord = { given: MG.FAMILY_NAME, name: s.lord.name, gen: s.lord.gen || 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false };
+  if (!s.lord.stats) Object.assign(s.lord, lordGrowth(s.lord.level || 1));
   for (const g of s.generals) {
     if (g.age == null) g.age = randInt(22, 38);
     if (!g.traits) g.traits = MG.rollTraits();
@@ -79,7 +80,7 @@ function migrate(s) {
 MG.newCampaign = (opts = {}) => {
   const s = MG.S = {
     version: 2, level: 1, month: 2, nextId: 1, over: false, ap: MG.AP_PER_MONTH,
-    generals: [], lord: { given: MG.FAMILY_NAME, name: MG.LORD.name, gen: 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false },
+    generals: [], lord: { given: MG.FAMILY_NAME, name: MG.LORD.name, gen: 1, age: MG.LORD_START_AGE, level: 1, traits: [], minor: false, ...lordGrowth(1) },
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
@@ -148,6 +149,41 @@ function nextChronicleMonth(month) {
 MG.hasEffect = type => (MG.S.effects || []).some(e => e.type === type && e.until > MG.S.month);
 const addEffect = (type, months) => { MG.S.effects.push({ type, until: MG.S.month + months }); };
 
+// ---------- 성주 능력치와 성장 ----------
+// 새 성주의 능력치: 무작위 시작값 + 이미 오른 레벨만큼의 성장 (자동 1점, 분배할 1점씩)
+function lordGrowth(level) {
+  const stats = MG.rollLordStats(), keys = Object.keys(stats);
+  for (let i = 1; i < level; i++) stats[pick(keys)]++;
+  return { stats, xp: 0, points: Math.max(0, level - 1) };
+}
+// 경험치를 더하고 오른 레벨마다 자동 1점 + 분배 1점. 자동으로 오른 능력치 이름들을 돌려준다
+function lordGain(n) {
+  const L = MG.S.lord, keys = Object.keys(L.stats), auto = [];
+  L.xp = (L.xp || 0) + n * (L.traits || []).reduce((a, t) => a * (MG.TRAITS[t].xp || 1), 1);
+  while (L.level < MG.MAX_LEVEL && L.xp >= MG.xpToNext(L.level)) {
+    L.xp -= MG.xpToNext(L.level); L.level++;
+    const k = pick(keys); L.stats[k]++; auto.push(MG.LORD_STATS[k].name);
+    L.points = (L.points || 0) + 1;
+  }
+  if (L.level >= MG.MAX_LEVEL) L.xp = 0;
+  return auto;
+}
+MG.lordSpend = k => {
+  const L = MG.S.lord;
+  if (!L.points || !MG.LORD_STATS[k]) return;
+  L.stats[k]++; L.points--;
+  save();
+};
+// 전투 뒤 성주 경험치: 근위대가 올린 경험치 + 살아남으면 생존 경험치
+function applyLord(B, sum) {
+  const RL = B.roster.lord, L = MG.S.lord;
+  if (RL.away || RL.minor || B.lordDead) return;
+  const lsq = B.allSquads.find(q => q.isLord);
+  const xp = Math.round((lsq ? lsq.xp : 0) + MG.SURVIVE_XP), from = L.level;
+  const auto = lordGain(xp);
+  sum.lord = { name: L.name, xp, from, to: L.level, auto };
+}
+
 // ---------- 가문과 후계 ----------
 // 후계 후보는 혈족뿐: 장수가 된 자녀와 아직 어린 자녀
 MG.heirs = () => [
@@ -191,12 +227,12 @@ MG.chooseHeir = (kind, id) => {
   if (kind === 'general') {
     const g = S.generals.find(x => x.id === id);
     if (!g) return;
-    S.lord = { given: g.name, name: `변경백 ${g.name}`, gen, age: g.age, level: g.level, traits: g.traits, minor: false };
+    S.lord = { given: g.name, name: `변경백 ${g.name}`, gen, age: g.age, level: g.level, traits: g.traits, minor: false, ...lordGrowth(g.level) };
     disband(g);
   } else {
     const c = S.family.find(x => x.id === id);
     if (!c) return;
-    S.lord = { given: c.name, name: `변경백 ${c.name}`, gen, age: c.age, level: 1, traits: c.traits, minor: c.age < MG.ADULT_AGE };
+    S.lord = { given: c.name, name: `변경백 ${c.name}`, gen, age: c.age, level: 1, traits: c.traits, minor: c.age < MG.ADULT_AGE, ...lordGrowth(1) };
     S.family = S.family.filter(x => x !== c);
   }
   S.pendingSuccession = false;
@@ -423,7 +459,7 @@ MG.actRepair = () => {
 // 직할 병력에는 상한이 없다 — 병력은 식량으로만 제한된다 (설계 문서 4장).
 // 마법사·사제 부대는 마법탑·사원이 있어야 채운다.
 MG.MIN_POP = 10;  // 주민을 이보다 적게 남기며 뽑지는 않는다
-MG.recruitCap = () => MG.bLevel('barracks') * 10;
+MG.recruitCap = () => (MG.bLevel('barracks') ? MG.bLevel('barracks') * 10 + Math.max(0, MG.S.lord.stats.admin - 3) : 0);
 MG.recruitTargets = () => {
   const list = [];
   for (const g of MG.S.generals) {
@@ -933,7 +969,7 @@ MG.economy = () => {
   // 연대기 사건의 지속 효과: 세금 감면, 혹한(겨울 식량 소비 1.5배)
   const winterCold = MG.hasEffect('harshWinter') && season === '겨울';
   return {
-    tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1)),
+    tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1) * MG.adminMul(S.lord.stats)),
     market: Math.round(MG.bSum('market') * 40 * (S.domain === 'trade' ? 1.5 : 1)),
     wages: Math.ceil(soldiers * MG.WAGE_SOLDIER + generals * MG.WAGE_GENERAL),
     made, eat: Math.ceil((soldiers + generals + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
@@ -1131,7 +1167,7 @@ MG.buildRoster = march => {
   // 성주가 정벌에 나가 있으면 성을 지키지 못하고, 정벌에 안 따라갔으면 정벌 전투에 없다
   const lordAway = march ? !march.lord : !!(S.march && S.march.lord);
   const roster = {
-    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1 },
+    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
     relics: [...S.relics],
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
@@ -1214,6 +1250,7 @@ MG.applyResult = B => {
 
 // 장수 부대: 살아남은 병사, 쓰러진 병사의 부상 판정, 장수 경험치·부상·전사
 function applySquads(B, sum) {
+  applyLord(B, sum);
   // 전투에서 쓴 소모품
   for (const [k, n] of Object.entries(B.itemsUsed || {})) MG.S.items[k] = Math.max(0, (MG.S.items[k] || 0) - n);
   const S = MG.S, R = B.roster;

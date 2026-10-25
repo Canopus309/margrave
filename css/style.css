@@ -164,3 +164,7 @@ button.onBtn { border-color: var(--ok); color: var(--ok); }
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
 .rcard { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px; min-height: 130px; border: 2px solid; border-radius: 10px; background: var(--panel2); }
 .rcard:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+/* 성주 능력치 */
+.lordStats { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+.lordStats td { padding: 1px 4px; }
+.lordStats td:nth-child(2) { color: var(--accent); width: 24px; text-align: center; }

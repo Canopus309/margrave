@@ -517,3 +517,24 @@ MG.ORIGINS = {
   iron:     { name: '철기 가문',     desc: '시작 철 +200, 대장간을 짓고 시작' },
   pious:    { name: '신앙 가문',     desc: '사원을 짓고 시작, 사제 회복량 +20%' },
 };
+
+// ---------- 성주 능력치 ----------
+// 기준값 3. 레벨이 오르면 2점: 1점은 무작위 능력치에 자동, 1점은 직접 분배
+MG.LORD_STATS = {
+  might: { name: '무용', desc: '성주 공격력·체력 (3에서 1점당 ±10%)' },
+  lead:  { name: '통솔', desc: '근위대 수 (1점당 2명, 3이면 10명)' },
+  cmd:   { name: '지휘', desc: '성주 오라: 1점당 범위 +5%, 공격력 보너스 +2%p' },
+  admin: { name: '정무', desc: '3에서 1점당 세금 ±4%, 모집 인원 +1 (병영이 있을 때)' },
+};
+MG.rollLordStats = () => {
+  const st = { might: 2, lead: 2, cmd: 2, admin: 2 }, keys = Object.keys(st);
+  for (let i = 0; i < 6; i++) st[keys[(Math.random() * 4) | 0]]++;  // 합 14, 무작위로
+  return st;
+};
+MG.lordGuards = st => 4 + 2 * (st ? st.lead : 3);
+MG.lordMight = st => Math.max(0.5, 1 + 0.1 * ((st ? st.might : 3) - 3));
+MG.lordAura = st => {
+  const c = (st ? st.cmd : 3) - 3;
+  return { r: MG.LORD.aura * (1 + 0.05 * c), bonus: Math.max(0.04, MG.LORD.auraBonus + 0.02 * c) };
+};
+MG.adminMul = st => 1 + 0.04 * ((st ? st.admin : 3) - 3);

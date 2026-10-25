@@ -318,13 +318,15 @@ MG.createBattle = function (level, roster) {
 function makeLord(roster, lx, ly, facing) {
   const L = MG.LORD, RL = roster.lord;
   if (RL.away) return;
-  const lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord' });
-  const lv = (RL.level || 1) - 1, age = RL.ageMul || 1;
+  // 능력치: 무용(성주 공격·체력), 통솔(근위대 수), 지휘(오라). 근위대는 성주 레벨만큼 강해진다.
+  const lv = (RL.level || 1) - 1, age = RL.ageMul || 1, st = RL.stats, might = MG.lordMight(st) * (RL.mul || 1);
+  const lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord', lvBonus: 1 + MG.LEVEL_BONUS.squad * lv });
+  B.lordAura = MG.lordAura(st);
   if (!RL.minor) {
     B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
-      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age * (RL.mul || 1), atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age * (RL.mul || 1) });
+      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age * might, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age * might });
   } else lsq.leaderDown = false;
-  for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
+  for (let i = 0; i < MG.lordGuards(st); i++) makeSoldier(lsq, 'guard', lx, ly);
   lsq.initial = lsq.soldiers.length;
   MG.orderMove(lsq, lx, ly, facing, true);
 }
@@ -629,7 +631,7 @@ function atkMult(s) {
   if (s.type === 'guard' && relic('whetstone')) m *= 1.1;
   if (s.squad.leaderDown && !s.isGeneral) m *= MG.LEADER_DOWN_MULT;
   if (B.lordDead) m *= MG.LORD_DEAD_MULT;
-  else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura * (relic('warflag') ? 1.5 : 1)) m *= 1 + MG.LORD.auraBonus;
+  else if (B.lord && !s.isLord && dist(s, B.lord) < B.lordAura.r * (relic('warflag') ? 1.5 : 1)) m *= 1 + B.lordAura.bonus;
   return m;
 }
 

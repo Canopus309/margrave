@@ -185,6 +185,7 @@ function showConquestResult(B) {
     </table>
     <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
     <table>${genTable(s) || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
+    ${s.lord ? `<p>성주 ${s.lord.name}: +${s.lord.xp} 경험치${s.lord.to > s.lord.from ? ` · <b style="color:var(--ok)">Lv.${s.lord.from} → ${s.lord.to}</b> (자동으로 ${s.lord.auto.join('·')} +1, 분배할 점수 +${s.lord.to - s.lord.from})` : ` · Lv.${s.lord.to}`}</p>` : ''}
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     ${woundTable(s)}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
@@ -227,6 +228,7 @@ function showResult(B) {
     </table>
     <h3 style="margin:0 0 4px;font-size:14px">장수</h3>
     <table>${genRows || '<tr><td>출전한 장수가 없어요.</td></tr>'}</table>
+    ${s.lord ? `<p>성주 ${s.lord.name}: +${s.lord.xp} 경험치${s.lord.to > s.lord.from ? ` · <b style="color:var(--ok)">Lv.${s.lord.from} → ${s.lord.to}</b> (자동으로 ${s.lord.auto.join('·')} +1, 분배할 점수 +${s.lord.to - s.lord.from})` : ` · Lv.${s.lord.to}`}</p>` : ''}
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     <table>
       <tr><th>경상 — 병원에서 1개월</th><td>${s.wound.light}명</td></tr>

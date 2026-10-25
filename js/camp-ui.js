@@ -278,13 +278,27 @@ const traitTags = traits => `<div class="traits">${(traits || []).map(t => {
 }).join('')}</div>`;
 
 // ---------- 가문·주점 ----------
+// 성주 레벨·경험치와 능력치 (분배할 점수가 있으면 + 버튼)
+function lordStatsBlock(L) {
+  const need = L.level < MG.MAX_LEVEL ? MG.xpToNext(L.level) : 0, aura = MG.lordAura(L.stats);
+  const eff = { might: `공격·체력 ×${MG.lordMight(L.stats).toFixed(1)}`, lead: `근위대 ${MG.lordGuards(L.stats)}명`,
+    cmd: `오라 ${Math.round(aura.r)} · +${Math.round(aura.bonus * 100)}%`, admin: `세금 ×${MG.adminMul(L.stats).toFixed(2)}` };
+  return `<div class="lv"><span>Lv.${L.level}</span><div class="bar"><div style="width:${pct(L.xp || 0, need)}%;background:#e6b450"></div></div>
+      <span class="small muted">${need ? `${Math.floor(L.xp || 0)} / ${need}` : '최고 레벨'}</span></div>
+    <table class="lordStats">${Object.entries(MG.LORD_STATS).map(([k, D]) => `<tr title="${D.desc}"><td>${D.name}</td><td><b>${L.stats[k]}</b></td>
+      <td class="muted small">${eff[k]}</td><td>${L.points ? `<button class="mini" data-lstat="${k}">+</button>` : ''}</td></tr>`).join('')}</table>
+    ${L.points ? `<div class="warn small">분배할 능력치 ${L.points}점이 있어요</div>`
+      : '<div class="muted small">전투에서 근위대가 적을 쓰러뜨리고 살아남으면 경험치를 얻어요. 레벨마다 능력치 1점은 자동, 1점은 직접 분배.</div>'}`;
+}
+
 function familyBlock() {
   const S = MG.S, L = S.lord;
   const kids = S.family.map(c => `<li>${c.name} · ${c.age}세 ${traitTags(c.traits)}</li>`).join('');
   const blood = S.generals.filter(g => g.blood && !g.dead).map(g => `<li>${g.name} · ${g.age}세 · 장수</li>`).join('');
   return `<section class="card"><h3>가문 · ${L.gen}대 성주</h3>
-    <div><b>${L.name}</b> · ${L.age}세${L.level > 1 ? ` · Lv.${L.level}` : ''}${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}</div>
+    <div><b>${L.name}</b> · ${L.age}세${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}</div>
     ${traitTags(L.traits)}
+    ${lordStatsBlock(L)}
     ${MG.ageMul(L.age) < 1 ? `<div class="warn small">나이가 들어 능력이 ${Math.round((1 - MG.ageMul(L.age)) * 100)}% 떨어졌어요.</div>` : ''}
     ${MG.deathChance(L.age) ? `<div class="danger small">해마다 ${Math.round(MG.deathChance(L.age) * 100)}% 확률로 세상을 떠날 수 있어요.</div>` : ''}
     <ul class="small">${blood}${kids || (blood ? '' : '<li class="muted">아직 자녀가 없어요</li>')}</ul>
@@ -336,7 +350,7 @@ function conquestBlock() {
       <div class="marchPick">${ready.map(g => `<label class="tog"><input type="checkbox" data-mpick="${g.id}" ${marchPick.has(g.id) ? 'checked' : ''}>
         ${g.name} <span class="muted small">${MG.genTitle(g)} Lv.${g.level} · 병사 ${g.healthy}</span></label>`).join('') || '<span class="muted small">보낼 수 있는 장수가 없어요</span>'}
       ${S.lord.minor ? '' : `<label class="tog"><input type="checkbox" id="marchLord" ${marchLord ? 'checked' : ''}>
-        <span>성주 친정 <span class="muted small">(근위대와 함께 · 성주 주변 아군 공격력 +${Math.round(MG.LORD.auraBonus * 100)}% · 전사하면 후계 승계)</span></span></label>`}</div>`;
+        <span>성주 친정 <span class="muted small">(근위대 ${MG.lordGuards(S.lord.stats)}명과 함께 · 성주 주변 아군 공격력 +${Math.round(MG.lordAura(S.lord.stats).bonus * 100)}% · 전사하면 후계 승계)</span></span></label>`}</div>`;
   }
   return `<section class="card"><h3>정벌 <span class="muted">(정벌한 거점 ${(S.outposts || []).filter(id => !MG.OUTPOSTS[id].final).length} / 3${S.ended ? ' · 검은 성채 함락' : ''})</span></h3>
     ${pickArea}${rows}
@@ -598,6 +612,7 @@ function bind() {
   });
   q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
+  q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
   q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
   q('[data-site]').forEach(b => b.onclick = () => {
