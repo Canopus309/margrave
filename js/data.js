@@ -74,7 +74,7 @@ MG.START_ARMY = [
   { general: '토마스', type: 'priest',   lead: 1, at: { x: 150,  y: 0 } },
 ];
 MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130, auraBonus: 0.10, at: { x: 0, y: 215 } };
-MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
+MG.GARRISON = { archer: 24, infantry: 24 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
 MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, ancientDragon: 400, tower: 6, hq: 40,
@@ -233,6 +233,9 @@ MG.buildWaves = function (level, dirs, faction, mix) {
     for (const g of groups) g.count = Math.round(g.count * 1.2);
     groups.push({ wave: 3, t: 95, dir: a, type: 'orc', count: 3 + Math.round(L / 2) });
   }
+  // 초반(전투 1~3)은 적을 더 보내고(+30% → +15%), 파 사이 쉬는 시간을 줄인다
+  const early = L <= 3 ? 1.3 - 0.075 * (L - 1) : 1;
+  for (const g of groups) { g.count = Math.round(g.count * early); if (g.wave === 2) g.t -= 10; if (g.wave === 3) g.t -= 20; }
   // 세력에 맞게 적을 바꾼다. 섞인 시대에는 무리를 번갈아 두 세력으로.
   groups.forEach((g, i) => {
     const F = MG.FACTIONS[(mix && i % 2) ? mix : (faction || 'goblin')], u = F.units[g.type];
@@ -382,7 +385,7 @@ MG.renownOf = S => {
   const parts = { years: years * 2, wins: S.stats.wins * 3, outposts: outposts * 50, gens: S.lord.gen * 10, ending: S.ended ? MG.ENDING_RENOWN : 0 };
   const base = parts.years + parts.wins + parts.outposts + parts.gens + parts.ending;
   // 몰락 귀족 +20%, 변경백의 관 +25%
-  const extra = (S.origin === 'fallen' ? 1.2 : 1) * ((S.relics || []).includes('circlet') ? 1.25 : 1);
+  const extra = (S.origin === 'fallen' ? 1.2 : 1) * ((S.relics || []).includes('circlet') ? 1.25 : 1) * MG.DIFFICULTY[S.difficulty || 'normal'].renown;
   return { parts, base, extra, total: Math.round(base * MG.siegeRenownMul(S.siege || 0) * extra) };
 };
 MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
@@ -538,3 +541,14 @@ MG.lordAura = st => {
   return { r: MG.LORD.aura * (1 + 0.05 * c), bonus: Math.max(0.04, MG.LORD.auraBonus + 0.02 * c) };
 };
 MG.adminMul = st => 1 + 0.04 * ((st ? st.admin : 3) - 3);
+
+// ---------- 난이도 ----------
+// 습격 적 공격력·성벽 피해: 첫 전투부터 1.15배, 전투마다 +6%
+MG.enemyAtkScale = L => 1.15 * (1 + 0.06 * (L - 1));
+// count: 적 수, hp: 적 체력, atk: 적 공격력, renown: 얻는 명성. 새 캠페인 준비 창에서 고른다 (해금 없음)
+MG.DIFFICULTY = {
+  easy:      { name: '쉬움',  desc: '예전 밸런스에 가까워요', count: 0.8,  hp: 0.85, atk: 0.75, renown: 0.7 },
+  normal:    { name: '보통',  desc: '기본',                  count: 1,    hp: 1,    atk: 1,    renown: 1 },
+  hard:      { name: '어려움', desc: '적 수 +25%, 체력·공격 +15%', count: 1.25, hp: 1.15, atk: 1.15, renown: 1.3 },
+  nightmare: { name: '악몽',  desc: '적 수 +50%, 체력·공격 +30%', count: 1.5,  hp: 1.3,  atk: 1.3,  renown: 1.6 },
+};

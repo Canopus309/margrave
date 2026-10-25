@@ -245,7 +245,8 @@ function makeSquad(name, type, opts = {}) {
 MG.createBattle = function (level, roster) {
   const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix);
   // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
-  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1);
+  const diff = roster.diff || MG.DIFFICULTY.normal;
+  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1) * diff.count;
   const tm = roster.typeMul || {};
   for (const g of waves.groups) if (!MG.ENEMY_TYPES[g.type].boss) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
   B = MG.B = {
@@ -297,14 +298,14 @@ MG.createBattle = function (level, roster) {
   }
   makeLord(roster, C.x + MG.LORD.at.x, C.y + MG.LORD.at.y, { x: 0, y: -1 });
 
-  const hpScale = Math.pow(1.1, level - 1) * (roster.siegeMul || 1);
+  const hpScale = Math.pow(1.1, level - 1) * (roster.siegeMul || 1) * diff.hp, atkScale = MG.enemyAtkScale(level) * diff.atk;
   for (const g of B.waves) {
     const lane = rand(-C.R * 0.6, C.R * 0.6);
     for (let i = 0; i < g.count; i++) {
       const atGate = Math.random() < MG.GATE_TARGET[g.type];
       const l = atGate ? rand(-C.gateHalf * 0.7, C.gateHalf * 0.7) : lane + rand(-C.R * 0.5, C.R * 0.5);
       B.spawnQueue.push({ t: g.t + i * 0.35 + rand(0, 0.3), type: g.type, dir: g.dir, wave: g.wave,
-        lane: Math.max(-C.R * 0.92, Math.min(C.R * 0.92, l)), hpScale,
+        lane: Math.max(-C.R * 0.92, Math.min(C.R * 0.92, l)), hpScale, atkScale,
         raider: g.type !== 'orc' && Math.random() < MG.RAIDER_SHARE });
     }
   }
@@ -376,7 +377,7 @@ function makeStruct(kind, x0, y0, w, h, hp) {
 }
 function makeFoe(type, x, y, o = {}) {
   const T = MG.ENEMY_TYPES[type], hp = Math.round(T.hp * (o.hpScale || 1));
-  const e = { id: B.nextId++, type, T, x, y, hp, max: hp, r: T.r, home: { x, y }, leash: o.leash || 260,
+  const e = { id: B.nextId++, type, T, x, y, hp, max: hp, r: T.r, home: { x, y }, leash: o.leash || 260, atkScale: B.foeAtk || 1,
     aggro: o.aggro || Math.max(T.aggro, 170), boss: T.boss ? type : null, skillT: 5, chargeT: 7,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
     slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 };
@@ -447,7 +448,9 @@ MG.createConquest = function (roster) {
   }
   B.camp = { x: hx, y: hy, r: CAMP_P };
   // 진지 수비대: 진지 안팎에 흩어져 지킨다. 보스는 본진 앞에.
-  const hpScale = B.foeHp = (roster.siegeMul || 1) * (O.power || 1);
+  const diff = roster.diff || MG.DIFFICULTY.normal;
+  const hpScale = B.foeHp = (roster.siegeMul || 1) * (O.power || 1) * diff.hp;
+  B.foeAtk = diff.atk;
   const spot = (r0, r1) => {
     for (let i = 0; i < 30; i++) {
       const a = rand(0, Math.PI * 2), d = rand(r0, r1), p = { x: hx + Math.cos(a) * d, y: hy + Math.sin(a) * d };
@@ -608,7 +611,7 @@ function spawnEnemy(q) {
 function spawnAt(type, x, y, base, hpScale) {
   const T = MG.ENEMY_TYPES[type], hp = Math.round(T.hp * (hpScale || 1));
   const e = { id: B.nextId++, type, T, x, y, hp, max: hp, r: T.r, lane: base.lane || 0, dir: base.dir || side({ x, y }),
-    raider: !!(T.raider || base.raider), prey: null, boss: T.boss ? type : null, skillT: 6, hpScale: hpScale || 1,
+    raider: !!(T.raider || base.raider), prey: null, boss: T.boss ? type : null, skillT: 6, hpScale: hpScale || 1, atkScale: base.atkScale || 1,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
     slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 };
   B.enemies.push(e);
@@ -890,7 +893,7 @@ function attackWall(e, w) {
   if (e.cdT > 0) return;
   e.cdT = e.T.cd;
   if (w.hp <= 0) return;
-  w.hp -= e.T.wallDmg;
+  w.hp -= eWall(e);
   if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x + rand(-4, 4), y: e.y + rand(-4, 4), t: 0.4, max: 0.4 });
   if (w.hp <= 0) breach(w);
 }
@@ -899,7 +902,7 @@ function attackBuilding(e, b) {
   if (e.cdT > 0) return;
   e.cdT = e.T.cd;
   if (b.hp <= 0) return;
-  b.hp -= e.T.wallDmg;
+  b.hp -= eWall(e);
   if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x + rand(-4, 4), y: e.y + rand(-4, 4), t: 0.4, max: 0.4 });
   if (b.hp > 0) return;
   b.hp = 0;
@@ -973,7 +976,7 @@ function updateFlyer(e, dt, fGrid, sp) {
     }
   }
   if (dist(e, C) <= C.keepR + e.r + 3) {
-    if (e.cdT <= 0) { e.cdT = T.cd; B.keep.hp -= T.wallDmg; }
+    if (e.cdT <= 0) { e.cdT = T.cd; B.keep.hp -= eWall(e); }
     return;
   }
   fly(C.x, C.y);
@@ -1036,7 +1039,9 @@ function raidBossSkill(e, dt, fGrid) {
 }
 
 // 적의 공격력: 오크 대족장의 함성을 받으면 1.5배, 정벌 전투에서 보스가 쓰러지면 기가 꺾인다
-const eAtk = e => e.T.atk * (e.buffT > 0 ? 1.5 : 1) * (B.enemyMorale || 1);
+const eAtk = e => e.T.atk * (e.atkScale || 1) * (e.buffT > 0 ? 1.5 : 1) * (B.enemyMorale || 1);
+// 성벽·건물·본성에 주는 피해 (난이도·전투 레벨에 따라 커진다)
+const eWall = e => e.T.wallDmg * (e.atkScale || 1);
 
 // ---------- 정벌 전투의 적 ----------
 // 망루는 사거리 안 아군을 쏘고, 본진은 보스가 살아 있는 동안 증원을 내보낸다
@@ -1264,7 +1269,7 @@ function updateEnemy(e, dt, fGrid) {
   if (cls(e) === 'in') {
     if (dist(e, C) <= C.keepR + e.r + 3) {
       if (e.cdT <= 0) {
-        e.cdT = T.cd; B.keep.hp -= T.wallDmg;
+        e.cdT = T.cd; B.keep.hp -= eWall(e);
         if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x, y: e.y, t: 0.4, max: 0.4 });
       }
       return;
@@ -1307,7 +1312,7 @@ function updateRanged(e, dt, fGrid) {
   if (T.siege && cls(e) === 'out') {
     const wp = wallPoint(e.dir, C.R - C.T / 2, e.lane), w = segAt(wp);
     if (w.hp > 0 && dist(e, wp) <= T.ranged) {
-      if (e.cdT <= 0) fire({ tx: wp.x, ty: wp.y, kind: 'rock', wall: w, dmg: T.wallDmg, speed: 200 });
+      if (e.cdT <= 0) fire({ tx: wp.x, ty: wp.y, kind: 'rock', wall: w, dmg: eWall(e), speed: 200 });
       return true;
     }
   }
@@ -1320,13 +1325,13 @@ function updateRanged(e, dt, fGrid) {
   const t = e.target && !e.target.dead && dist(e, e.target) <= T.ranged ? e.target : null;
   if (t) {
     // 아래에서 성벽 위를 쏘면 잘 안 맞는다
-    if (e.cdT <= 0) fire({ target: t, tx: t.x, ty: t.y, kind: 'earrow', dmg: T.atk, speed: 420, uphill: wallTop(t) && cls(e) === 'out' });
+    if (e.cdT <= 0) fire({ target: t, tx: t.x, ty: t.y, kind: 'earrow', dmg: eAtk(e), speed: 420, uphill: wallTop(t) && cls(e) === 'out' });
     return true;
   }
   if (cls(e) === 'out') {
     const s = side(e), g = B.garrison[s];
     if (g.archer + g.infantry > 0 && cheb(e) - C.R <= T.ranged * 0.9) {
-      if (e.cdT <= 0) { const wp = wallPoint(s, C.R - 8, along(e, s)); fire({ tx: wp.x, ty: wp.y, kind: 'earrow', garrison: s, dmg: T.atk, speed: 420 }); }
+      if (e.cdT <= 0) { const wp = wallPoint(s, C.R - 8, along(e, s)); fire({ tx: wp.x, ty: wp.y, kind: 'earrow', garrison: s, dmg: eAtk(e), speed: 420 }); }
       return true;
     }
     // 사거리 끝에서 한동안 기다린다 (그래도 쏠 것이 없으면 다가간다)

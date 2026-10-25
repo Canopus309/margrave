@@ -8,7 +8,7 @@ let dismissArmed = null;  // 해고 확인 중인 장수 id
 let saveOpen = false;     // 저장·불러오기 창
 let chronOpen = false;    // 연대기 창
 let setupOpen = false;    // 새 캠페인 준비 창
-let setup = { domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
+let setup = { difficulty: 'normal', domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
 let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
 let tab = 'castle';         // 내정 화면 탭: castle army war market family
 let openGen = new Set();    // 펼쳐 둔 장수 카드
@@ -59,7 +59,7 @@ function headerBlock() {
   return `<header>
     <div class="crest">${MG.ic('crown')}</div>
     <div class="titleBox"><h1>${S.lord.name}의 변경 기지</h1>
-      <div class="muted small">${MG.ic(I.season[season])} ${MG.monthName()} · ${S.lord.gen}대${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
+      <div class="muted small">${MG.ic(I.season[season])} ${MG.monthName()} · ${S.lord.gen}대${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}${S.difficulty && S.difficulty !== 'normal' ? ` · ${MG.ic('flame')} ${MG.DIFFICULTY[S.difficulty].name}` : ''}
       ${effectTags()}</div></div>
     <div class="eraChip" title="지금 시대 · ${MG.FACTIONS[S.era.main].desc}">${MG.ic(I.faction[S.era.main])} ${MG.factionText(S.era.main, S.era.mix)}</div>
     <div class="headRight">
@@ -538,6 +538,8 @@ function setupPanel() {
     <h3>${MG.ic('diamond')} 시작 유물 <span class="small muted">(일반 유물 셋 중 하나)</span></h3>${(setup.relicOffer || []).map(k => `<div class="pick ${setup.relic === k ? 'on' : ''}">
       <div><b>${MG.RELICS[k].name}</b> <span class="small muted">${MG.RELICS[k].desc}</span></div>
       <button class="mini" data-setrelic="${k}">${setup.relic === k ? '선택됨' : '고르기'}</button></div>`).join('')}
+    <h3>${MG.ic('flame')} 난이도 <span class="small muted">${MG.DIFFICULTY[setup.difficulty].desc} · 얻는 명성 ×${MG.DIFFICULTY[setup.difficulty].renown}</span></h3>
+    <div class="row">${Object.entries(MG.DIFFICULTY).map(([k, D]) => `<button class="mini ${setup.difficulty === k ? 'onBtn' : ''}" data-setdiff="${k}" title="${D.desc} · 명성 ×${D.renown}">${D.name}</button>`).join('')}</div>
     <h3>${MG.ic('map-2')} 영지 특성 (하나)</h3>${domain}
     <h3>${MG.ic('gift')} 시작 보너스 <span class="small muted">해금한 것은 켜고 끌 수 있어요</span></h3>${bonus}
     <h3>${MG.ic('swords')} 포위 단계 <span class="small muted">단계마다 적 수·체력 +15%, 얻는 명성 +25%</span></h3>
@@ -736,10 +738,11 @@ function bindSetup() {
     setup.bonuses = setup.bonuses.includes(k) ? setup.bonuses.filter(x => x !== k) : [...setup.bonuses, k];
     render();
   });
+  q('[data-setdiff]').forEach(b => b.onclick = () => { setup.difficulty = b.dataset.setdiff; render(); });
   q('[data-setsiege]').forEach(b => b.onclick = () => { setup.siege = +b.dataset.setsiege; render(); });
   $('startCampBtn').onclick = () => {
     setupOpen = false; sel = null; msg = '';
-    MG.resetCampaign({ domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
+    MG.resetCampaign({ difficulty: setup.difficulty, domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
     setup.originOffer = setup.relicOffer = null;
     render(); window.scrollTo(0, 0);
   };

@@ -72,6 +72,7 @@ function migrate(s) {
   if (!s.outposts) s.outposts = [];
   if (s.march === undefined) s.march = null;
   if (!s.items) s.items = {};
+  if (!s.difficulty) s.difficulty = 'normal';
   if (!s.relics) s.relics = [];
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
@@ -84,7 +85,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {},
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal',
     era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
@@ -1168,7 +1169,7 @@ MG.buildRoster = march => {
   const lordAway = march ? !march.lord : !!(S.march && S.march.lord);
   const roster = {
     squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
-    relics: [...S.relics],
+    relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'],
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
@@ -1176,7 +1177,7 @@ MG.buildRoster = march => {
     faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null,
     items: { ...S.items }, typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
-  if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id); }
+  if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id) * roster.diff.count; }
   return roster;
 };
 
