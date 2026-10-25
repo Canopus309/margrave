@@ -8,7 +8,7 @@ let dismissArmed = null;  // 해고 확인 중인 장수 id
 let saveOpen = false;     // 저장·불러오기 창
 let chronOpen = false;    // 연대기 창
 let setupOpen = false;    // 새 캠페인 준비 창
-let setup = { domain: 'none', bonuses: [], siege: 0 };
+let setup = { domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
 let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
 let marchPick = new Set();  // 정벌군으로 고른 장수 id
 let marchLord = false;      // 성주 친정
@@ -43,10 +43,10 @@ function headerBlock() {
   const attackNow = MG.isAttackMonth();
   const marchNow = S.pendingConquest && S.march;
   return `<header>
-    <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
+    <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
       ${effectTags()}</div></div>
     <div class="headRight"><button id="chronBtn">연대기</button><button id="saveMenuBtn">저장·불러오기</button>
-      <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(MG.AP_PER_MONTH - S.ap)}</div></div>
+      <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(Math.max(0, MG.apMax() - S.ap))}</div></div>
   </header>
   <div class="resBar">${res}
     <div class="res"><span>주민</span><b>${S.pop}</b><i class="muted">/ ${MG.popCap()}</i></div>
@@ -390,6 +390,26 @@ function successionModal() {
       ${traitTags(h.traits)}</button>`).join('')}</div></div>`;
 }
 
+// 3택1 보상 카드 (습격을 막으면)
+function pickModal() {
+  const S = MG.S, P = S.pendingPick, cost = MG.rerollCost(S.level);
+  return `<div class="overlay"><div class="panel wide"><div class="muted small">${P.big ? '대습격 승리 보상' : '승리 보상'}</div><h1>보상을 하나 고르세요</h1>
+    <div class="cards">${P.cards.map((c, i) => { const info = MG.cardInfo(c);
+      return `<button class="rcard" data-card="${i}" style="border-color:${info.color}"><span class="muted small">${MG.CARD_KINDS[c.kind]}</span>
+        <b style="color:${info.color}">${info.title}</b><span class="small">${info.desc}</span></button>`; }).join('')}</div>
+    <div class="row">${P.rerolled ? '<span class="muted small">이미 다시 뽑았어요</span>'
+      : `<button id="rerollBtn" ${S.res.gold >= cost ? '' : 'disabled'}>다시 뽑기 (한 번) · 골드 ${cost}</button>`}</div>
+    ${msg ? `<div class="msg small">${msg}</div>` : ''}</div></div>`;
+}
+
+// 가진 유물
+function relicBlock() {
+  const list = (MG.S.relics || []).map(id => { const R = MG.RELICS[id], g = MG.RELIC_GRADES[R.grade];
+    return `<li><b style="color:${g.color}">${R.name}</b> <span class="muted">${R.desc}</span></li>`; }).join('');
+  return `<section class="card"><h3>유물 ${(MG.S.relics || []).length} / ${Object.keys(MG.RELICS).length}</h3>
+    <ul class="small inv">${list || '<li class="muted">습격 보상 카드, 보스, 고대 유적에서 얻어요</li>'}</ul></section>`;
+}
+
 // 성주 계보 표
 function lineageTable() {
   const S = MG.S;
@@ -466,6 +486,12 @@ function setupPanel() {
   const hist = m.history.slice(0, 5).map(h => `<li>${h.lord} (${h.gens}대) · ${h.years}년 · 승리 ${h.wins}${h.siege ? ` · 포위 ${h.siege}` : ''} · ${h.reason} · 명성 +${h.renown}</li>`).join('');
   return `<div class="overlay"><div class="panel wide"><h1>새 캠페인 준비</h1>
     <p>모아 둔 명성: <b class="warn">${m.renown}</b> <span class="small muted">— 한 번 해금하면 다음 캠페인부터 계속 고를 수 있어요.</span></p>
+    <h3>가문 내력 <span class="small muted">(이번에 나온 셋 중 하나)</span></h3>${(setup.originOffer || []).map(k => `<div class="pick ${setup.origin === k ? 'on' : ''}">
+      <div><b>${MG.ORIGINS[k].name}</b> <span class="small muted">${MG.ORIGINS[k].desc}</span></div>
+      <button class="mini" data-setorigin="${k}">${setup.origin === k ? '선택됨' : '고르기'}</button></div>`).join('')}
+    <h3>시작 유물 <span class="small muted">(일반 유물 셋 중 하나)</span></h3>${(setup.relicOffer || []).map(k => `<div class="pick ${setup.relic === k ? 'on' : ''}">
+      <div><b>${MG.RELICS[k].name}</b> <span class="small muted">${MG.RELICS[k].desc}</span></div>
+      <button class="mini" data-setrelic="${k}">${setup.relic === k ? '선택됨' : '고르기'}</button></div>`).join('')}
     <h3>영지 특성 (하나)</h3>${domain}
     <h3>시작 보너스 (해금한 것은 켜고 끌 수 있어요)</h3>${bonus}
     <h3>포위 단계 <span class="small muted">단계마다 적 수·체력 +15%, 얻는 명성 +25%</span></h3>
@@ -538,6 +564,7 @@ function render() {
         <div class="stat"><span>보병</span><b>${S.garrison.infantry}</b></div>
         <div class="muted small">모집하면 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 모두 직할로 와요. 직할 병력에는 상한이 없고 식량으로만 제한돼요.</div></section>
       <section class="card">${hospitalBlock()}</section>
+      ${relicBlock()}
       <section class="card"><h3>보유 무기 ${inv.length}</h3>
         <ul class="small inv">${inv.map(w => `<li>${gradeTag(w)} <span class="muted">${MG.UNIT_TYPES[w.type].name}용 · ${MG.weaponDesc(w)}</span></li>`).join('')
           || '<li class="muted">전투에서 이기거나 대장간에서 만들어요</li>'}</ul></section>
@@ -549,7 +576,7 @@ function render() {
     </div>
   </div>
   ${setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
-    : S.pendingSuccession ? successionModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
+    : S.pendingSuccession ? successionModal() : S.pendingPick ? pickModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
   bind();
 }
 
@@ -597,6 +624,8 @@ function bind() {
   if ($('finishBtn')) $('finishBtn').onclick = () => { MG.finishStory(); render(); };
   const nc = $('newCampBtn');
   if (nc) nc.onclick = () => MG.openSetup();
+  q('[data-card]').forEach(b => b.onclick = () => run(MG.pickCard(+b.dataset.card)));
+  if ($('rerollBtn')) $('rerollBtn').onclick = () => run(MG.rerollCards());
   q('[data-chron]').forEach(b => b.onclick = () => run(MG.resolveChronicle(+b.dataset.chron)));
   for (const id of ['chronBtn', 'chronBtn2']) { const b = $(id); if (b) b.onclick = () => { chronOpen = true; render(); }; }
   if ($('chronCloseBtn')) $('chronCloseBtn').onclick = () => { chronOpen = false; render(); };
@@ -634,6 +663,9 @@ MG.openSetup = () => {
   if (!u.domain.includes(setup.domain)) setup.domain = 'none';
   setup.bonuses = setup.bonuses.filter(b => u.bonus.includes(b));
   setup.siege = Math.min(setup.siege, u.siege);
+  // 가문 내력·시작 유물은 준비 창을 열 때마다 새로 셋씩 나온다 (시작하기 전까지는 그대로)
+  if (!setup.originOffer) { setup.originOffer = MG.originOffer(); setup.origin = setup.originOffer[0]; }
+  if (!setup.relicOffer) { setup.relicOffer = MG.startRelicOffer(); setup.relic = setup.relicOffer[0]; }
   setupOpen = true; saveOpen = false; chronOpen = false; msg = '';
   render();
 };
@@ -641,6 +673,8 @@ function bindSetup() {
   if (!setupOpen) return;
   const q = s => el.querySelectorAll(s);
   q('[data-buy]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.buy.split(','); msg = MG.buyUnlock(k, id) || '해금했어요.'; render(); });
+  q('[data-setorigin]').forEach(b => b.onclick = () => { setup.origin = b.dataset.setorigin; render(); });
+  q('[data-setrelic]').forEach(b => b.onclick = () => { setup.relic = b.dataset.setrelic; render(); });
   q('[data-setdomain]').forEach(b => b.onclick = () => { setup.domain = b.dataset.setdomain; render(); });
   q('[data-setbonus]').forEach(b => b.onclick = () => {
     const k = b.dataset.setbonus;
@@ -650,7 +684,8 @@ function bindSetup() {
   q('[data-setsiege]').forEach(b => b.onclick = () => { setup.siege = +b.dataset.setsiege; render(); });
   $('startCampBtn').onclick = () => {
     setupOpen = false; sel = null; msg = '';
-    MG.resetCampaign({ domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege });
+    MG.resetCampaign({ domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
+    setup.originOffer = setup.relicOffer = null;
     render(); window.scrollTo(0, 0);
   };
   if ($('setupCloseBtn')) $('setupCloseBtn').onclick = () => { setupOpen = false; msg = ''; render(); };
@@ -690,6 +725,7 @@ function bindSave() {
 }
 
 MG.enterCamp = () => {
+  msg = '';
   if (MG.music) MG.music('camp');
   MG.mode = 'camp';
   MG.B = null;

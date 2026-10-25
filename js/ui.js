@@ -192,6 +192,7 @@ function showConquestResult(B) {
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
+    ${s.relic ? `<p>전리품: <b style="color:${MG.RELIC_GRADES[MG.RELICS[s.relic].grade].color}">유물 ${MG.RELICS[s.relic].name}</b> <span style="color:var(--muted)">(${MG.RELICS[s.relic].desc})</span></p>` : ''}
     ${s.ending ? '<p style="color:var(--accent)"><b>검은 성채가 무너졌어요!</b> 내정 화면으로 돌아가면 엔딩을 봐요.</p>' : ''}
     ${s.retaliation ? `<p style="color:#ffb36b">거점을 잃은 마물들이 복수하러 와요. 다음 습격이 크게(×${MG.RETALIATION_MUL}) 늦어도 2개월 안에 와요.</p>` : ''}
     ${!r.win ? `<p class="muted">${O.name}의 수비가 다음 시도 때 +${Math.round(MG.CONQUEST_FAIL_MUL * 100)}% 강해져요.</p>` : ''}
@@ -237,6 +238,7 @@ function showResult(B) {
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
+    ${s.pick ? `<p style="color:var(--accent)">정비 화면에서 <b>보상 카드 3장 중 하나</b>를 골라요.</p>` : ''}
     ${S.over ? `<p style="color:#ff6b6b">${S.overReason === '가문 단절' ? '가문이 끊겨' : '본성이 함락되어'} 캠페인이 끝났어요. ${S.stats.wins}번의 전투를 버텼어요.</p>` : ''}`;
   $('contBtn').textContent = S.over ? '계보와 명성 보기' : '정비 화면으로';
   $('result').classList.remove('hidden');

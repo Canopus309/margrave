@@ -5,6 +5,7 @@ let B = null;  // 현재 전투
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const rand = (a, b) => a + Math.random() * (b - a);
+const relic = id => !!(B && B.relics && B.relics.has(id));
 const cheb = p => Math.max(Math.abs(p.x - C.x), Math.abs(p.y - C.y));
 // 정벌 전투에는 성이 없다: 모두 '성 밖', 성벽 위도 없다
 const cls = p => (B && B.conquest ? 'out' : cheb(p) > C.R ? 'out' : 'in');
@@ -321,7 +322,7 @@ function makeLord(roster, lx, ly, facing) {
   const lv = (RL.level || 1) - 1, age = RL.ageMul || 1;
   if (!RL.minor) {
     B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
-      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age });
+      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age * (RL.mul || 1), atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age * (RL.mul || 1) });
   } else lsq.leaderDown = false;
   for (let i = 0; i < L.guards; i++) makeSoldier(lsq, 'guard', lx, ly);
   lsq.initial = lsq.soldiers.length;
@@ -615,9 +616,12 @@ function auraBonus(s, key) {
 
 function atkMult(s) {
   let m = (1 + auraBonus(s, 'atk') + blessBonus(s)) * B.morale * (B.flagT > 0 ? 1.15 : 1);
+  // 유물: 용사의 뿔나팔(시작 30초), 숫돌(근위병 — 보병은 부대 보정에 들어 있다)
+  if (B.time < 30 && relic('horn')) m *= 1.2;
+  if (s.type === 'guard' && relic('whetstone')) m *= 1.1;
   if (s.squad.leaderDown && !s.isGeneral) m *= MG.LEADER_DOWN_MULT;
   if (B.lordDead) m *= MG.LORD_DEAD_MULT;
-  else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura) m *= 1 + MG.LORD.auraBonus;
+  else if (B.lord && !s.isLord && dist(s, B.lord) < MG.LORD.aura * (relic('warflag') ? 1.5 : 1)) m *= 1 + MG.LORD.auraBonus;
   return m;
 }
 
@@ -637,6 +641,8 @@ const STRUCT_DMG = { artillery: 2.5, engineer: 2, mage: 0.5 };
 function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
   if (e.struct) dmg *= (sq && STRUCT_DMG[sq.type]) || 0.25;
+  if (relic('goblinskull') && (e.type === 'goblin' || e.type === 'goblinArcher')) dmg *= 1.25;
+  if (relic('orcfang') && (e.type === 'orc' || e.type === 'orcThrower' || e.type === 'troll')) dmg *= 1.2;
   e.hp -= dmg; e.hitT = 0.1; B.lastHit = B.time;
   if (e.boss || e.struct) trackDmg(e, dmg, e.boss ? '#ffb347' : '#e8d8b8');
   if (e.hp <= 0) {
@@ -655,7 +661,8 @@ function damageEnemy(e, dmg, sq) {
 
 function damageFriendly(s, dmg) {
   if (s.dead) return;
-  const real = dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def')) * (s.squad.shieldT > 0 ? s.squad.shieldMul : 1);
+  const real = dmg * s.squad.mods.dmgTaken * (1 - auraBonus(s, 'def')) * (s.squad.shieldT > 0 ? s.squad.shieldMul : 1)
+    * ((s.isGeneral || s.isLord) && relic('dragonscale') ? 0.7 : 1);
   s.hp -= real;
   if (s.isGeneral || s.isLord) trackDmg(s, real, '#ff8080');
   if (s.hp > 0) return;
@@ -821,6 +828,7 @@ function updateSoldier(s, dt, eGrid) {
   s.cdT -= dt; s.retT -= dt; s.replanT -= dt;
   // 드래곤 불숨에 맞으면 잠시 탄다
   if (s.burnT > 0) { s.burnT -= dt; damageFriendly(s, s.burnDps * dt); if (s.dead) return; }
+  if (relic('grail') && s.hp < s.max) s.hp = Math.min(s.max, s.hp + s.max * 0.005 * dt);
   if (s.dash) { dashStep(s, dt); return; }
   if (T.repair && !s.moving && (s.repT = (s.repT || 0) - dt) <= 0) {
     s.repT = 1;
@@ -1253,7 +1261,7 @@ function updateGarrison(dt) {
         const e = zone[(Math.random() * zone.length) | 0], w = live[i % live.length];
         const p = wallPoint(s, C.R - 6, (w.a0 + w.a1) / 2 + rand(-0.4, 0.4) * (w.a1 - w.a0));
         B.projectiles.push({ x: p.x, y: p.y,
-          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult, kind: 'arrow', speed: 520, splash: 0 });
+          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * (relic('arrowheads') ? 1.15 : 1), kind: 'arrow', speed: 520, splash: 0 });
       }
     }
     if (g.infT <= 0 && g.infantry > 0) {
@@ -1297,9 +1305,10 @@ function initExtras(roster) {
   B.zones = []; B.blessings = []; B.flagT = 0; B.drumT = 0;
   // 소모품: 가진 것 중 앞의 3종을 기본으로 챙긴다 (준비 단계에서 바꿀 수 있다)
   B.items = { ...(roster.items || {}) }; B.itemsUsed = {};
+  B.relics = new Set(roster.relics || []);
   B.carry = new Set(Object.keys(B.items).filter(k => B.items[k] > 0 && MG.ITEMS[k] && MG.itemUsable(k)).slice(0, MG.ITEM_CARRY));
 }
-const cdMul = () => (B.drumT > 0 ? 0.83 : 1);
+const cdMul = () => (B.drumT > 0 ? 0.83 : 1) * (relic('wardrum') ? 0.91 : 1);
 // 축복(전투사제 갈래): 그 사제 장수 주변 아군 공격력 +25%
 function blessBonus(s) {
   for (const b of B.blessings) if (!b.s.dead && dist(s, b.s) < 130) return 0.25;
@@ -1318,7 +1327,7 @@ MG.skillState = sq => {
 MG.skillOf = skillOf;
 function skillCooldown(sq) {
   const K = skillOf(sq);
-  sq.skillCd = K.cd * (sq.type === 'cavalry' && sq.cls === 'B' ? 0.5 : 1);
+  sq.skillCd = K.cd * (sq.type === 'cavalry' && sq.cls === 'B' ? 0.5 : 1) * (relic('crystal') ? 0.8 : 1);
 }
 // p: point 스킬의 목표 지점. 쓰면 null, 못 쓰면 이유를 돌려준다
 MG.useSkill = function (sq, p) {

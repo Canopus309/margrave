@@ -344,7 +344,9 @@ MG.renownOf = S => {
   const years = Math.floor((S.month - 2) / 12), outposts = (S.outposts || []).length;
   const parts = { years: years * 2, wins: S.stats.wins * 3, outposts: outposts * 50, gens: S.lord.gen * 10, ending: S.ended ? MG.ENDING_RENOWN : 0 };
   const base = parts.years + parts.wins + parts.outposts + parts.gens + parts.ending;
-  return { parts, base, total: Math.round(base * MG.siegeRenownMul(S.siege || 0)) };
+  // 몰락 귀족 +20%, 변경백의 관 +25%
+  const extra = (S.origin === 'fallen' ? 1.2 : 1) * ((S.relics || []).includes('circlet') ? 1.25 : 1);
+  return { parts, base, extra, total: Math.round(base * MG.siegeRenownMul(S.siege || 0) * extra) };
 };
 MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
 
@@ -438,3 +440,43 @@ MG.ITEMS = {
 };
 MG.ITEM_CARRY = 3;   // 전투마다 챙겨 가는 종류 수
 MG.ITEM_MAX = 9;     // 종류마다 보관 한도
+
+// ---------- B1: 유물, 3택1 보상, 가문 내력 ----------
+// 유물: 캠페인 내내 붙는 효과. 같은 것은 하나만. 효과는 쓰는 곳에서 MG.hasRelic(id)로 확인한다.
+MG.RELICS = {
+  warflag:     { name: '낡은 전쟁 깃발',   grade: 'common',    desc: '성주 오라 범위 +50%' },
+  chisel:      { name: '석공의 끌',       grade: 'common',    desc: '수리 목재 -30%' },
+  arrowheads:  { name: '화살촉 주머니',    grade: 'common',    desc: '궁수 부대와 직할 궁수 공격력 +15%' },
+  horn:        { name: '용사의 뿔나팔',    grade: 'common',    desc: '전투 시작 30초 동안 전군 공격력 +20%' },
+  pickaxe:     { name: '황금 곡괭이',      grade: 'common',    desc: '광산 철 생산 +50%' },
+  sickle:      { name: '풍요의 낫',       grade: 'common',    desc: '농장 식량 생산 +25%' },
+  goblinskull: { name: '고블린 해골',      grade: 'common',    desc: '고블린·고블린 궁수가 받는 피해 +25%' },
+  whetstone:   { name: '숫돌',           grade: 'common',    desc: '보병·근위병 공격력 +10%' },
+  ledger:      { name: '세리의 장부',      grade: 'common',    desc: '세금 +15%' },
+  bandage:     { name: '붕대 꾸러미',      grade: 'common',    desc: '전투 후 사망 판정의 30%가 경상으로' },
+  reliquary:   { name: '순례자의 성유물',  grade: 'rare',      desc: '병원 수용 인원 2배' },
+  crystal:     { name: '마법사의 수정',    grade: 'rare',      desc: '모든 스킬 쿨 -20%' },
+  crest:       { name: '성벽 문장',       grade: 'rare',      desc: '성벽·성문 체력 +15%' },
+  orcfang:     { name: '오크 송곳니',      grade: 'rare',      desc: '오크·투석병·트롤이 받는 피해 +20%' },
+  scales:      { name: '상인의 저울',      grade: 'rare',      desc: '시장에서 사는 값 -10%, 파는 값 +10%' },
+  boots:       { name: '전령의 장화',      grade: 'rare',      desc: '매달 행동력 +1' },
+  royalseal:   { name: '왕실 인장',       grade: 'rare',      desc: '본국 관계가 오를 때 2배' },
+  dragonscale: { name: '용의 비늘',       grade: 'legendary', desc: '장수와 성주가 받는 피해 -30%' },
+  grail:       { name: '성배',           grade: 'legendary', desc: '전투 중 모든 아군이 1초에 체력 0.5%씩 회복' },
+  wardrum:     { name: '전쟁의 북',       grade: 'legendary', desc: '전군 공격 속도 +10%' },
+  circlet:     { name: '변경백의 관',      grade: 'legendary', desc: '캠페인이 끝날 때 얻는 명성 +25%' },
+};
+MG.RELIC_GRADES = { common: { name: '일반', color: '#c9d1dc' }, rare: { name: '희귀', color: '#6aa8ff' }, legendary: { name: '전설', color: '#ffb347' } };
+// 3택1 카드: 습격을 막을 때마다 하나. 대습격은 등급이 오르고 유물이 한 장 꼭 나온다.
+MG.CARD_KINDS = { weapon: '무기', relic: '유물', res: '자원', troops: '직할 병사', xp: '장수 경험치', items: '소모품', crown: '본국 관계' };
+MG.rerollCost = level => 40 + 10 * level;
+// 가문 내력: 새 캠페인마다 무작위 셋 중 하나를 고른다
+MG.ORIGINS = {
+  knight:   { name: '기사 가문',     desc: '성주 체력·공격력 +50%' },
+  merchant: { name: '상인 가문',     desc: '시작 골드 2배, 시장을 짓고 시작' },
+  arcane:   { name: '마법 가문',     desc: '마법탑을 짓고 시작, 마법사 공격력 +20%' },
+  hunter:   { name: '변방 사냥꾼',   desc: '궁수 사거리 +15%' },
+  fallen:   { name: '몰락 귀족',     desc: '본국 관계 20에서 시작, 얻는 명성 +20%' },
+  iron:     { name: '철기 가문',     desc: '시작 철 +200, 대장간을 짓고 시작' },
+  pious:    { name: '신앙 가문',     desc: '사원을 짓고 시작, 사제 회복량 +20%' },
+};
