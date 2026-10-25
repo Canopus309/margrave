@@ -243,11 +243,11 @@ function makeSquad(name, type, opts = {}) {
 
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
-  const waves = MG.buildWaves(level, roster.dirs);
+  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix);
   // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
   const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1);
   const tm = roster.typeMul || {};
-  for (const g of waves.groups) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
+  for (const g of waves.groups) if (!MG.ENEMY_TYPES[g.type].boss) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,
@@ -593,17 +593,25 @@ function decal(x, y, color, r) {
 MG.log = log;
 
 function spawnEnemy(q) {
-  const T = MG.ENEMY_TYPES[q.type], W = MG.WORLD;
+  const W = MG.WORLD;
   let x, y;
   if (q.dir === 'N') { x = C.x + q.lane; y = 8; }
   else if (q.dir === 'S') { x = C.x + q.lane; y = W.h - 8; }
   else if (q.dir === 'E') { x = W.w - 8; y = C.y + q.lane; }
   else { x = 8; y = C.y + q.lane; }
-  const hp = Math.round(T.hp * q.hpScale);
-  B.enemies.push({ id: B.nextId++, type: q.type, T, x, y, hp, max: hp, r: T.r, lane: q.lane, dir: q.dir, raider: q.raider, prey: null,
+  const e = spawnAt(q.type, x, y, q, q.hpScale);
+  if (e.boss) { banner(`${e.T.name} 등장!`, '대습격의 우두머리예요. 쓰러뜨리면 유물을 얻어요', '#ff9a6b'); sfx('horn'); }
+}
+// 지정한 곳에 적 하나. base: 진로(dir·lane) 정보, 부활·소환에도 쓴다
+function spawnAt(type, x, y, base, hpScale) {
+  const T = MG.ENEMY_TYPES[type], hp = Math.round(T.hp * (hpScale || 1));
+  const e = { id: B.nextId++, type, T, x, y, hp, max: hp, r: T.r, lane: base.lane || 0, dir: base.dir || side({ x, y }),
+    raider: !!(T.raider || base.raider), prey: null, boss: T.boss ? type : null, skillT: 6, hpScale: hpScale || 1,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), planT: rand(0, 1), target: null, path: null, hitT: 0, dead: false,
-    slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 });
+    slowT: 0, slowF: 0, burnT: 0, burnDps: 0, burnSrc: null, frozenT: 0 };
+  B.enemies.push(e);
   B.stats.spawned++;
+  return e;
 }
 
 // 장수가 내는 오라(전투사제: 공격력, 수호기사: 받는 피해 감소)
@@ -643,11 +651,16 @@ function damageEnemy(e, dmg, sq) {
   if (e.struct) dmg *= (sq && STRUCT_DMG[sq.type]) || 0.25;
   if (relic('goblinskull') && (e.type === 'goblin' || e.type === 'goblinArcher')) dmg *= 1.25;
   if (relic('orcfang') && (e.type === 'orc' || e.type === 'orcThrower' || e.type === 'troll')) dmg *= 1.2;
+  // 망자는 마법·신성 공격에 약하고, 날아다니는 적에게는 근접 공격이 절반만 먹힌다
+  if (sq && e.T.undead && (sq.type === 'mage' || sq.type === 'priest')) dmg *= 1.5;
+  if (sq && e.T.fly && !e.boss && MG.UNIT_TYPES[sq.type] && MG.UNIT_TYPES[sq.type].kind === 'melee') dmg *= 0.5;
   e.hp -= dmg; e.hitT = 0.1; B.lastHit = B.time;
   if (e.boss || e.struct) trackDmg(e, dmg, e.boss ? '#ffb347' : '#e8d8b8');
   if (e.hp <= 0) {
     e.dead = true; B.lastKill = B.time;
-    if (!e.struct) decal(e.x, e.y, e.boss ? '#3a1010' : '#2a3a18', e.boss ? 10 : 3);
+    if (!e.struct) decal(e.x, e.y, e.boss ? '#3a1010' : e.T.undead ? '#4a4638' : '#2a3a18', e.boss ? 10 : 3);
+    // 해골 병사는 3초 뒤 한 번 다시 일어난다
+    if (e.T.revive && !e.revived) (B.revives = B.revives || []).push({ type: e.type, x: e.x, y: e.y, t: 3, lane: e.lane, dir: e.dir, hpScale: e.hpScale * 0.5 });
     if (!e.struct) B.stats.kills++;
     if (sq) { sq.kills++; sq.xp += MG.ENEMY_XP[e.type] || 1; }
     if (e.struct) structDown(e);
@@ -930,6 +943,96 @@ function breach(w) {
   MG.orderMove(sq, to.x, to.y, { x: n.x, y: n.y }, false);
 }
 
+// ---------- B2: 날아다니는 적, 망자, 습격 보스 (방어전) ----------
+// 날아다니는 적: 성벽을 무시하고 가까운 아군을 노린다. 없으면 본성(와이번 여왕은 성 안 건물)으로.
+function updateFlyer(e, dt, fGrid, sp) {
+  const T = e.T;
+  if (e.retT <= 0) {
+    e.retT = rand(0.3, 0.45);
+    let best = null, bd = T.aggro;
+    nearby(fGrid, e, T.aggro, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
+    e.target = best;
+  }
+  const fly = (tx, ty) => { const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy); if (d > 0.01) { const k = Math.min(sp, d) / d; e.x += dx * k; e.y += dy * k; } };
+  const t = e.target && !e.target.dead ? e.target : null;
+  if (t && !(T.raider && e.prey && e.prey.hp > 0)) {
+    if (dist(e, t) <= e.r + 10) { if (e.cdT <= 0) { e.cdT = T.cd; damageFriendly(t, eAtk(e)); } }
+    else fly(t.x, t.y);
+    return;
+  }
+  if (T.raider) {
+    const mid = b => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
+    if (!e.prey || e.prey.hp <= 0) e.prey = B.buildings.filter(b => b.hp > 0).sort((a, b) => dist(e, mid(a)) - dist(e, mid(b)))[0] || null;
+    const b = e.prey;
+    if (b) {
+      const px = Math.max(b.x0, Math.min(b.x1, e.x)), py = Math.max(b.y0, Math.min(b.y1, e.y));
+      if (Math.hypot(px - e.x, py - e.y) <= e.r + 4) attackBuilding(e, b); else fly(px, py);
+      return;
+    }
+  }
+  if (dist(e, C) <= C.keepR + e.r + 3) {
+    if (e.cdT <= 0) { e.cdT = T.cd; B.keep.hp -= T.wallDmg; }
+    return;
+  }
+  fly(C.x, C.y);
+}
+// 망령 주술사: 8초마다 곁에 해골 하나 (최대 6번)
+function necroRaise(e, dt) {
+  if ((e.skillT -= dt) > 0 || (e.raised || 0) >= 6) return;
+  e.skillT = 8; e.raised = (e.raised || 0) + 1;
+  const a = rand(0, Math.PI * 2), x = e.x + Math.cos(a) * 18, y = e.y + Math.sin(a) * 18;
+  if (cls({ x, y }) === cls(e) && !buildingAt({ x, y })) { spawnAt('skeleton', x, y, e, e.hpScale).revived = true; B.fx.push({ kind: 'heal', x, y, t: 0.5, max: 0.5 }); }
+}
+// 습격 보스 기술. true면 이번 프레임은 기술에 쓴다.
+function raidBossSkill(e, dt, fGrid) {
+  if ((e.skillT -= dt) > 0) return false;
+  if (e.boss === 'goblinChief') {
+    // 12초마다 늑대 기수 5마리를 부른다
+    e.skillT = 12;
+    for (let i = 0; i < 5; i++) spawnAt('wolf', e.x + rand(-20, 20), e.y + rand(-20, 20), e, e.hpScale);
+    log('고블린 대족장이 늑대 떼를 불렀어요!', '#ffb36b'); sfx('horn');
+    return false;
+  }
+  if (e.boss === 'orcChampion') {
+    // 성벽·성문 앞이면 10초마다 돌진해 크게 친다
+    e.skillT = 2;
+    if (cls(e) !== 'out') return false;
+    const wp = wallPoint(e.dir, C.R - C.T / 2, e.lane), w = segAt(wp);
+    if (w.hp <= 0 || dist(e, wp) > C.T + e.r + 12) return false;
+    e.skillT = 10;
+    w.hp -= 260;
+    B.fx.push({ kind: 'boom', x: wp.x, y: wp.y, r: 40, t: 0.4, max: 0.4 });
+    log(`오크 투사의 돌진! ${MG.SIDE_NAME[w.side]}쪽 ${w.gate ? '성문' : '성벽'}이 흔들려요.`, '#ff6b6b'); sfx('boom'); shake(6);
+    if (w.hp <= 0) breach(w);
+    return true;
+  }
+  if (e.boss === 'lich') {
+    // 12초마다 주변에 해골 4을 일으킨다
+    e.skillT = 12;
+    for (let i = 0; i < 4; i++) {
+      const a = rand(0, Math.PI * 2), x = e.x + Math.cos(a) * 26, y = e.y + Math.sin(a) * 26;
+      if (!buildingAt({ x, y })) spawnAt('skeleton', x, y, e, e.hpScale).revived = true;
+    }
+    B.fx.push({ kind: 'shout', x: e.x, y: e.y, r: 60, t: 0.6, max: 0.6 });
+    log('리치가 망자를 일으켰어요!', '#c8a8ff'); sfx('shout');
+    return false;
+  }
+  if (e.boss === 'wyvernQueen') {
+    // 10초마다 급강하: 근처 아군과 건물에 범위 피해
+    e.skillT = 10;
+    let hit = 0;
+    nearby(fGrid, e, 55, s => { if (!s.dead && dist(e, s) < 55) { damageFriendly(s, eAtk(e)); hit++; } });
+    for (const b of B.buildings) {
+      if (b.hp <= 0) continue;
+      const dx = Math.max(b.x0 - e.x, 0, e.x - b.x1), dy = Math.max(b.y0 - e.y, 0, e.y - b.y1);
+      if (Math.hypot(dx, dy) < 40) { b.hp -= 150; if (b.hp <= 0) { b.hp = 1; e.cdT = 0; attackBuilding(e, b); } hit++; }
+    }
+    if (hit) { B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 55, t: 0.4, max: 0.4 }); sfx('boom'); shake(4); }
+    return false;
+  }
+  return false;
+}
+
 // 적의 공격력: 오크 대족장의 함성을 받으면 1.5배, 정벌 전투에서 보스가 쓰러지면 기가 꺾인다
 const eAtk = e => e.T.atk * (e.buffT > 0 ? 1.5 : 1) * (B.enemyMorale || 1);
 
@@ -1105,6 +1208,13 @@ function structDown(e) {
   if (e.struct === 'hq') { log('적 본진이 무너졌어요!', '#6bdc8f'); banner('적 본진 함락!', B.outpost.name, '#6bdc8f'); }
 }
 function bossDown(e) {
+  if (!B.conquest) {
+    // 습격 보스: 유물은 전투가 끝난 뒤 캠페인이 준다
+    B.raidBossDead = e.type;
+    log(`${e.T.name}을(를) 쓰러뜨렸어요! 유물을 얻을 거예요.`, '#ffd36b');
+    banner(`${e.T.name} 격파!`, '전투가 끝나면 유물을 얻어요'); sfx('horn'); shake(8);
+    return;
+  }
   B.bossDead = true;
   B.enemyMorale = 0.8;
   log(`${e.T.name}을(를) 쓰러뜨렸어요! 증원이 끊기고 적의 기세가 꺾여요.`, '#ffd36b');
@@ -1119,6 +1229,9 @@ function updateEnemy(e, dt, fGrid) {
   if (e.frozenT > 0) { e.frozenT -= dt; return; }
   const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1);
   if (B.conquest) { if (e.struct) updateStruct(e, dt, fGrid); else updateFoe(e, dt, fGrid, sp); return; }
+  if (e.boss && raidBossSkill(e, dt, fGrid)) return;
+  if (T.raise) necroRaise(e, dt);
+  if (T.fly) { updateFlyer(e, dt, fGrid, sp); return; }
   if (T.ranged && updateRanged(e, dt, fGrid)) return;
   if (e.target && !reachable(e, e.target)) e.target = null;
   if (T.aggro > 0 && e.retT <= 0) {
@@ -1504,6 +1617,15 @@ MG.update = function (dt) {
   if (B.phase !== 'battle') return;
   B.time += dt;
   tickSkills(dt);
+  // 해골 부활
+  if (B.revives && B.revives.length) {
+    for (const r of B.revives) if ((r.t -= dt) <= 0) {
+      const e = spawnAt(r.type, r.x, r.y, r, r.hpScale);
+      e.revived = true;
+      B.fx.push({ kind: 'heal', x: r.x, y: r.y, t: 0.5, max: 0.5 });
+    }
+    B.revives = B.revives.filter(r => r.t > 0);
+  }
   flushDmg(dt);
   if (B.shake > 0) B.shake = Math.max(0, B.shake - dt * 18);
   if (B.banner && (B.banner.t -= dt) <= 0) B.banner = null;
@@ -1545,7 +1667,7 @@ MG.update = function (dt) {
 
   if (B.conquest) updateConquest(dt);
   else if (B.keep.hp <= 0) { B.keep.hp = 0; finish(false); }
-  else if (!B.spawnQueue.length && !B.enemies.length) finish(true);
+  else if (!B.spawnQueue.length && !B.enemies.length && !(B.revives || []).length) finish(true);
   else if (!B.spawnQueue.length && B.time - Math.max(B.lastKill || 0, B.lastSpawn || 0) > MG.RETREAT_AFTER) {
     // 서로 닿지 않는 채로 버티면 남은 적은 물러난다 (끝나지 않는 전투 방지)
     log(`남은 적 ${B.enemies.length}이(가) 물러났어요.`, '#6bdc8f');

@@ -32,6 +32,7 @@ function headerBlock() {
   const res = Object.keys(MG.RES).map(k => `<div class="res"><span>${MG.RES[k]}</span><b>${Math.floor(S.res[k])}</b>
     <i class="${prod[k] < 0 ? 'danger' : 'muted'}">${sign(prod[k])}/월</i></div>`).join('');
   let intel = '';
+  if (A.scout >= 1) intel += ` · <b>${MG.factionText(A.faction, A.mix)}</b>`;
   if (A.scout >= 1) intel += ` · ${A.dirs.map(d => `<span class="dirTag">${MG.SIDE_NAME[d]}</span>`).join('')}쪽`;
   if (A.scout >= 2) {
     const sum = {};
@@ -45,6 +46,7 @@ function headerBlock() {
   return `<header>
     <div><h1>${S.lord.name}의 변경 기지</h1><div class="muted">${MG.monthName()} · ${S.lord.gen}대 성주${S.origin ? ` · ${MG.ORIGINS[S.origin].name}` : ''}${S.domain && S.domain !== 'none' ? ` · ${MG.DOMAINS[S.domain].name}` : ''}${S.siege ? ` · 포위 ${S.siege}단계` : ''}
       ${effectTags()}</div></div>
+    <div class="muted small" title="${MG.FACTIONS[S.era.main].desc}">지금 시대: ${MG.factionText(S.era.main, S.era.mix)}</div>
     <div class="headRight"><button id="chronBtn">연대기</button><button id="saveMenuBtn">저장·불러오기</button>
       <div class="ap">행동력 ${'●'.repeat(S.ap)}${'○'.repeat(Math.max(0, MG.apMax() - S.ap))}</div></div>
   </header>

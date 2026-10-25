@@ -7,7 +7,8 @@ MG.CASTLE = { x: 1000, y: 700, R: 320, T: 30, gateHalf: 30, keepR: 60 };
 // 한 면 = 성벽 4조각 + 가운데 성문. 성문은 약한 요충지.
 MG.WALL_SEG_HP = 1200;
 MG.GATE_HP = 900;
-MG.GATE_TARGET = { goblin: 0.2, wolf: 0.1, orc: 0.6, goblinArcher: 0, orcThrower: 0.3 };  // 성문을 노리는 비율
+MG.GATE_TARGET = { goblin: 0.2, wolf: 0.1, orc: 0.6, goblinArcher: 0, orcThrower: 0.3,
+  skeleton: 0.2, ghoul: 0.1, necro: 0, harpy: 0, wyvern: 0, goblinChief: 0.3, orcChampion: 1, lich: 0, wyvernQueen: 0 };  // 성문을 노리는 비율
 MG.KEEP_HP = 3000;  // 성벽이 뚫린 뒤 병력을 돌릴 시간을 준다
 
 MG.SIDES = ['N', 'E', 'S', 'W'];
@@ -43,6 +44,18 @@ MG.ENEMY_TYPES = {
   trollChief:   { name: '거인 트롤 족장', color: '#4a7a6a', hp: 7500, atk: 50, cd: 1.8, speed: 34, r: 16, wallDmg: 0, aggro: 220, boss: true, regen: 0.008 },
   // fly: 벽·지형을 무시하고 날아다닌다
   ancientDragon: { name: '고대 드래곤',  color: '#8a2020', hp: 16000, atk: 60, cd: 1.5, speed: 62, r: 20, wallDmg: 0, aggro: 280, boss: true, fly: true },
+  // B2: 망자의 군단 (undead: 마법·신성 공격에 약함, revive: 쓰러지면 한 번 다시 일어남, raise: 해골을 일으킴)
+  skeleton: { name: '해골 병사',    color: '#d8d4c0', hp: 40, atk: 7,  cd: 1.1, speed: 42, r: 5, wallDmg: 6, aggro: 45, undead: true, revive: true },
+  ghoul:    { name: '구울',        color: '#7a8a6a', hp: 60, atk: 9,  cd: 0.8, speed: 80, r: 6, wallDmg: 6, aggro: 60, undead: true },
+  necro:    { name: '망령 주술사',   color: '#6a4a8a', hp: 60, atk: 6,  cd: 2.0, speed: 35, r: 6, wallDmg: 2, aggro: 0, undead: true, ranged: 160, raise: true },
+  // 하늘 마물 (fly: 성벽을 넘어 날아온다. 근접 공격은 절반만 먹힌다)
+  harpy:    { name: '하피',        color: '#c08aa0', hp: 32, atk: 6,  cd: 1.0, speed: 85, r: 5, wallDmg: 6, aggro: 120, fly: true },
+  wyvern:   { name: '와이번',      color: '#7a4040', hp: 240, atk: 18, cd: 1.4, speed: 60, r: 10, wallDmg: 20, aggro: 120, fly: true },
+  // 습격 보스: 대습격마다 그 시대 세력의 보스가 온다
+  goblinChief: { name: '고블린 대족장', color: '#c8b040', hp: 2400, atk: 25, cd: 1.0, speed: 48, r: 12, wallDmg: 20, aggro: 90, boss: true },
+  orcChampion: { name: '오크 투사',    color: '#3a7a3a', hp: 3600, atk: 40, cd: 1.3, speed: 40, r: 13, wallDmg: 45, aggro: 60, boss: true },
+  lich:        { name: '리치',        color: '#8a6ac8', hp: 2800, atk: 22, cd: 1.6, speed: 34, r: 12, wallDmg: 10, aggro: 0, boss: true, undead: true, ranged: 220 },
+  wyvernQueen: { name: '와이번 여왕',  color: '#9a3030', hp: 3200, atk: 30, cd: 1.3, speed: 58, r: 15, wallDmg: 40, aggro: 100, boss: true, fly: true, raider: true },
 };
 MG.UPHILL_HIT = 0.5;      // 아래에서 성벽 위를 쏘면 명중률
 MG.RETREAT_AFTER = 60;    // 모든 적이 나온 뒤 이만큼(초) 적이 하나도 안 죽으면 남은 적은 물러난다
@@ -64,7 +77,8 @@ MG.LORD = { name: '변경백 알데른', hp: 150, atk: 10, guards: 10, aura: 130
 MG.GARRISON = { archer: 32, infantry: 32 };  // 성주 직할 병력 (성벽 위)
 
 // ---------- 2단계: 병력 성장 ----------
-MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, ancientDragon: 400, tower: 6, hq: 40 };
+MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, ancientDragon: 400, tower: 6, hq: 40,
+  skeleton: 2, ghoul: 3, necro: 6, harpy: 3, wyvern: 12, goblinChief: 100, orcChampion: 120, lich: 120, wyvernQueen: 120 };
 MG.MAX_LEVEL = 15;
 MG.xpToNext = L => Math.round(60 * Math.pow(L, 1.4));
 MG.SURVIVE_XP = 20;
@@ -174,7 +188,23 @@ function shuffled(arr) {
 MG.rollDirs = level => shuffled(MG.SIDES).slice(0, level >= 3 ? 3 : 2);
 
 // level이 오를수록 적이 많아지고 방향이 늘어난다
-MG.buildWaves = function (level, dirs) {
+// ---------- B2: 적 세력 ----------
+// 기본 습격 구성(고블린·늑대·오크·궁수·투석병)의 역할을 세력마다 다른 적으로 바꾼다. [적, 수 배율]
+MG.FACTIONS = {
+  goblin: { name: '고블린 부족',   desc: '수가 많고 약해요. 늑대 기수가 빨라요', boss: 'goblinChief',
+    units: { goblin: ['goblin', 1], wolf: ['wolf', 1], orc: ['orc', 1], goblinArcher: ['goblinArcher', 1], orcThrower: ['orcThrower', 1] } },
+  orc:    { name: '오크 전쟁무리', desc: '수는 적지만 튼튼하고, 투석병이 성벽을 노려요', boss: 'orcChampion',
+    units: { goblin: ['goblin', 0.6], wolf: ['wolf', 0.7], orc: ['orc', 1.7], goblinArcher: ['goblinArcher', 0.8], orcThrower: ['orcThrower', 1.6] } },
+  undead: { name: '망자의 군단',   desc: '해골은 한 번 다시 일어나고, 주술사가 해골을 일으켜요. 마법사·사제에 약해요', boss: 'lich',
+    units: { goblin: ['skeleton', 0.75], wolf: ['ghoul', 1], orc: ['ghoul', 2], goblinArcher: ['necro', 0.4], orcThrower: ['necro', 0.8] } },
+  sky:    { name: '하늘 마물',     desc: '하피와 와이번이 성벽을 날아 넘어와요. 궁수·마법사가 중요해요', boss: 'wyvernQueen',
+    units: { goblin: ['goblin', 0.8], wolf: ['harpy', 1], orc: ['wyvern', 0.5], goblinArcher: ['goblinArcher', 1], orcThrower: ['orcThrower', 1] } },
+};
+MG.ERA_YEARS = [4, 6];     // 시대(주도 세력)가 바뀌는 간격(년)
+MG.ERA_MIX = 0.35;         // 새 시대에 두 세력이 섞여 올 확률
+
+// faction: 주도 세력, mix: 섞여 오는 세력(습격 무리 중 절반이 이쪽)
+MG.buildWaves = function (level, dirs, faction, mix) {
   const [a, b] = dirs || MG.rollDirs(level);
   const c = (dirs && dirs[2]) || MG.SIDES.find(s => s !== a && s !== b);
   const L = level;
@@ -203,6 +233,13 @@ MG.buildWaves = function (level, dirs) {
     for (const g of groups) g.count = Math.round(g.count * 1.2);
     groups.push({ wave: 3, t: 95, dir: a, type: 'orc', count: 3 + Math.round(L / 2) });
   }
+  // 세력에 맞게 적을 바꾼다. 섞인 시대에는 무리를 번갈아 두 세력으로.
+  groups.forEach((g, i) => {
+    const F = MG.FACTIONS[(mix && i % 2) ? mix : (faction || 'goblin')], u = F.units[g.type];
+    if (u) { g.type = u[0]; g.count = Math.max(1, Math.round(g.count * u[1])); }
+  });
+  // 대습격에는 그 시대 세력의 보스가 온다
+  if (L % 5 === 0) groups.push({ wave: 3, t: 96, dir: a, type: MG.FACTIONS[faction || 'goblin'].boss, count: 1 });
   return { groups, dirs: L >= 3 ? [a, b, c] : [a, b] };
 };
 

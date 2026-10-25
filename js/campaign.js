@@ -72,6 +72,7 @@ function migrate(s) {
   if (s.march === undefined) s.march = null;
   if (!s.items) s.items = {};
   if (!s.relics) s.relics = [];
+  if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
 
 // opts: { domain, bonuses: [...], siege } — 캠페인 준비 화면에서 고른 것
@@ -83,6 +84,7 @@ MG.newCampaign = (opts = {}) => {
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
     conquest: {}, outposts: [], march: null, pendingConquest: false, items: {},
+    era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
     garrison: { archer: MG.GARRISON.archer, infantry: MG.GARRISON.infantry, wounded: [] },
@@ -301,7 +303,7 @@ MG.monthName = () => `${MG.year()}년차 ${MG.S.month % 12 + 1}월 (${MG.SEASON(
 function scheduleAttack(gap) {
   const S = MG.S;
   if (gap == null) { const [a, b] = MG.attackGap(MG.year()); gap = randInt(a, b); }
-  S.nextAttack = { month: S.month + gap, dirs: MG.rollDirs(S.level), scout: 0 };
+  S.nextAttack = { month: S.month + gap, dirs: MG.rollDirs(S.level), scout: 0, faction: S.era.main, mix: S.era.mix };
 }
 MG.isAttackMonth = () => MG.S.nextAttack && MG.S.month >= MG.S.nextAttack.month;
 // 이번 달에 꼭 치러야 하는 전투가 있는가 (정벌군 도착 또는 습격)
@@ -319,7 +321,7 @@ MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 MG.attackGroups = () => {
   const S = MG.S, A = S.nextAttack, tm = MG.typeMul();
   const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul();
-  return MG.buildWaves(S.level, A.dirs).groups.map(g => ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
+  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
 };
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
@@ -696,6 +698,18 @@ MG.finishStory = () => {
   save();
 };
 
+// ---------- 적 세력의 시대 ----------
+// 4~6년마다 주도 세력이 바뀐다. 가끔 다른 세력이 섞여 온다. 이미 정해진 다음 습격은 그대로.
+function rollEra(rep) {
+  const S = MG.S, keys = Object.keys(MG.FACTIONS), main = pick(keys.filter(k => k !== S.era.main));
+  const mix = Math.random() < MG.ERA_MIX ? pick(keys.filter(k => k !== main)) : null;
+  S.era = { main, mix, until: S.month + 12 * randInt(...MG.ERA_YEARS) };
+  const text = `새 시대: ${MG.FACTIONS[main].name}이(가) 변경을 노리기 시작했어요${mix ? ` (${MG.FACTIONS[mix].name}도 섞여 와요)` : ''}.`;
+  rep.push(text);
+  MG.chron(text, 'event');
+}
+MG.factionText = (f, mix) => `${MG.FACTIONS[f || 'goblin'].name}${mix ? ` + ${MG.FACTIONS[mix].name}` : ''}`;
+
 // ---------- 유물·3택1 보상 ----------
 const freeRelics = grades => Object.keys(MG.RELICS).filter(k => !MG.hasRelic(k) && (!grades || grades.includes(MG.RELICS[k].grade)));
 // 등급을 굴려 아직 없는 유물 하나 (없으면 null). big: 좋은 등급이 잘 나온다
@@ -982,6 +996,7 @@ MG.endMonth = () => {
   if (S.month % 12 === 0) newYear(rep);
   if (S.month % 3 === 2) rollSites();   // 계절이 바뀌면 원정지도 바뀐다
   advanceMarch(rep);
+  if (S.month >= S.era.until) rollEra(rep);
   returnExpeditions(rep);
   arriveSupport(rep);
   refreshTavern(rep);
@@ -1122,6 +1137,7 @@ MG.buildRoster = march => {
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
+    faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null,
     items: { ...S.items }, typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
   if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id); }
@@ -1181,6 +1197,11 @@ MG.applyResult = B => {
     // 마물 대이동이 있는 해에는 전리품 2배
     sum.gold = MG.battleGold(S.level) * (MG.hasEffect('migration') ? 2 : 1);
     S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
+    // 습격 보스를 쓰러뜨렸으면 유물
+    if (B.raidBossDead) {
+      sum.relic = MG.grantRelic(rollRelic(true));
+      MG.chron(`${MG.ENEMY_TYPES[B.raidBossDead].name}을(를) 쓰러뜨렸어요.`, 'battle');
+    }
     // 보상 카드 3장 중 하나는 내정 화면에서 고른다 (대습격은 더 좋은 카드)
     S.pendingPick = rollCards(B.level % 5 === 0);
     sum.pick = true;
