@@ -258,3 +258,7 @@ details.report summary { cursor: pointer; color: var(--muted); }
 .trainTable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .trainTable td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
 .trainTable td:nth-child(4) { color: var(--accent); text-align: center; }
+
+/* 숙련도 배지 */
+.vet { display: inline-flex; align-items: center; gap: 1px; color: #8d97aa; font-weight: 700; letter-spacing: -1px; }
+.vet.r1 { color: #9fc4ff; } .vet.r2 { color: #6bdc8f; } .vet.r3 { color: #e6b450; } .vet.r4 { color: #ff9a6b; }

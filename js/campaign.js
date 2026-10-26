@@ -45,7 +45,7 @@ MG.rollTraits = () => {
 function newGeneral(o) {
   return { id: MG.S.nextId++, name: o.name || MG.randomName(), type: o.type, baseLead: o.lead || 1,
     level: o.level || 1, xp: 0, cls: null, adv: false, weapon: null, injured: 0, dead: false,
-    deploy: true, mobilize: false, healthy: o.healthy || 0, wounded: [],
+    deploy: true, mobilize: false, healthy: o.healthy || 0, wounded: [], vet: o.vet || 0,
     age: o.age || randInt(20, 35), traits: o.traits || MG.rollTraits(), blood: !!o.blood };
 }
 
@@ -79,6 +79,9 @@ function migrate(s) {
   if (s.recruits == null) s.recruits = 0;
   if (!s.training) s.training = [];
   if (!s.reserve) s.reserve = {};
+  if (!s.reserveVet) s.reserveVet = {};
+  if (s.garrison.vet == null) s.garrison.vet = 0;
+  for (const g of s.generals) if (g.vet == null) g.vet = 0;
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
 
@@ -90,7 +93,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(), perks: opts.perks || MG.activePerks([], null), recruits: 0, training: [], reserve: {}, mobilizeReserve: false,
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(), perks: opts.perks || MG.activePerks([], null), recruits: 0, training: [], reserve: {}, reserveVet: {}, mobilizeReserve: false,
     era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
@@ -205,6 +208,7 @@ MG.heirs = () => [
 // 장수가 부대를 떠나면(후계·은퇴) 그 병사들은 성주 직할로 간다
 function disband(g) {
   const S = MG.S, kind = g.type === 'archer' ? 'archer' : 'infantry';
+  S.garrison.vet = MG.vetMix(S.garrison.vet, S.garrison.archer + S.garrison.infantry, g.vet, g.healthy);
   S.garrison[kind] += g.healthy;
   for (const w of g.wounded) S.garrison.wounded.push({ type: kind, sev: w.sev, left: w.left });
   if (g.weapon) S.inventory.push(g.weapon);
@@ -573,15 +577,22 @@ MG.startTraining = (type, want) => {
   pay(MG.trainCost(type, n));
   S.recruits -= n;
   const months = MG.trainMonths(type);
-  if (months <= 0) S.reserve[type] = (S.reserve[type] || 0) + n;
-  else S.training.push({ type, n, left: months });
+  const vet = MG.bLevel('training') * 10;
+  if (months <= 0) addReserve(type, n, vet);
+  else S.training.push({ type, n, left: months, vet });
   save();
   return months <= 0 ? `${MG.UNIT_TYPES[type].name} ${n}명이 바로 예비군이 되었어요.` : `${MG.UNIT_TYPES[type].name} ${n}명이 훈련을 시작했어요. ${months}개월 뒤 예비군이 돼요.`;
 };
+// 예비군에 병사를 더하면 그 병종 예비군 숙련도에 섞인다
+function addReserve(type, n, vet) {
+  const S = MG.S;
+  S.reserveVet[type] = MG.vetMix(S.reserveVet[type], S.reserve[type] || 0, vet, n);
+  S.reserve[type] = (S.reserve[type] || 0) + n;
+}
 // 매달: 훈련이 끝난 병사는 예비군으로
 function tickTraining(rep) {
   const S = MG.S, done = {};
-  for (const t of S.training) if (--t.left <= 0) { S.reserve[t.type] = (S.reserve[t.type] || 0) + t.n; done[t.type] = (done[t.type] || 0) + t.n; }
+  for (const t of S.training) if (--t.left <= 0) { addReserve(t.type, t.n, t.vet || 0); done[t.type] = (done[t.type] || 0) + t.n; }
   S.training = S.training.filter(t => t.left > 0);
   const list = Object.entries(done).map(([k, n]) => `${MG.UNIT_TYPES[k].name} ${n}`).join(', ');
   if (list) rep.push(`훈련을 마친 병사가 예비군이 되었어요: ${list}`);
@@ -594,6 +605,7 @@ MG.assignReserve = (gid, want) => {
   if (g.away) return '원정·정벌에서 돌아온 뒤에 편제해요';
   const n = Math.min(want, MG.assignable(g));
   if (n <= 0) return MG.genCap(g) <= g.healthy ? '부대가 가득 찼어요' : `${MG.UNIT_TYPES[g.type].name} 예비군이 없어요. 훈련소에서 훈련시켜요`;
+  g.vet = MG.vetMix(g.vet, g.healthy, S.reserveVet[g.type], n);
   S.reserve[g.type] -= n; g.healthy += n;
   save();
   return `${MG.UNIT_TYPES[g.type].name} 예비군 ${n}명을 ${g.name} 부대에 편제했어요.`;
@@ -603,6 +615,8 @@ MG.moveGarrisonReserve = (type, n, dir) => {
   const S = MG.S, from = dir === 'toGarrison' ? S.reserve : S.garrison, to = dir === 'toGarrison' ? S.garrison : S.reserve;
   const k = Math.min(n, from[type] || 0);
   if (k <= 0) return '옮길 병사가 없어요';
+  if (dir === 'toGarrison') S.garrison.vet = MG.vetMix(S.garrison.vet, S.garrison.archer + S.garrison.infantry, S.reserveVet[type], k);
+  else S.reserveVet[type] = MG.vetMix(S.reserveVet[type], S.reserve[type] || 0, S.garrison.vet, k);
   from[type] -= k; to[type] = (to[type] || 0) + k;
   save();
   return `${MG.UNIT_TYPES[type].name} ${k}명을 ${dir === 'toGarrison' ? '성벽 위 직할로' : '예비군으로'} 옮겼어요.`;
@@ -640,7 +654,12 @@ MG.trainXp = () => 30 * MG.bLevel('training') + MG.RETIRED_TRAIN_XP * (MG.S.reti
 MG.actTrain = () => {
   const l = MG.bLevel('training');
   if (!l) return '훈련장이 없어요';
-  return act(null, () => { for (const g of MG.S.generals) if (!g.dead && !g.injured) addXp(g, MG.trainXp()); });
+  return act(null, () => {
+    for (const g of MG.S.generals) if (!g.dead && !g.injured) addXp(g, MG.trainXp());
+    // 병사 숙련도도 훈련장 단계 × 10
+    for (const g of MG.S.generals) if (!g.dead && !g.away) g.vet = Math.min(MG.VET_MAX, (g.vet || 0) + 10 * l);
+    MG.S.garrison.vet = Math.min(MG.VET_MAX, (MG.S.garrison.vet || 0) + 10 * l);
+  });
 };
 
 // 정찰병(명성 특성): 행동력 없이 골드만
@@ -1321,7 +1340,7 @@ MG.buildRoster = march => {
     squads.push({ gid: g.id, name: g.name, type: g.type, slot, title: MG.genTitle(g),
       general: withGeneral ? { name: g.name, injured: g.injured > 0, ageMul: MG.ageMul(g.age) } : null,
       healthy: g.healthy, mob, level: g.level, train, cls: g.cls,
-      mods: MG.combineMods([MG.genMods(g), typeMods[g.type], MG.perk('harsh') && { hp: 1.1 }, MG.perk('mobile') && { speed: 1.3, atk: 1.1 }]),
+      mods: MG.combineMods([MG.genMods(g), typeMods[g.type], MG.perk('harsh') && { hp: 1.1 }, MG.perk('mobile') && { speed: 1.3, atk: 1.1 }, MG.vetMods(g.vet)]), vet: g.vet || 0,
       weaponAtk: g.weapon ? MG.WEAPON_GRADES[g.weapon.grade].atk : 1 });
   }
   const L = S.lord;
@@ -1332,7 +1351,7 @@ MG.buildRoster = march => {
     relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'], fort: JSON.parse(JSON.stringify(S.fort)),
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     // 예비군 동원을 켰으면 병종별 예비군이 지휘관 없는 부대로 나와 싸운다 (방어전만)
-    reserve: !march && S.mobilizeReserve ? { ...S.reserve } : null,
+    reserve: !march && S.mobilizeReserve ? { ...S.reserve } : null, reserveVet: { ...S.reserveVet }, garrisonVet: S.garrison.vet || 0,
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
@@ -1355,7 +1374,9 @@ MG.applyResult = B => {
   for (const s of MG.SIDES) { gar.archer += B.garrison[s].archer; gar.infantry += B.garrison[s].infantry; }
   for (const q of B.allSquads) if (q.isGarrison) for (const s of q.soldiers) if (!s.dead) gar[s.type]++;
   // 동원한 예비군: 살아남은 병사는 예비군으로, 쓰러진 병사는 부상 판정
-  if (B.roster.reserve) for (const q of B.allSquads.filter(q => q.isReserve)) S.reserve[q.type] = q.soldiers.filter(s => !s.dead).length;
+  if (B.roster.reserve) for (const q of B.allSquads.filter(q => q.isReserve)) { S.reserve[q.type] = q.soldiers.filter(s => !s.dead).length; S.reserveVet[q.type] = Math.min(MG.VET_MAX, (S.reserveVet[q.type] || 0) + MG.vetGain(q.xp)); }
+  // 성벽 위 직할은 전투를 치를 때마다 +10 (화살은 막타 경험치를 따로 세지 않는다)
+  gar.vet = Math.min(MG.VET_MAX, (gar.vet || 0) + 10);
   for (const f of B.stats.fallen.filter(f => f.gid && String(f.gid).startsWith('reserve:'))) {
     const r = rollWound(null), type = f.gid.slice(8);
     sum.wound[r]++;
@@ -1459,6 +1480,9 @@ function applySquads(B, sum) {
     } else {
       if (fell) { g.injured = randInt(2, 4); g.deploy = false; line.status = `부상 (${g.injured}개월)`; }
       line.xp = Math.round((sq ? sq.xp : 0) + (fell ? 0 : MG.SURVIVE_XP));
+      const vb = MG.vetRank(g.vet);
+      g.vet = Math.min(MG.VET_MAX, (g.vet || 0) + MG.vetGain(sq ? sq.xp : 0));
+      if (MG.vetRank(g.vet) > vb) line.vetUp = MG.VET_RANKS[MG.vetRank(g.vet)].name;
       addXp(g, line.xp);
       line.to = g.level;
     }

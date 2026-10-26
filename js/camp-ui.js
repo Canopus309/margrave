@@ -301,7 +301,7 @@ function trainingBlock() {
     return `<tr class="${ok ? '' : 'muted'}"><td>${MG.icUnit(t)} ${MG.UNIT_TYPES[t].name}</td>
       <td class="small">${months ? `${months}개월` : '바로'} · ${per}${ok ? '' : ` · <span class="warn">${MG.BUILDINGS[MG.REFILL_BUILDING[t]].name} 필요</span>`}</td>
       <td class="small">${going ? `${MG.ic('hourglass')} ${going}` : ''}</td>
-      <td><b>${S.reserve[t] || 0}</b></td><td>${btn(10, '+10')} ${btn(999, `전부${n ? ` ${n}` : ''}`)}</td></tr>`;
+      <td><b>${S.reserve[t] || 0}</b>${S.reserve[t] ? ` ${MG.vetBadge(S.reserveVet[t])}` : ''}</td><td>${btn(10, '+10')} ${btn(999, `전부${n ? ` ${n}` : ''}`)}</td></tr>`;
   }).join('');
   const gar = ['infantry', 'archer'].map(t => `<div class="actRow"><span class="small">${MG.icUnit(t)} ${MG.UNIT_TYPES[t].name} · 직할 ${S.garrison[t]} · 예비군 ${S.reserve[t] || 0}</span>
     <span><button class="mini" data-gmove="${t},10,toGarrison" ${S.reserve[t] ? '' : 'disabled'} title="예비군 → 성벽 위 직할">${MG.ic('arrow-up')} 성벽으로 10</button>
@@ -361,7 +361,7 @@ function genCard(g) {
       ${alert ? `<span class="tag ok" title="전직·승급할 수 있어요">${MG.ic('chevrons-up')}</span>` : ''}${status}
       <span class="muted">${MG.ic(open ? 'chevron-up' : 'chevron-down')}</span></div>
     <div class="bar thin" title="경험치 ${Math.floor(g.xp)} / ${need || '최고'}"><div style="width:${need ? pct(g.xp, need) : 100}%;background:#6aa8ff"></div></div>
-    <div class="gline small"><span title="병사 / 정원 (통솔 ${MG.genLead(g)})">${MG.ic('users')} ${g.healthy}/${cap}</span>${flags}</div>
+    <div class="gline small"><span title="병사 / 정원 (통솔 ${MG.genLead(g)})">${MG.ic('users')} ${g.healthy}/${cap}</span>${MG.vetBadge(g.vet)}${flags}</div>
     ${traitTags(g.traits)}
     ${open ? `<div class="gdetail">
     <div class="muted small">통솔 ${MG.genLead(g)} · ${g.age}세</div>
@@ -746,6 +746,7 @@ function render() {
   const tabs = [['castle', '성'], ['army', '군대'], ['war', '원정·정벌'], ['market', '시장'], ['family', '가문']]
     .map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-tab="${k}">${MG.ic(I[k])} ${n}${dot[k] ? '<span class="dot"></span>' : ''}</button>`).join('');
   const garrison = `<section class="card"><h3>${MG.ic('users-group')} 성주 직할 병력 <span class="muted">성벽 위</span></h3>
+        <div class="stat"><span>${MG.ic('military-rank')} 숙련도</span><b>${MG.vetBadge(S.garrison.vet)} ${MG.VET_RANKS[MG.vetRank(S.garrison.vet)].name}</b></div>
         <div class="stat"><span>${MG.icUnit('archer')} 궁수</span><b>${S.garrison.archer}</b></div>
         <div class="stat"><span>${MG.icUnit('infantry')} 보병</span><b>${S.garrison.infantry}</b></div>
         <div class="muted small">훈련소에서 보병·궁수 예비군을 성벽으로 올리거나 내려요. 상한 없이 식량으로만 제한돼요.</div></section>`;

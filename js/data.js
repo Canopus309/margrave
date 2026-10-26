@@ -588,3 +588,19 @@ MG.TRAINING = {
   cavalry:   { months: 2, cost: { gold: 8, food: 5 } },   // 말값. 기병은 말 먹이로 식량을 2배 먹는다
 };
 MG.TRAIN_PER_BARRACKS = 20;  // 병영 단계당 한 번에 훈련하는 인원
+
+// ---------- 병사 숙련도 ----------
+// 부대마다 0~400. 100마다 계급. 새 병사를 넣으면 평균이 낮아진다(희석).
+MG.VET_MAX = 400;
+MG.VET_RANKS = [
+  { name: '신병',    mul: 1 },
+  { name: '숙련병',  mul: 1.05 },
+  { name: '정예병',  mul: 1.10 },
+  { name: '고참병',  mul: 1.15 },
+  { name: '백전노장', mul: 1.20, dmgTaken: 0.95 },
+];
+MG.vetRank = v => Math.min(4, Math.floor((v || 0) / 100));
+MG.vetMods = v => { const R = MG.VET_RANKS[MG.vetRank(v)]; return { atk: R.mul, hp: R.mul, dmgTaken: R.dmgTaken || 1 }; };
+// 숙련도 va인 na명 + vb인 nb명을 합친 평균
+MG.vetMix = (va, na, vb, nb) => (na + nb > 0 ? ((va || 0) * na + (vb || 0) * nb) / (na + nb) : 0);
+MG.vetGain = xp => Math.min(40, xp * 0.4);  // 전투 한 번에 오르는 숙련도

@@ -22,6 +22,8 @@ MG.ICONS = {
   site: { nest: 'mood-angry', mine: 'pick', escort: 'truck', ruins: 'building-monument' },
   act: { repair: 'hammer', recruit: 'user-plus', train: 'barbell', scout: 'eye', craft: 'sword', support: 'mail', promote: 'chevrons-up' },
 };
+// 숙련도 배지: 계급만큼 갈매기, 말풍선에 숙련도와 효과
+MG.vetBadge = v => { const r = MG.vetRank(v), R = MG.VET_RANKS[r]; return `<span class="vet r${r}" title="${R.name} · 숙련도 ${Math.floor(v || 0)} / ${MG.VET_MAX}${r ? ` · 공격·체력 +${Math.round((R.mul - 1) * 100)}%${R.dmgTaken ? ', 받는 피해 -5%' : ''}` : ''} · 전투·훈련으로 오르고, 새 병사를 넣으면 평균이 낮아져요">${MG.ic('military-rank')}${'›'.repeat(r)}</span>`; };
 // 이름 줄 앞에 붙는 작은 아이콘
 MG.icRes = k => MG.ic(MG.ICONS.res[k], `res-${k}`);
 MG.icUnit = t => MG.ic(MG.ICONS.unit[t] || 'user');

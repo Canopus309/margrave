@@ -235,7 +235,7 @@ function makeSquad(name, type, opts = {}) {
   const sq = { id: B.nextId++, name, type, soldiers: [], general: null, focus: null, anchor: null,
     facing: { x: 0, y: -1 }, leaderDown: false, isLord: !!opts.lord, isGarrison: !!opts.garrison, initial: 0,
     gid: opts.gid || null, title: opts.title || null, mods: opts.mods || NO_MODS, lvBonus: opts.lvBonus || 1, xp: 0, kills: 0,
-    cls: opts.cls || null, skillCd: 0, shieldT: 0 };
+    cls: opts.cls || null, skillCd: 0, shieldT: 0, vet: opts.vet || 0 };
   B.squads.push(sq);
   B.allSquads.push(sq);
   return sq;
@@ -286,7 +286,7 @@ MG.createBattle = function (level, roster) {
   if (MG.perk('mobile')) mobileGarrison();
   if (roster.reserve) reserveSquads(roster.reserve);
   for (const rs of roster.squads) {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls, vet: rs.vet,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
     const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
     if (rs.general) {
@@ -473,7 +473,7 @@ MG.createConquest = function (roster) {
   // 아군: 왼쪽 출발 지역에 세로로 늘어선다
   const n = roster.squads.length;
   roster.squads.forEach((rs, i) => {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls, vet: rs.vet,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
     const x = 230, y = W.h / 2 + (i - (n - 1) / 2) * Math.min(110, (W.h - 200) / n);
     if (rs.general) {
@@ -1396,7 +1396,7 @@ function updateGarrison(dt) {
         const e = zone[(Math.random() * zone.length) | 0], w = live[i % live.length];
         const p = wallPoint(s, C.R - 6, (w.a0 + w.a1) / 2 + rand(-0.4, 0.4) * (w.a1 - w.a0));
         B.projectiles.push({ x: p.x, y: p.y,
-          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * (relic('arrowheads') ? 1.15 : 1) * (MG.perk('wallwatch') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.2 : 1), kind: 'arrow', speed: 520, splash: 0 });
+          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * garVet() * (relic('arrowheads') ? 1.15 : 1) * (MG.perk('wallwatch') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.2 : 1), kind: 'arrow', speed: 520, splash: 0 });
       }
     }
     if (g.infT <= 0 && g.infantry > 0) {
@@ -1404,7 +1404,7 @@ function updateGarrison(dt) {
       const close = zone.filter(e => cheb(e) - C.R < 20 && segAt(e).hp > 0);
       for (let i = 0; i < g.infantry && close.length; i++) {
         const e = close[(Math.random() * close.length) | 0];
-        damageEnemy(e, MG.UNIT_TYPES.infantry.atk * mult);
+        damageEnemy(e, MG.UNIT_TYPES.infantry.atk * mult * garVet());
         if (i % 3 === 0) B.fx.push({ kind: 'hit', x: e.x, y: e.y, t: 0.15, max: 0.15 });
       }
     }
@@ -1475,11 +1475,14 @@ function tickFort(dt) {
   }
 }
 
+// 직할 수비대 숙련도 배율
+const garVet = () => MG.VET_RANKS[MG.vetRank(B.roster.garrisonVet)].mul;
 // 동원한 예비군: 병종마다 지휘관 없는 부대 하나 (본성 주변)
 function reserveSquads(res) {
   const types = Object.keys(res).filter(t => res[t] > 0);
   types.forEach((t, i) => {
-    const sq = makeSquad(`예비군 ${MG.UNIT_TYPES[t].name}`, t, { gid: 'reserve:' + t });
+    const sq = makeSquad(`예비군 ${MG.UNIT_TYPES[t].name}`, t, { gid: 'reserve:' + t, mods: MG.combineMods([MG.vetMods((B.roster.reserveVet || {})[t])]) });
+    sq.vet = (B.roster.reserveVet || {})[t] || 0;
     sq.isReserve = true; sq.leaderDown = true;
     const a = (i / Math.max(1, types.length)) * Math.PI * 2, x = C.x + Math.cos(a) * 110, y = C.y + Math.sin(a) * 110;
     for (let k = 0; k < res[t]; k++) makeSoldier(sq, t, x, y);

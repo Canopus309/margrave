@@ -141,7 +141,7 @@ function refreshSquads(B) {
     const hp = sq.soldiers.reduce((a, s) => a + s.hp, 0), max = sq.soldiers.reduce((a, s) => a + s.max, 0);
     return `<div class="squad ${B.selected.has(sq) ? 'sel' : ''} ${sq.leaderDown ? 'down' : ''}" data-id="${sq.id}">
       <div class="top"><span class="unitBadge sm u-${sq.type}">${MG.icUnit(sq.isGarrison ? 'garrison' : sq.type)}</span><span class="sqName">${sq.name.replace(' 부대', '')}</span><span>${MG.ic('users')} ${sq.soldiers.length}/${sq.initial}</span></div>
-      <div class="sub">${sub}${sq.shieldT > 0 ? ` · ${MG.ic('shield-half')}방패벽` : ''}</div>
+      <div class="sub">${sub}${sq.isGarrison || sq.isLord ? '' : ` ${MG.vetBadge(sq.vet)}`}${sq.shieldT > 0 ? ` · ${MG.ic('shield-half')}방패벽` : ''}</div>
       <div class="bar thin" title="체력 ${Math.round(hp / max * 100)}%"><div style="width:${hp / max * 100}%;background:${hp / max > 0.5 ? '#6bdc8f' : hp / max > 0.25 ? '#e6b450' : '#ff6b6b'}"></div></div>${skillBtn(sq)}</div>`;
   }).join('') || '<div style="color:var(--muted)">남은 부대가 없어요.</div>')) {
     $('squads').querySelectorAll('[data-skill]').forEach(b => b.onmousedown = ev => {
@@ -165,7 +165,7 @@ function refreshSquads(B) {
 // 장수 줄과 부상 표는 습격·정벌 결과 화면이 같이 쓴다
 function genTable(s) {
   return s.gens.map(g => `<tr><td>${g.name}</td><td>${g.status === '전사' ? '—' : `+${g.xp} 경험치`}</td>
-    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}</td>
+    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}${g.vetUp ? ` <span class="ok small">병사 ${g.vetUp}</span>` : ''}</td>
     <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
 }
 const woundTable = s => `<table>
@@ -220,7 +220,7 @@ function showResult(B) {
   const left = B.squads.reduce((a, q) => a + q.soldiers.length, 0);
   const s = r.summary, S = MG.S;
   const genRows = s.gens.map(g => `<tr><td>${g.name}</td><td>${g.status === '전사' ? '—' : `+${g.xp} 경험치`}</td>
-    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}</td>
+    <td>${g.to > g.from ? `<b style="color:var(--ok)">Lv.${g.from} → ${g.to}</b>` : `Lv.${g.to}`}${g.vetUp ? ` <span class="ok small">병사 ${g.vetUp}</span>` : ''}</td>
     <td style="color:${g.status === '생존' ? 'var(--ok)' : g.status === '전사' ? 'var(--danger)' : 'var(--accent)'}">${g.status}</td></tr>`).join('');
   $('resBody').innerHTML = `
     <table>
