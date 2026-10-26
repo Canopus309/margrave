@@ -263,7 +263,7 @@ MG.createBattle = function (level, roster) {
   const prevWalls = roster.walls || {};
   for (const s of MG.SIDES) {
     B.wallBySide[s] = spans.map(([a0, a1], i) => {
-      const gate = i === 2, max = Math.round((gate ? MG.GATE_HP : MG.WALL_SEG_HP) * (roster.wallMul || 1)), id = s + i;
+      const gate = i === 2, id = s + i, max = Math.round((gate ? MG.GATE_HP : MG.WALL_SEG_HP) * (roster.wallMul || 1) * MG.fortLevelMul(roster.fort, id));
       const w = { id, side: s, a0, a1, gate, hp: prevWalls[id] != null ? prevWalls[id] : max, max };
       B.walls.push(w);
       return w;
@@ -733,7 +733,8 @@ function nearby(g, p, r, fn) {
 }
 
 function effRange(s) {
-  return s.range * (s.T.kind !== 'melee' && onWall(s) ? 1.3 : 1);
+  // 성벽 위 원거리 +30%, 강화 석벽이면 +10% 더
+  return s.range * (s.T.kind !== 'melee' && onWall(s) ? 1.3 * (fortWall(side(s)) >= 2 ? 1.1 : 1) : 1);
 }
 
 // 돌려주는 대상이 아군이면 회복, 적이면 공격
@@ -1245,7 +1246,7 @@ function updateEnemy(e, dt, fGrid) {
   if (e.burnT > 0) { e.burnT -= dt; damageEnemy(e, e.burnDps * dt, e.burnSrc); if (e.dead) return; }
   if (e.slowT > 0) e.slowT -= dt;
   if (e.frozenT > 0) { e.frozenT -= dt; return; }
-  const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1);
+  const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1) * fortSlow(e);
   if (B.conquest) { if (e.struct) updateStruct(e, dt, fGrid); else updateFoe(e, dt, fGrid, sp); return; }
   if (e.boss && raidBossSkill(e, dt, fGrid)) return;
   if (T.raise) necroRaise(e, dt);
@@ -1383,7 +1384,8 @@ function updateGarrison(dt) {
     const g = B.garrison[s], live = B.wallBySide[s].filter(w => !w.gate && w.hp > 0);
     if (!live.length || g.archer + g.infantry === 0) continue;
     g.archT -= dt; g.infT -= dt;
-    const zone = B.enemies.filter(e => !e.dead && cls(e) === 'out' && side(e) === s && cheb(e) - C.R < 200);
+    const reach = fortWall(s) >= 2 ? 220 : 200;
+    const zone = B.enemies.filter(e => !e.dead && cls(e) === 'out' && side(e) === s && cheb(e) - C.R < reach);
     if (!zone.length) continue;
     const mult = B.lordDead ? MG.LORD_DEAD_MULT : 1;
     if (g.archT <= 0 && g.archer > 0) {
@@ -1429,6 +1431,46 @@ function updateProjectiles(dt) {
     } else { p.x += dx / d * step; p.y += dy / d * step; }
   }
   B.projectiles = B.projectiles.filter(p => !p.done);
+}
+
+// ---------- 성벽 강화와 부가 시설 (방어전) ----------
+const fortOf = () => (!B.conquest && B.roster.fort) || null;
+const fortWall = s => { const F = fortOf(); return F && s ? F.wall[s] : 0; };
+// 해자: 성벽 앞 40 안에서 -40%. 쇠창살 성문: 성문 앞에서 -30%. 날아다니는 적은 그냥 넘는다.
+function fortSlow(e) {
+  const F = fortOf();
+  if (!F || e.T.fly || e.struct || cls(e) !== 'out' || cheb(e) - C.R > 40) return 1;
+  const s = side(e);
+  let m = F.moat[s] ? 0.6 : 1;
+  if (F.gate[s] >= 2 && Math.abs(along(e, s)) < C.gateHalf + 25) m *= 0.7;
+  return m;
+}
+const TOWER_AT = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => ({ x: C.x + x * (C.R - C.T / 2), y: C.y + y * (C.R - C.T / 2) }));
+MG.TOWER_AT = TOWER_AT;
+function tickFort(dt) {
+  const F = fortOf();
+  if (!F) return;
+  // 기름 구멍: 8초마다 성문 앞(바깥 60, 성문 폭 +30) 적에게 피해와 화상
+  B.oilT = B.oilT || {};
+  for (const s of MG.SIDES) {
+    if (!F.oil[s] || (B.oilT[s] = (B.oilT[s] == null ? 3 : B.oilT[s]) - dt) > 0) continue;
+    const hit = B.enemies.filter(e => !e.dead && !e.T.fly && cls(e) === 'out' && side(e) === s && cheb(e) - C.R < 60 && Math.abs(along(e, s)) < C.gateHalf + 30);
+    if (!hit.length) { B.oilT[s] = 0.5; continue; }
+    B.oilT[s] = 8;
+    const p = wallPoint(s, C.R + 25, 0);
+    B.fx.push({ kind: 'boom', x: p.x, y: p.y, r: 45, t: 0.4, max: 0.4 });
+    for (const e of hit) { damageEnemy(e, 40 + 8 * B.level); if (!e.dead) { e.burnT = 4; e.burnDps = Math.max(e.burnDps || 0, 6); } }
+    sfx('boom');
+  }
+  // 모서리 망루: 1.2초마다 네 모서리에서 280 안 가장 가까운 적에게
+  if (F.towers && (B.towerT = (B.towerT || 0) - dt) <= 0) {
+    B.towerT = 1.2;
+    for (const t of TOWER_AT) {
+      let best = null, bd = 280;
+      for (const e of B.enemies) { if (e.dead) continue; const d = dist(e, t); if (d < bd) { bd = d; best = e; } }
+      if (best) B.projectiles.push({ x: t.x, y: t.y, target: best, tx: best.x, ty: best.y, dmg: 12 + B.level, kind: 'arrow', speed: 520, splash: 0 });
+    }
+  }
 }
 
 // ---------- 전투 스킬 ----------
@@ -1635,6 +1677,7 @@ MG.update = function (dt) {
   if (B.phase !== 'battle') return;
   B.time += dt;
   tickSkills(dt);
+  tickFort(dt);
   // 해골 부활
   if (B.revives && B.revives.length) {
     for (const r of B.revives) if ((r.t -= dt) <= 0) {

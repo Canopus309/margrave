@@ -153,7 +153,21 @@ function segRect(w) {
   return [x + R - T, y + w.a0, T, len];
 }
 
+// 성벽 단계별 색 (기본·석벽·강화 석벽), 성문 단계별 색 (나무·철·쇠창살)
+const WALL_TINT = [['6d5848', 'a39d90'], ['5f6068', 'b4b6bc'], ['4f5a6e', 'a8b8d0']];
+const GATE_TINT = [['3a2614', '6b4826'], ['2e3036', '6a6e78'], ['24262c', '545a66']];
 function drawWalls(B) {
+  const F = B.roster && B.roster.fort;
+  // 해자: 성벽 바깥 띠
+  if (F) for (const s of MG.SIDES) {
+    if (!F.moat[s]) continue;
+    const { x, y, R } = C, d = 34;
+    ctx.fillStyle = 'rgba(50,95,130,0.55)';
+    if (s === 'N') ctx.fillRect(x - R - 6, y - R - d, R * 2 + 12, d - 4);
+    if (s === 'S') ctx.fillRect(x - R - 6, y + R + 4, R * 2 + 12, d - 4);
+    if (s === 'W') ctx.fillRect(x - R - d, y - R - 6, d - 4, R * 2 + 12);
+    if (s === 'E') ctx.fillRect(x + R + 4, y - R - 6, d - 4, R * 2 + 12);
+  }
   for (const w of B.walls) {
     const [x, y, ww, hh] = segRect(w), horiz = w.side === 'N' || w.side === 'S', p = w.hp / w.max;
     if (w.hp <= 0) {
@@ -163,7 +177,8 @@ function drawWalls(B) {
       for (let i = 0; i < (w.gate ? 10 : 22); i++) ctx.fillRect(x + rnd() * ww - 3, y + rnd() * hh - 3, 4 + rnd() * 6, 4 + rnd() * 6);
       continue;
     }
-    ctx.fillStyle = w.gate ? lerpColor('3a2614', '6b4826', p) : lerpColor('6d5848', 'a39d90', p);
+    const tint = w.gate ? GATE_TINT[F ? F.gate[w.side] : 0] : WALL_TINT[F ? F.wall[w.side] : 0];
+    ctx.fillStyle = lerpColor(tint[0], tint[1], p);
     ctx.fillRect(x, y, ww, hh);
     ctx.strokeStyle = w.gate ? '#24160a' : '#3a332b'; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, ww, hh);
     const n = MG.NORMAL[w.side];
@@ -195,6 +210,19 @@ function drawWalls(B) {
   for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
     const tx = C.x + sx * (C.R - C.T / 2), ty = C.y + sy * (C.R - C.T / 2);
     ctx.fillRect(tx - 20, ty - 20, 40, 40); ctx.strokeRect(tx - 20, ty - 20, 40, 40);
+    if (F && F.towers) {
+      // 모서리 망루: 지붕과 깃발
+      ctx.fillStyle = '#6a4a32'; ctx.beginPath(); ctx.moveTo(tx - 16, ty - 4); ctx.lineTo(tx, ty - 22); ctx.lineTo(tx + 16, ty - 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e6b450'; ctx.fillRect(tx - 1, ty - 34, 2, 12); ctx.fillRect(tx + 1, ty - 34, 9, 6);
+      ctx.fillStyle = '#8b8478';
+    }
+  }
+  // 기름 구멍: 성문 위 솥
+  if (F) for (const s of MG.SIDES) {
+    if (!F.oil[s]) continue;
+    const p = MG.wallPoint(s, C.R - C.T / 2, 0);
+    ctx.fillStyle = '#2a2420'; ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e08a3a'; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
   }
 }
 

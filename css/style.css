@@ -237,3 +237,4 @@ details.report summary { cursor: pointer; color: var(--muted); }
 .overlay h1 .ti { color: var(--accent); }
 #resTitle .ti { color: var(--accent); }
 .fbtns { display: inline-flex; gap: 4px; align-items: center; }
+.fortTable { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; } .fortTable td { padding: 3px 4px; } .fortTable .mini { padding: 1px 5px; }

@@ -182,6 +182,30 @@ function actionsBlock() {
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
 }
 
+// 성벽·성문 강화와 부가 시설 (면별, 행동력 1)
+function fortBlock() {
+  const S = MG.S, F = S.fort, ap = S.ap > 0;
+  const btn = (kind, side, label, tip) => {
+    const cost = MG.fortCost(kind, side);
+    if (!cost) return `<span class="ok small" title="${tip}">${MG.ic('check')} ${label}</span>`;
+    return `<button class="mini" data-fort="${kind},${side || ''}" ${ap && MG.canPay(cost) ? '' : 'disabled'} title="${tip} · ${MG.costText(cost)} · 행동력 1">${label}</button>`;
+  };
+  const lvl = (L, i) => `${'★'.repeat(i)}${'☆'.repeat(L.length - 1 - i)}`;
+  const rows = MG.SIDES.map(s => {
+    const wn = MG.WALL_LEVELS[F.wall[s] + 1], gn = MG.GATE_LEVELS[F.gate[s] + 1];
+    return `<tr><td><b>${MG.SIDE_NAME[s]}</b></td>
+      <td title="${MG.WALL_LEVELS[F.wall[s]].name}">${MG.ic('wall')} ${lvl(MG.WALL_LEVELS, F.wall[s])} ${wn ? btn('wall', s, MG.ic('arrow-up'), `${wn.name}: 체력 ×${wn.mul}${wn.desc ? ' · ' + wn.desc : ''}`) : ''}</td>
+      <td title="${MG.GATE_LEVELS[F.gate[s]].name}">${MG.ic('door')} ${lvl(MG.GATE_LEVELS, F.gate[s])} ${gn ? btn('gate', s, MG.ic('arrow-up'), `${gn.name}: 체력 ×${gn.mul}${gn.desc ? ' · ' + gn.desc : ''}`) : ''}</td>
+      <td>${btn('moat', s, MG.ic('ripple'), `해자 · ${MG.FORT_EXTRAS.moat.desc}`)}</td>
+      <td>${btn('oil', s, MG.ic('flame'), `기름 구멍 · ${MG.FORT_EXTRAS.oil.desc}`)}</td></tr>`;
+  }).join('');
+  return `<section class="card"><h3>${MG.ic('wall')} 성벽과 성문 <span class="muted">면마다 강화 · 행동력 1</span></h3>
+    <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td></tr>${rows}</table>
+    <div class="actRow"><span class="small">${MG.ic('building-lighthouse')} ${MG.CORNER_TOWERS.name} <span class="muted">${MG.CORNER_TOWERS.desc}</span></span>
+      ${btn('towers', null, F.towers ? '있음' : MG.costText(MG.CORNER_TOWERS.cost), MG.CORNER_TOWERS.desc)}</div>
+    <div class="muted small">버튼에 마우스를 올리면 효과와 비용이 보여요. 석벽 ×1.4 → 강화 석벽 ×1.8(성벽 위 궁수 사거리 +10%), 철 성문 ×1.6 → 쇠창살 ×2.2(성문 앞 적 이동 -30%)</div></section>`;
+}
+
 // 전투 소모품: 보유 수와 사기 (시장이 있어야)
 function itemShop() {
   const S = MG.S, market = MG.bLevel('market') > 0;
@@ -622,7 +646,7 @@ function render() {
         <div class="stat"><span>${MG.ic('grave-2')} 잃은 장수 / 병사</span><b>${S.stats.generalsLost} / ${S.stats.soldiersLost}</b></div>
         <button id="resetBtn" class="${resetArmed ? 'danger' : ''}">${MG.ic('refresh')} ${resetArmed ? '정말 처음부터? 한 번 더 누르세요' : '캠페인 처음부터'}</button></section>`;
   const body = {
-    castle: `<div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${fieldsBlock()}</div></div>`,
+    castle: `<div class="campMain">${mapBlock()}<div class="campSide">${actionsBlock()}${fortBlock()}${fieldsBlock()}</div></div>`,
     army: `<section class="gens">${S.generals.map(genCard).join('')}</section>
       <div class="campRow">${garrison}<section class="card">${hospitalBlock()}</section>${tavernBlock()}${weapons}</div>`,
     war: `<div class="campRow two">${conquestBlock()}${expeditionBlock()}</div>`,
@@ -670,6 +694,7 @@ function bind() {
   q('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; render(); });
   q('[data-gopen]').forEach(b => b.onclick = () => { const id = +b.dataset.gopen; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); });
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
+  q('[data-fort]').forEach(b => b.onclick = () => { const [k, s] = b.dataset.fort.split(','); run(MG.actFort(k, s || null)); });
   q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
   q('[data-site]').forEach(b => b.onclick = () => {

@@ -552,3 +552,26 @@ MG.DIFFICULTY = {
   hard:      { name: '어려움', desc: '적 수 +25%, 체력·공격 +15%', count: 1.25, hp: 1.15, atk: 1.15, renown: 1.3 },
   nightmare: { name: '악몽',  desc: '적 수 +50%, 체력·공격 +30%', count: 1.5,  hp: 1.3,  atk: 1.3,  renown: 1.6 },
 };
+
+// ---------- 성벽·성문 강화와 부가 시설 (면별) ----------
+MG.WALL_LEVELS = [
+  { name: '기본 성벽', mul: 1 },
+  { name: '석벽', mul: 1.4, cost: { gold: 150, wood: 250, iron: 40 } },
+  { name: '강화 석벽', mul: 1.8, cost: { gold: 300, wood: 400, iron: 120 }, desc: '성벽 위 궁수 사거리 +10%' },
+];
+MG.GATE_LEVELS = [
+  { name: '나무 성문', mul: 1 },
+  { name: '철 성문', mul: 1.6, cost: { gold: 120, wood: 100, iron: 120 } },
+  { name: '쇠창살 성문', mul: 2.2, cost: { gold: 250, wood: 150, iron: 250 }, desc: '성문 앞 적 이동 -30%' },
+];
+MG.FORT_EXTRAS = {
+  moat: { name: '해자',     desc: '이 면 성벽 바로 앞 적 이동 -40% (날아다니는 적 제외)', cost: { gold: 200, wood: 150 } },
+  oil:  { name: '기름 구멍', desc: '이 면 성문 앞에 8초마다 범위 피해와 화상', cost: { gold: 180, wood: 100, iron: 60 } },
+};
+MG.CORNER_TOWERS = { name: '모서리 망루', desc: '성 네 모서리에서 1.2초마다 가까운 적에게 화살', cost: { gold: 250, wood: 200, iron: 80 } };
+MG.newFort = () => {
+  const side = v => Object.fromEntries(MG.SIDES.map(s => [s, v]));
+  return { wall: side(0), gate: side(0), moat: side(false), oil: side(false), towers: false };
+};
+// 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율
+MG.fortLevelMul = (fort, id) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]] : MG.WALL_LEVELS[fort.wall[id[0]]]).mul : 1);

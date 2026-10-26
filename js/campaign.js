@@ -74,6 +74,7 @@ function migrate(s) {
   if (!s.items) s.items = {};
   if (!s.difficulty) s.difficulty = 'normal';
   if (!s.relics) s.relics = [];
+  if (!s.fort) s.fort = MG.newFort();
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
 
@@ -85,7 +86,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal',
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(),
     era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
@@ -448,7 +449,30 @@ MG.demolishField = idx => {
 
 // 성벽 조각 최대 체력 (국경 요새 영지면 +30%). id의 두 번째 글자 2는 성문
 MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1) * (MG.S && MG.hasRelic('crest') ? 1.15 : 1);
-MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul());
+MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul() * MG.fortLevelMul(MG.S && MG.S.fort, id));
+
+// 성벽·성문 강화와 부가 시설 (면별, 행동력 1). kind: wall gate moat oil towers
+MG.fortCost = (kind, side) => {
+  const F = MG.S.fort;
+  if (kind === 'wall') { const n = MG.WALL_LEVELS[F.wall[side] + 1]; return n && n.cost; }
+  if (kind === 'gate') { const n = MG.GATE_LEVELS[F.gate[side] + 1]; return n && n.cost; }
+  if (kind === 'towers') return F.towers ? null : MG.CORNER_TOWERS.cost;
+  return F[kind][side] ? null : MG.FORT_EXTRAS[kind].cost;
+};
+MG.actFort = (kind, side) => {
+  const S = MG.S, F = S.fort, cost = MG.fortCost(kind, side);
+  if (!cost) return '이미 다 지었어요';
+  return act(cost, () => {
+    if (kind === 'wall' || kind === 'gate') {
+      // 부서진 채 남아 있던 조각은 늘어난 체력만큼 함께 늘어난다
+      const ids = [0, 1, 2, 3, 4].map(i => side + i).filter(id => (id[1] === '2') === (kind === 'gate'));
+      const before = Object.fromEntries(ids.map(id => [id, MG.wallMax(id)]));
+      F[kind][side]++;
+      for (const id of ids) if (S.walls[id] != null) S.walls[id] += MG.wallMax(id) - before[id];
+    } else if (kind === 'towers') F.towers = true;
+    else F[kind][side] = true;
+  }) || `${MG.SIDE_NAME[side] || ''}${side ? '쪽 ' : ''}${kind === 'wall' ? MG.WALL_LEVELS[F.wall[side]].name : kind === 'gate' ? MG.GATE_LEVELS[F.gate[side]].name : kind === 'towers' ? MG.CORNER_TOWERS.name : MG.FORT_EXTRAS[kind].name}을(를) 갖췄어요.`;
+};
 
 // 수리: 성벽·성문·본성·건물을 피해가 큰 곳부터, 한 번에 일정량까지
 MG.damageList = () => {
@@ -1195,7 +1219,7 @@ MG.buildRoster = march => {
   const lordAway = march ? !march.lord : !!(S.march && S.march.lord);
   const roster = {
     squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
-    relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'],
+    relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'], fort: JSON.parse(JSON.stringify(S.fort)),
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
