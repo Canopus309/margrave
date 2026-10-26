@@ -597,6 +597,29 @@ function drawScout(B) {
   }
 }
 
+// 방향: 성문 바깥의 북문 같은 글자 (화면 좌표: 확대해도 같은 크기, 방어전)
+function drawGateNames() {
+  ctx.font = 'bold 15px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const s of MG.SIDES) {
+    const p = MG.worldToScreen(MG.wallPoint(s, C.R + 50, 0));
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.strokeText(`${MG.SIDE_NAME[s]}문`, p.x, p.y);
+    ctx.fillStyle = '#ffe9b0'; ctx.fillText(`${MG.SIDE_NAME[s]}문`, p.x, p.y);
+  }
+}
+// 나침반: 화면 오른쪽 위 (지도는 늘 북쪽이 위)
+function drawCompass() {
+  const x = view.w - 46, y = 46, r = 30;
+  ctx.fillStyle = 'rgba(13,16,22,0.7)'; ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(230,180,80,0.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r - 8, 0, Math.PI * 2); ctx.stroke();
+  // 북쪽 바늘은 빨강
+  ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.moveTo(x, y - r + 10); ctx.lineTo(x + 5, y); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#8d97aa'; ctx.beginPath(); ctx.moveTo(x, y + r - 10); ctx.lineTo(x + 5, y); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill();
+  ctx.font = 'bold 12px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [t, dx, dy, c] of [['북', 0, -1, '#ff8a8a'], ['남', 0, 1, '#e8ecf4'], ['동', 1, 0, '#e8ecf4'], ['서', -1, 0, '#e8ecf4']]) {
+    ctx.fillStyle = c; ctx.fillText(t, x + dx * (r + 1), y + dy * (r + 1));
+  }
+}
+
 function drawLog(B) {
   ctx.font = 'bold 15px "Malgun Gothic", sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   B.log.forEach((l, i) => {
@@ -651,6 +674,8 @@ MG.render = function (B, input) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawFlags(B);
   drawWeather(B);
+  if (!B.conquest) drawGateNames();
+  drawCompass();
   drawNumbers(B);
   drawBanner(B);
   drawLog(B);
