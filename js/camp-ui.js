@@ -58,6 +58,7 @@ function headerBlock() {
     !S.unpaid && prod.gold < 0 && S.res.gold + prod.gold < 0 && ['coins', '이대로면 다음 달 급여를 다 못 줘요', 'warn'],
     S.keep < MG.KEEP_HP * 0.5 && ['building-castle', `본성 체력 ${Math.round(S.keep)} / ${MG.KEEP_HP} — 수리하세요`, 'danger'],
     MG.damageList().some(d => d.kind === 'wall' && d.hp <= 0) && ['wall', '무너진 성벽이 그대로예요 — 수리하지 않으면 뚫린 채로 싸워요', 'warn'],
+    S.pop > MG.popCap() && ['home-off', `집 없는 주민 ${S.pop - MG.popCap()}명 — 민가를 수리하지 않으면 매달 1/4씩 떠나요`, 'warn'],
   ].filter(Boolean);
   return `<header>
     <div class="crest">${MG.ic('crown')}</div>

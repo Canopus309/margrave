@@ -1085,8 +1085,10 @@ MG.endMonth = () => {
     S.pop += grow;
     rep.push(`주민 +${grow}명 (${S.pop} / ${MG.popCap()})`);
   } else if (room < 0) {
-    S.pop = MG.popCap();
-    rep.push('집이 모자라 주민 일부가 떠났어요.');
+    // 집 없는 주민: 민가를 수리하면 다시 들어가 살고, 아니면 매달 1/4씩 떠난다
+    const leave = Math.max(1, Math.ceil(-room * 0.25));
+    S.pop -= leave;
+    rep.push(`집 없는 주민 ${-room}명 중 ${leave}명이 떠났어요. 민가를 수리하면 다시 살 수 있어요.`);
   }
   // 사원이 있으면 본성이 조금씩 회복된다 (설계 문서 3장)
   if (MG.bLevel('temple') && S.keep < MG.KEEP_HP) {
@@ -1259,7 +1261,7 @@ MG.buildRoster = march => {
 // ---------- 전투 결과 반영 ----------
 MG.applyResult = B => {
   if (B.conquest) return applyConquest(B);
-  const S = MG.S, sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, heir: null, lostPop: 0, ruined: [] };
+  const S = MG.S, sum = { gens: [], wound: { light: 0, heavy: 0, dead: 0 }, weapon: null, heir: null, lostPop: 0, homeless: 0, ruined: [] };
   applySquads(B, sum);
 
   // 직할 수비대: 성벽에 남은 병력 + 수비대 부대로 바뀐 생존자
@@ -1280,6 +1282,7 @@ MG.applyResult = B => {
   // 정비창(명성 특성): 남은 피해의 30%를 바로 고친다
   if (MG.perk('depot')) for (const id of Object.keys(S.walls)) S.walls[id] = Math.round(S.walls[id] + (MG.wallMax(id) - S.walls[id]) * 0.3);
   S.keep = Math.max(1, Math.round(B.keep.hp));
+  const occRatio = Math.min(1, S.pop / Math.max(1, MG.popCap()));  // 부서지기 전 집 한도 기준
   for (const bb of B.buildings) {
     const b = S.buildings.find(x => x.id === bb.id);
     if (!b) continue;
@@ -1287,9 +1290,15 @@ MG.applyResult = B => {
     b.hp = Math.max(0, Math.round(bb.hp));
     if (was > 0 && b.hp <= 0) {
       sum.ruined.push(MG.BUILDINGS[b.type].name);
-      if (b.type === 'house') { const lost = Math.min(S.pop, MG.HOUSE_POP * b.level); S.pop -= lost; sum.lostPop += lost; }
+      if (b.type === 'house') {
+        // 살던 사람(집 한도 대비 지금 주민 비율만큼) 중 30%만 죽고, 나머지는 집 없는 주민으로 남는다
+        const occ = Math.round(MG.HOUSE_POP * b.level * occRatio), dead = Math.min(S.pop, Math.round(occ * 0.3));
+        S.pop -= dead; sum.lostPop += dead;
+      }
     }
   }
+  // 살아남은 주민 중 다른 집 빈자리에도 못 들어간 만큼이 집 없는 주민
+  sum.homeless = Math.max(0, S.pop - MG.popCap());
 
   // 성주가 전사하면 혈족 중에서 후계자를 고른다 (내정 화면). 혈족이 없으면 가문 단절.
   if (B.lordDead) {

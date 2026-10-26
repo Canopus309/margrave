@@ -237,7 +237,7 @@ function showResult(B) {
       <tr><th>${MG.ic('first-aid-kit')} 중상 — 병원에서 3~6개월</th><td>${s.wound.heavy}명</td></tr>
       <tr><th>${MG.ic('grave-2')} 사망</th><td>${s.wound.dead}명</td></tr>
     </table>
-    ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명을 잃었어요` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
+    ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명이 죽었어요` : ''}${s.homeless ? ` · ${s.homeless}명이 집을 잃었어요 (수리하지 않으면 매달 1/4씩 떠나요)` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
