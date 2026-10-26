@@ -76,6 +76,9 @@ function migrate(s) {
   if (!s.relics) s.relics = [];
   if (!s.fort) s.fort = MG.newFort();
   if (!s.perks) s.perks = [];
+  if (s.recruits == null) s.recruits = 0;
+  if (!s.training) s.training = [];
+  if (!s.reserve) s.reserve = {};
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
 
@@ -87,7 +90,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(), perks: opts.perks || MG.activePerks([], null),
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(), perks: opts.perks || MG.activePerks([], null), recruits: 0, training: [], reserve: {}, mobilizeReserve: false,
     era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
@@ -544,30 +547,73 @@ MG.recruitTargets = () => {
 };
 // 병종별로 보충에 필요한 건물
 MG.REFILL_BUILDING = { mage: 'tower', priest: 'temple', engineer: 'workshop', artillery: 'workshop', cavalry: 'stable' };
-// 편제: 성벽 위 직할 병사를 장수 부대로. 같은 병종(궁수·보병)은 무료, 다른 병종은 다시 훈련해 1명당 골드 10.
-MG.RETRAIN_GOLD = 10;
-MG.assignSource = g => (g.type === 'archer' ? ['archer'] : g.type === 'infantry' ? ['infantry'] : ['infantry', 'archer']);
-MG.assignable = g => {
-  const S = MG.S, room = Math.max(0, MG.genCap(g) - g.healthy);
-  return Math.min(room, MG.assignSource(g).reduce((a, k) => a + S.garrison[k], 0));
+// ---------- 훈련소와 예비군 ----------
+// 모집한 훈련병을 병종별로 훈련시키면 그 병종 예비군이 되고, 예비군을 같은 병종 장수 부대에 편제한다.
+// 한 번에 훈련할 수 있는 인원 = 병영 단계 × 20. 훈련장이 있으면 기간 -1개월.
+MG.trainCap = () => MG.bLevel('barracks') * MG.TRAIN_PER_BARRACKS;
+MG.trainingNow = () => (MG.S.training || []).reduce((a, t) => a + t.n, 0);
+MG.trainMonths = type => Math.max(0, MG.TRAINING[type].months - (MG.bLevel('training') ? 1 : 0));
+MG.trainCost = (type, n) => Object.fromEntries(Object.entries(MG.TRAINING[type].cost).map(([k, v]) => [k, v * n]));
+// 지금 훈련시킬 수 있는 최대 인원
+MG.trainable = type => {
+  const S = MG.S, cost = MG.TRAINING[type].cost;
+  let n = Math.min(S.recruits || 0, Math.max(0, MG.trainCap() - MG.trainingNow()));
+  for (const [k, v] of Object.entries(cost)) if (v) n = Math.min(n, Math.floor(S.res[k] / v));
+  return Math.max(0, n);
 };
-MG.assignFromGarrison = (gid, want) => {
+MG.startTraining = (type, want) => {
+  const S = MG.S, T = MG.TRAINING[type];
+  if (!T) return '훈련할 수 없는 병종이에요';
+  if (!MG.trainCap()) return '병영이 없거나 부서졌어요';
+  if (!MG.canRefill(type)) return `${MG.BUILDINGS[MG.REFILL_BUILDING[type]].name}이(가) 있어야 ${MG.UNIT_TYPES[type].name}을(를) 훈련해요`;
+  if (!(S.recruits > 0)) return '훈련병이 없어요. 행동의 모집으로 뽑아요';
+  if (MG.trainingNow() >= MG.trainCap()) return `훈련소가 가득 찼어요 (한 번에 ${MG.trainCap()}명)`;
+  const n = Math.min(want, MG.trainable(type));
+  if (n <= 0) return '자원이 모자라요';
+  pay(MG.trainCost(type, n));
+  S.recruits -= n;
+  const months = MG.trainMonths(type);
+  if (months <= 0) S.reserve[type] = (S.reserve[type] || 0) + n;
+  else S.training.push({ type, n, left: months });
+  save();
+  return months <= 0 ? `${MG.UNIT_TYPES[type].name} ${n}명이 바로 예비군이 되었어요.` : `${MG.UNIT_TYPES[type].name} ${n}명이 훈련을 시작했어요. ${months}개월 뒤 예비군이 돼요.`;
+};
+// 매달: 훈련이 끝난 병사는 예비군으로
+function tickTraining(rep) {
+  const S = MG.S, done = {};
+  for (const t of S.training) if (--t.left <= 0) { S.reserve[t.type] = (S.reserve[t.type] || 0) + t.n; done[t.type] = (done[t.type] || 0) + t.n; }
+  S.training = S.training.filter(t => t.left > 0);
+  const list = Object.entries(done).map(([k, n]) => `${MG.UNIT_TYPES[k].name} ${n}`).join(', ');
+  if (list) rep.push(`훈련을 마친 병사가 예비군이 되었어요: ${list}`);
+}
+// 편제: 같은 병종 예비군을 장수 부대로 (정원까지, 행동력 없음)
+MG.assignable = g => Math.min(Math.max(0, MG.genCap(g) - g.healthy), MG.S.reserve[g.type] || 0);
+MG.assignReserve = (gid, want) => {
   const S = MG.S, g = S.generals.find(x => x.id === gid);
   if (!g || g.dead) return '장수가 없어요';
   if (g.away) return '원정·정벌에서 돌아온 뒤에 편제해요';
-  if (!MG.canRefill(g.type)) return `${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이(가) 있어야 ${MG.UNIT_TYPES[g.type].name}을(를) 훈련해요`;
-  const retrain = !['archer', 'infantry'].includes(g.type);
-  let n = Math.min(want, MG.assignable(g));
-  if (retrain) n = Math.min(n, Math.floor(S.res.gold / MG.RETRAIN_GOLD));
-  if (n <= 0) return MG.assignable(g) ? '골드가 모자라요' : MG.genCap(g) <= g.healthy ? '부대가 가득 찼어요' : '옮길 직할 병사가 없어요';
-  let left = n;
-  for (const k of MG.assignSource(g)) { const take = Math.min(left, S.garrison[k]); S.garrison[k] -= take; left -= take; }
-  g.healthy += n;
-  if (retrain) S.res.gold -= n * MG.RETRAIN_GOLD;
+  const n = Math.min(want, MG.assignable(g));
+  if (n <= 0) return MG.genCap(g) <= g.healthy ? '부대가 가득 찼어요' : `${MG.UNIT_TYPES[g.type].name} 예비군이 없어요. 훈련소에서 훈련시켜요`;
+  S.reserve[g.type] -= n; g.healthy += n;
   save();
-  return `직할 병사 ${n}명을 ${g.name} 부대로 옮겼어요${retrain ? ` (재훈련 골드 ${n * MG.RETRAIN_GOLD})` : ''}.`;
+  return `${MG.UNIT_TYPES[g.type].name} 예비군 ${n}명을 ${g.name} 부대에 편제했어요.`;
 };
-MG.canRefill = type =>!MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0 || (MG.perk('siegeeng') && (type === 'engineer' || type === 'artillery'));
+// 보병·궁수 예비군과 성벽 위 직할 병력 사이를 오간다. dir: 'toGarrison' | 'toReserve'
+MG.moveGarrisonReserve = (type, n, dir) => {
+  const S = MG.S, from = dir === 'toGarrison' ? S.reserve : S.garrison, to = dir === 'toGarrison' ? S.garrison : S.reserve;
+  const k = Math.min(n, from[type] || 0);
+  if (k <= 0) return '옮길 병사가 없어요';
+  from[type] -= k; to[type] = (to[type] || 0) + k;
+  save();
+  return `${MG.UNIT_TYPES[type].name} ${k}명을 ${dir === 'toGarrison' ? '성벽 위 직할로' : '예비군으로'} 옮겼어요.`;
+};
+// 훈련병·훈련 중·예비군 병사 수 (유지비 계산용). cavalry: 기병만
+MG.reserveCount = cavalryOnly => {
+  const S = MG.S;
+  if (cavalryOnly) return (S.reserve.cavalry || 0) + S.training.filter(t => t.type === 'cavalry').reduce((a, t) => a + t.n, 0);
+  return (S.recruits || 0) + MG.trainingNow() + Object.values(S.reserve).reduce((a, n) => a + n, 0);
+};
+MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0 || (MG.perk('siegeeng') && (type === 'engineer' || type === 'artillery'));
 // 신병 비용: 싼 모병 -40%, 용병 변경백 3배 (대신 주민이 필요 없다)
 MG.recruitGold = () => MG.RECRUIT_GOLD * (MG.perk('cheapdraft') ? 0.6 : 1) * (MG.perk('mercenary') ? 3 : 1);
 MG.recruitAmount = () => Math.min(MG.recruitCap(), MG.perk('mercenary') ? Infinity : Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.recruitGold()));
@@ -584,16 +630,8 @@ MG.actRecruit = () => {
   const n = MG.recruitAmount();
   if (!n) return '골드가 모자라요';
   return act(MG.recruitCost(), () => {
-    let pool = n;
-    const targets = MG.recruitTargets();
-    while (pool > 0) {
-      const t = targets.filter(x => x.need > 0).sort((a, b) => b.need - a.need)[0];
-      if (!t) break;
-      t.g.healthy++; t.need--; pool--;
-    }
-    // 남는 신병은 성주 직할 (궁수·보병을 번갈아)
-    const gar = MG.S.garrison;
-    for (; pool > 0; pool--) { if (gar.archer <= gar.infantry) gar.archer++; else gar.infantry++; }
+    // 신병은 훈련병이 된다. 훈련소에서 병종을 골라 훈련시킨 뒤 예비군에서 편제한다
+    MG.S.recruits = (MG.S.recruits || 0) + n;
     if (!MG.perk('mercenary')) MG.S.pop -= n;
   });
 };
@@ -1069,7 +1107,8 @@ MG.economy = () => {
   if (MG.hasOutpost('orc')) made.iron += 20;
   if (MG.hasOutpost('troll')) { made.wood += 30; made.food += 20; }
   const generals = S.generals.filter(g => !g.dead).length;
-  const soldiers = S.generals.reduce((a, g) => a + g.healthy + g.wounded.length, 0)
+  const cavalry = S.generals.filter(g => g.type === 'cavalry').reduce((a, g) => a + g.healthy + g.wounded.length, 0) + MG.reserveCount(true);
+  const soldiers = S.generals.reduce((a, g) => a + g.healthy + g.wounded.length, 0) + MG.reserveCount()
     + S.garrison.archer + S.garrison.infantry + S.garrison.wounded.length + MG.LORD.guards;
   // 연대기 사건의 지속 효과: 세금 감면, 혹한(겨울 식량 소비 1.5배)
   const winterCold = MG.hasEffect('harshWinter') && season === '겨울';
@@ -1077,7 +1116,7 @@ MG.economy = () => {
     tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1) * MG.adminMul(S.lord.stats) * (MG.perk('taxreform') ? 1.1 : 1)),
     market: Math.round(MG.bSum('market') * 40 * (S.domain === 'trade' ? 1.5 : 1)),
     wages: Math.ceil(soldiers * MG.WAGE_SOLDIER * (MG.perk('militia') ? 0.5 : 1) * (MG.perk('mercenary') ? 1.5 : 1) + generals * MG.WAGE_GENERAL),
-    made, eat: Math.ceil(((soldiers + generals) * (MG.perk('rations') ? 0.85 : 1) + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
+    made, eat: Math.ceil(((soldiers + generals + cavalry) * (MG.perk('rations') ? 0.85 : 1) + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
   };
 };
 MG.production = () => {
@@ -1127,6 +1166,7 @@ MG.endMonth = () => {
     S.keep += heal;
     rep.push(`사원의 기도로 본성이 ${heal} 회복했어요.`);
   }
+  tickTraining(rep);
   const rec = tickHospital();
   if (rec) rep.push(`병원에서 ${rec}명이 회복했어요.`);
   if (MG.bLevel('watch') && S.nextAttack) {
@@ -1242,7 +1282,8 @@ function tickHospital() {
     g.wounded = g.wounded.filter(w => w.left > 0);
     if (!g.wounded.length) g.mobilize = false;
   }
-  for (const w of S.garrison.wounded) if (w.left <= 0) { S.garrison[w.type]++; recovered++; }
+  // 나은 직할 병사는 성벽으로, 나은 예비군은 예비군으로
+  for (const w of S.garrison.wounded) if (w.left <= 0) { if (w.reserve) S.reserve[w.type] = (S.reserve[w.type] || 0) + 1; else S.garrison[w.type]++; recovered++; }
   S.garrison.wounded = S.garrison.wounded.filter(w => w.left > 0);
   return recovered;
 }
@@ -1290,6 +1331,8 @@ MG.buildRoster = march => {
     squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, injured: L.injured > 0, sitOut: L.injured > 0 && !L.deployInjured, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
     relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'], fort: JSON.parse(JSON.stringify(S.fort)),
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
+    // 예비군 동원을 켰으면 병종별 예비군이 지휘관 없는 부대로 나와 싸운다 (방어전만)
+    reserve: !march && S.mobilizeReserve ? { ...S.reserve } : null,
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
@@ -1311,6 +1354,13 @@ MG.applyResult = B => {
   gar.archer = 0; gar.infantry = 0;
   for (const s of MG.SIDES) { gar.archer += B.garrison[s].archer; gar.infantry += B.garrison[s].infantry; }
   for (const q of B.allSquads) if (q.isGarrison) for (const s of q.soldiers) if (!s.dead) gar[s.type]++;
+  // 동원한 예비군: 살아남은 병사는 예비군으로, 쓰러진 병사는 부상 판정
+  if (B.roster.reserve) for (const q of B.allSquads.filter(q => q.isReserve)) S.reserve[q.type] = q.soldiers.filter(s => !s.dead).length;
+  for (const f of B.stats.fallen.filter(f => f.gid && String(f.gid).startsWith('reserve:'))) {
+    const r = rollWound(null), type = f.gid.slice(8);
+    sum.wound[r]++;
+    if (r === 'dead') S.stats.soldiersLost++; else gar.wounded.push({ type, reserve: true, ...newWound(r) });
+  }
   for (const f of B.stats.fallen) {
     if (!f.garrison) continue;
     const r = rollWound(null);

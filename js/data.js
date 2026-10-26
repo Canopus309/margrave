@@ -575,3 +575,16 @@ MG.newFort = () => {
 };
 // 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율
 MG.fortLevelMul = (fort, id) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]] : MG.WALL_LEVELS[fort.wall[id[0]]]).mul : 1);
+
+// ---------- 훈련소와 예비군 ----------
+// 모집(1명당 골드 5) 뒤에 병종별로 드는 훈련 기간과 비용(1명당). 필요 건물은 MG.REFILL_BUILDING과 같다.
+MG.TRAINING = {
+  infantry:  { months: 0, cost: {} },
+  archer:    { months: 1, cost: { gold: 2 } },
+  engineer:  { months: 1, cost: { wood: 2 } },
+  priest:    { months: 2, cost: { gold: 5 } },
+  mage:      { months: 2, cost: { gold: 5 } },
+  artillery: { months: 2, cost: { gold: 15, iron: 4 } },  // 포값
+  cavalry:   { months: 2, cost: { gold: 8, food: 5 } },   // 말값. 기병은 말 먹이로 식량을 2배 먹는다
+};
+MG.TRAIN_PER_BARRACKS = 20;  // 병영 단계당 한 번에 훈련하는 인원

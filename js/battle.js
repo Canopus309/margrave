@@ -284,6 +284,7 @@ MG.createBattle = function (level, roster) {
     MG.SIDES.forEach((s, i) => { B.garrison[s][kind] = Math.floor(n / 4) + (i < n % 4 ? 1 : 0); });
   }
   if (MG.perk('mobile')) mobileGarrison();
+  if (roster.reserve) reserveSquads(roster.reserve);
   for (const rs of roster.squads) {
     const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
@@ -1474,6 +1475,18 @@ function tickFort(dt) {
   }
 }
 
+// 동원한 예비군: 병종마다 지휘관 없는 부대 하나 (본성 주변)
+function reserveSquads(res) {
+  const types = Object.keys(res).filter(t => res[t] > 0);
+  types.forEach((t, i) => {
+    const sq = makeSquad(`예비군 ${MG.UNIT_TYPES[t].name}`, t, { gid: 'reserve:' + t });
+    sq.isReserve = true; sq.leaderDown = true;
+    const a = (i / Math.max(1, types.length)) * Math.PI * 2, x = C.x + Math.cos(a) * 110, y = C.y + Math.sin(a) * 110;
+    for (let k = 0; k < res[t]; k++) makeSoldier(sq, t, x, y);
+    sq.initial = res[t];
+    MG.orderMove(sq, x, y, { x: Math.cos(a), y: Math.sin(a) }, true);
+  });
+}
 // 기동 방어(결단): 직할 병력이 성벽 대신 면마다 기동 부대로 나온다
 function mobileGarrison() {
   for (const s of MG.SIDES) {

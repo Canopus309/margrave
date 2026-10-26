@@ -253,3 +253,8 @@ details.report summary { cursor: pointer; color: var(--muted); }
 .perk .pact { margin-top: 3px; }
 .perkLine { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .tag.key { background: #3a2e18; color: #ffd38a; }
+/* 훈련소 */
+.wideCard { margin-bottom: 10px; }
+.trainTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.trainTable td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.trainTable td:nth-child(4) { color: var(--accent); text-align: center; }
