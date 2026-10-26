@@ -324,9 +324,9 @@ function makeLord(roster, lx, ly, facing) {
   const lv = (RL.level || 1) - 1, age = RL.ageMul || 1, st = RL.stats, might = MG.lordMight(st) * (RL.mul || 1);
   const lsq = makeSquad('성주 근위대', 'guard', { lord: true, gid: 'lord', lvBonus: 1 + MG.LEVEL_BONUS.squad * lv });
   B.lordAura = MG.lordAura(st);
-  if (!RL.minor) {
+  if (!RL.minor && !RL.sitOut) {
     B.lord = lsq.general = makeSoldier(lsq, 'guard', lx, ly, { lord: true, name: RL.name,
-      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age * might, atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age * might });
+      hp: L.hp * (1 + MG.LEVEL_BONUS.genHp * lv) * age * might * (RL.injured ? MG.INJURED_GENERAL_HP : 1), atk: L.atk * (1 + MG.LEVEL_BONUS.genAtk * lv) * age * might });
   } else lsq.leaderDown = false;
   for (let i = 0; i < MG.lordGuards(st); i++) makeSoldier(lsq, 'guard', lx, ly);
   lsq.initial = lsq.soldiers.length;
@@ -700,8 +700,8 @@ function damageFriendly(s, dmg) {
   B.fx.push({ kind: 'p', x: s.x, y: s.y, vx: 0, vy: -20, t: 0.6, max: 0.6, color: '#ff8080' });
   if (s.isLord) {
     B.lordDead = true; B.lord = null;
-    log(`${s.name}이(가) 전사했어요! 전군의 사기가 떨어져요.`, '#ff6b6b');
-    banner('성주 전사!', s.name, '#ff6b6b'); sfx('lose');
+    log(`${s.name}이(가) 쓰러졌어요! 전군의 사기가 떨어져요.${B.roster.lord.injured ? ' (부상 중이었어요)' : ''}`, '#ff6b6b');
+    banner('성주가 쓰러졌어요!', B.roster.lord.injured ? `${s.name} · 부상 중이라 목숨이 위험해요` : `${s.name} · 전투가 끝나면 부상으로 돌아와요`, '#ff6b6b'); sfx('lose');
   } else if (s.isGeneral) {
     sq.leaderDown = true;
     log(`${s.name}이(가) 쓰러졌어요. ${sq.name}의 공격력이 떨어져요.`, '#ffb36b');

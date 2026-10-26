@@ -368,9 +368,10 @@ function familyBlock() {
   const kids = S.family.map(c => `<li>${c.name} · ${c.age}세 ${traitTags(c.traits)}</li>`).join('');
   const blood = S.generals.filter(g => g.blood && !g.dead).map(g => `<li>${g.name} · ${g.age}세 · 장수</li>`).join('');
   return `<section class="card"><h3>${MG.ic('crown')} 가문 · ${L.gen}대 성주</h3>
-    <div><b>${L.name}</b> · ${L.age}세${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}</div>
+    <div><b>${L.name}</b> · ${L.age}세${L.minor ? ' <span class="warn">(어린 성주: 전투 불참)</span>' : ''}${L.injured ? ` <span class="warn" title="쓰러져서 다쳤어요. 매달 나아요">${MG.ic('bandage')} 부상 ${L.injured}개월</span>` : ''}</div>
     ${traitTags(L.traits)}
     ${lordStatsBlock(L)}
+    ${L.injured ? `<label class="tog"><input type="checkbox" id="lordDeploy" ${L.deployInjured ? 'checked' : ''}><span class="warn">부상 중에도 출전 (체력 절반, 또 쓰러지면 전사)</span></label>` : ''}
     ${MG.ageMul(L.age) < 1 ? `<div class="warn small">나이가 들어 능력이 ${Math.round((1 - MG.ageMul(L.age)) * 100)}% 떨어졌어요.</div>` : ''}
     ${MG.deathChance(L.age) ? `<div class="danger small">해마다 ${Math.round(MG.deathChance(L.age) * 100)}% 확률로 세상을 떠날 수 있어요.</div>` : ''}
     <ul class="small">${blood}${kids || (blood ? '' : '<li class="muted">아직 자녀가 없어요</li>')}</ul>
@@ -770,6 +771,7 @@ function bind() {
   q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
   q('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; render(); });
   q('[data-gopen]').forEach(b => b.onclick = () => { const id = +b.dataset.gopen; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); });
+  if ($('lordDeploy')) $('lordDeploy').onchange = ev => { S.lord.deployInjured = ev.target.checked; MG.saveCampaign(); render(); };
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
   q('[data-repair]').forEach(b => b.onclick = () => run(MG.actRepair(b.dataset.repair)));
   q('[data-fort]').forEach(b => b.onclick = () => { const [k, s] = b.dataset.fort.split(','); run(MG.actFort(k, s || null)); });

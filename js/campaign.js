@@ -185,7 +185,7 @@ MG.lordSpend = k => {
 // 전투 뒤 성주 경험치: 근위대가 올린 경험치 + 살아남으면 생존 경험치
 function applyLord(B, sum) {
   const RL = B.roster.lord, L = MG.S.lord;
-  if (RL.away || RL.minor || B.lordDead) return;
+  if (RL.away || RL.minor || RL.sitOut || B.lordDead) return;
   const lsq = B.allSquads.find(q => q.isLord);
   const xp = Math.round((lsq ? lsq.xp : 0) + MG.SURVIVE_XP), from = L.level;
   const auto = lordGain(xp);
@@ -722,6 +722,7 @@ MG.actMarch = (id, gids, withLord) => {
   const gens = gids.map(i => S.generals.find(g => g.id === i)).filter(g => g && MG.canExpedition(g));
   if (gens.length < MG.MARCH_MIN) return `장수 부대를 ${MG.MARCH_MIN}개 이상 골라요`;
   if (withLord && S.lord.minor) return '어린 성주는 출정할 수 없어요';
+  if (withLord && S.lord.injured && !S.lord.deployInjured) return '성주가 부상 중이에요 (가문 카드에서 부상 중 출전을 켜야 해요)';
   if (S.ap < MG.MARCH_AP) return `행동력이 ${MG.MARCH_AP} 필요해요`;
   if (S.res.food < MG.MARCH_FOOD) return `식량이 ${MG.MARCH_FOOD} 필요해요`;
   S.res.food -= MG.MARCH_FOOD;
@@ -792,8 +793,8 @@ function applyConquest(B) {
   // 성주 전사는 승패를 반영한 뒤에 (가문이 끊겨도 검은 성채 함락의 명성은 받는다)
   if (B.lordDead) {
     const rep = [];
-    lordDied(rep, '정벌 전투에서 전사했어요.');
-    sum.lordDied = rep;
+    if (!lordFell(B, sum)) lordDied(rep, '정벌 전투에서 전사했어요.');
+    sum.lordDied = rep.length ? rep : null;
     if (S.over) S.endingPending = false;
   }
   save();
@@ -1185,6 +1186,15 @@ MG.weaponDesc = w => {
 
 // ---------- 병원 ----------
 // 장수 먼저, 그다음 들어온 순서대로 수용 인원만큼만 회복이 진행된다
+// 성주가 쓰러졌을 때: 부상 없이 나갔으면 2~4개월 부상으로 끝나고 true, 부상 중이었으면 false(전사)
+function lordFell(B, sum) {
+  const L = MG.S.lord;
+  if (B.roster.lord.injured) return false;
+  L.injured = randInt(2, 4); L.deployInjured = false;
+  sum.lordHurt = L.injured;
+  MG.chron(`${L.name}이(가) ${B.conquest ? '정벌 전투' : `전투 ${B.level}`}에서 쓰러져 ${L.injured}개월 부상을 입었어요.`, 'lord');
+  return true;
+}
 MG.patients = () => {
   const S = MG.S, list = [];
   for (const g of S.generals) if (!g.dead && g.injured > 0) list.push({ kind: 'general', g });
@@ -1196,6 +1206,8 @@ MG.patients = () => {
 function tickHospital() {
   const S = MG.S;
   let cap = MG.hospitalCap(), recovered = 0;
+  // 성주는 성의 의원이 돌보니 병원 칸과 상관없이 매달 낫는다
+  if (S.lord.injured > 0 && --S.lord.injured <= 0) { S.lord.injured = 0; S.lord.deployInjured = false; recovered++; }
   for (const p of MG.patients()) {
     if (cap-- <= 0) break;
     if (p.kind === 'general') { if (--p.g.injured === 0) { p.g.deploy = true; recovered++; } }
@@ -1252,7 +1264,7 @@ MG.buildRoster = march => {
   // 성주가 정벌에 나가 있으면 성을 지키지 못하고, 정벌에 안 따라갔으면 정벌 전투에 없다
   const lordAway = march ? !march.lord : !!(S.march && S.march.lord);
   const roster = {
-    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
+    squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, injured: L.injured > 0, sitOut: L.injured > 0 && !L.deployInjured, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
     relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'], fort: JSON.parse(JSON.stringify(S.fort)),
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
@@ -1310,8 +1322,8 @@ MG.applyResult = B => {
   // 성주가 전사하면 혈족 중에서 후계자를 고른다 (내정 화면). 혈족이 없으면 가문 단절.
   if (B.lordDead) {
     const rep = [];
-    lordDied(rep, '전사했어요.');
-    sum.lordDied = rep;
+    if (!lordFell(B, sum)) lordDied(rep, '전사했어요.');
+    sum.lordDied = rep.length ? rep : null;
   }
 
   S.stats.battles++;

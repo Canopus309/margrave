@@ -54,7 +54,7 @@ function refreshDefense(B, phaseName) {
     <div class="stat"><span>${MG.ic('skull')} 전장의 적</span><b>${B.enemies.length}</b></div>
     <div class="stat"><span>${MG.ic('target')} 처치</span><b>${B.stats.kills}</b></div>
     ${next && B.phase === 'battle' && next.wave > B.wave ? `<div class="stat"><span>${MG.ic('hourglass')} 다음 습격까지</span><b>${Math.ceil(next.t - B.time)}초</b></div>` : ''}
-    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '정벌 중' : B.lordDead ? '전사' : '생존'}</b></div>`);
+    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '정벌 중' : B.roster.lord.sitOut ? '부상으로 불참' : B.lordDead ? '쓰러짐' : B.roster.lord.injured ? '부상 중 출전' : '생존'}</b></div>`);
 
   // 한 면을 성벽 조각 4개 + 가운데 성문으로 보여준다
   const piece = w => {
@@ -94,7 +94,7 @@ function refreshConquest(B, phaseName) {
     <div class="stat"><span>${MG.ic('skull')} 전장의 적</span><b>${B.enemies.filter(e => !e.struct).length}</b></div>
     <div class="stat"><span>${MG.ic('target')} 처치</span><b>${B.stats.kills}</b></div>
     ${!B.bossDead && B.phase === 'battle' ? `<div class="stat"><span>${MG.ic('hourglass')} 다음 증원까지</span><b>${Math.ceil(B.reinfT)}초</b></div>` : ''}
-    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '성에 남음' : B.lordDead ? '전사' : '친정 중'}</b></div>`);
+    <div class="stat"><span>${MG.ic('crown')} 성주</span><b style="color:${B.lordDead ? '#ff6b6b' : '#6bdc8f'}">${B.roster.lord.away ? '성에 남음' : B.lordDead ? '쓰러짐' : '친정 중'}</b></div>`);
   setHtml('walls', bar('적 본진', B.hq.dead ? 0 : B.hq.hp, B.hq.max)
     + bar(boss.T.name, boss.dead ? 0 : boss.hp, boss.max)
     + `<div class="stat"><span>${MG.ic('building-lighthouse')} 남은 망루</span><b>${towers}</b></div>
@@ -191,6 +191,7 @@ function showConquestResult(B) {
     <h3 style="margin:0 0 4px;font-size:14px">쓰러진 병사 (전투 후 판정)</h3>
     ${woundTable(s)}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
+    ${s.lordHurt ? `<p style="color:#ffb36b">${MG.ic('bandage')} 성주가 쓰러져 ${s.lordHurt}개월 부상을 입었어요. 부상 중에 또 쓰러지면 전사해요.</p>` : ''}
     ${r.win && !O.final ? `<p>거점을 얻었어요: <b style="color:var(--ok)">${O.reward}</b></p>` : ''}
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
@@ -239,6 +240,7 @@ function showResult(B) {
     </table>
     ${s.ruined.length ? `<p style="color:#ffb36b">부서진 건물: ${s.ruined.join(', ')}${s.lostPop ? ` · 주민 ${s.lostPop}명이 죽었어요` : ''}${s.homeless ? ` · ${s.homeless}명이 집을 잃었어요 (수리하지 않으면 매달 1/4씩 떠나요)` : ''}. 수리해야 다시 쓸 수 있어요.</p>` : ''}
     ${s.lordDied ? `<p style="color:#ff6b6b">${s.lordDied.join(' ')}${S.over ? '' : ' 내정 화면에서 후계자를 골라요.'}</p>` : ''}
+    ${s.lordHurt ? `<p style="color:#ffb36b">${MG.ic('bandage')} 성주가 쓰러져 ${s.lordHurt}개월 부상을 입었어요. 부상 중에 또 쓰러지면 전사해요.</p>` : ''}
     ${s.gold ? `<p>전리품: 골드 <b style="color:var(--accent)">+${s.gold}</b></p>` : ''}
     ${s.weapon ? `<p>전리품: <b style="color:${MG.WEAPON_GRADES[s.weapon.grade].color}">[${MG.WEAPON_GRADES[s.weapon.grade].name}] ${s.weapon.name}</b>
       <span style="color:var(--muted)">(${MG.UNIT_TYPES[s.weapon.type].name}용 · ${MG.weaponDesc(s.weapon)})</span></p>` : ''}
