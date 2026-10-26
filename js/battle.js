@@ -283,6 +283,7 @@ MG.createBattle = function (level, roster) {
     const n = roster.garrison[kind];
     MG.SIDES.forEach((s, i) => { B.garrison[s][kind] = Math.floor(n / 4) + (i < n % 4 ? 1 : 0); });
   }
+  if (MG.perk('mobile')) mobileGarrison();
   for (const rs of roster.squads) {
     const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls,
       lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
@@ -660,7 +661,7 @@ function hitEnemy(e, dmg, sq) {
 const STRUCT_DMG = { artillery: 2.5, engineer: 2, mage: 0.5 };
 function damageEnemy(e, dmg, sq) {
   if (e.dead) return;
-  if (e.struct) dmg *= (sq && STRUCT_DMG[sq.type]) || 0.25;
+  if (e.struct) dmg *= ((sq && STRUCT_DMG[sq.type]) || 0.25) * (MG.perk('siegemaster') ? 1.5 : 1);
   if (relic('goblinskull') && (e.type === 'goblin' || e.type === 'goblinArcher')) dmg *= 1.25;
   if (relic('orcfang') && (e.type === 'orc' || e.type === 'orcThrower' || e.type === 'troll')) dmg *= 1.2;
   // 망자는 마법·신성 공격에 약하고, 날아다니는 적에게는 근접 공격이 절반만 먹힌다
@@ -792,7 +793,7 @@ const CHARGE_RUN = 40;
 function attack(s, t) {
   const T = s.T, sq = s.squad, m = sq.mods;
   let dmg = s.atk * atkMult(s);
-  const charge = Math.max(m.charge || 0, T.charge || 0);
+  const charge = Math.max(m.charge || 0, T.charge || 0) + (sq.type === 'cavalry' && MG.perk('cavtrad') ? 1 : 0);
   if (charge > 1 && s.run >= CHARGE_RUN) { dmg *= charge; B.fx.push({ kind: 'charge', x: t.x, y: t.y, t: 0.35, max: 0.35 }); }
   s.run = 0;
   if (T.kind === 'melee') {
@@ -1394,7 +1395,7 @@ function updateGarrison(dt) {
         const e = zone[(Math.random() * zone.length) | 0], w = live[i % live.length];
         const p = wallPoint(s, C.R - 6, (w.a0 + w.a1) / 2 + rand(-0.4, 0.4) * (w.a1 - w.a0));
         B.projectiles.push({ x: p.x, y: p.y,
-          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * (relic('arrowheads') ? 1.15 : 1), kind: 'arrow', speed: 520, splash: 0 });
+          target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * (relic('arrowheads') ? 1.15 : 1) * (MG.perk('wallwatch') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.2 : 1), kind: 'arrow', speed: 520, splash: 0 });
       }
     }
     if (g.infT <= 0 && g.infantry > 0) {
@@ -1473,13 +1474,36 @@ function tickFort(dt) {
   }
 }
 
+// 기동 방어(결단): 직할 병력이 성벽 대신 면마다 기동 부대로 나온다
+function mobileGarrison() {
+  for (const s of MG.SIDES) {
+    const g = B.garrison[s], n = g.archer + g.infantry;
+    if (!n) continue;
+    const sq = makeSquad(`직할 기동대 (${MG.SIDE_NAME[s]})`, 'garrison', { garrison: true, mods: MG.combineMods([{ speed: 1.3 }]) });
+    const p = wallPoint(s, C.R - C.T - 45, 0);
+    for (let i = 0; i < n; i++) makeSoldier(sq, i < g.infantry ? 'infantry' : 'archer', p.x, p.y);
+    sq.initial = n; g.archer = 0; g.infantry = 0;
+    MG.orderMove(sq, p.x, p.y, MG.NORMAL[s], true);
+  }
+}
+// 마법 요새(결단): 마법탑이 있으면 6초마다 성 주변 적에게 화염구
+function tickArcane(dt) {
+  if (B.conquest || !MG.perk('arcane') || !B.buildings.some(b => b.type === 'tower' && b.hp > 0)) return;
+  if ((B.arcaneT = (B.arcaneT == null ? 4 : B.arcaneT) - dt) > 0) return;
+  B.arcaneT = 6;
+  const near = B.enemies.filter(e => !e.dead && dist(e, C) < 480);
+  if (!near.length) return;
+  const t = near[(Math.random() * near.length) | 0];
+  blast(t.x, t.y, 45, 40 + 6 * B.level, null, { burn: 5 });
+}
+
 // ---------- 전투 스킬 ----------
 function initExtras(roster) {
   B.zones = []; B.blessings = []; B.flagT = 0; B.drumT = 0;
   // 소모품: 가진 것 중 앞의 3종을 기본으로 챙긴다 (준비 단계에서 바꿀 수 있다)
   B.items = { ...(roster.items || {}) }; B.itemsUsed = {};
   B.relics = new Set(roster.relics || []);
-  B.carry = new Set(Object.keys(B.items).filter(k => B.items[k] > 0 && MG.ITEMS[k] && MG.itemUsable(k)).slice(0, MG.ITEM_CARRY));
+  B.carry = new Set(Object.keys(B.items).filter(k => B.items[k] > 0 && MG.ITEMS[k] && MG.itemUsable(k)).slice(0, MG.itemCarry()));
 }
 const cdMul = () => (B.drumT > 0 ? 0.83 : 1) * (relic('wardrum') ? 0.91 : 1);
 // 축복(전투사제 갈래): 그 사제 장수 주변 아군 공격력 +25%
@@ -1500,7 +1524,7 @@ MG.skillState = sq => {
 MG.skillOf = skillOf;
 function skillCooldown(sq) {
   const K = skillOf(sq);
-  sq.skillCd = K.cd * (sq.type === 'cavalry' && sq.cls === 'B' ? 0.5 : 1) * (relic('crystal') ? 0.8 : 1);
+  sq.skillCd = K.cd * (sq.type === 'cavalry' && sq.cls === 'B' ? 0.5 : 1) * (relic('crystal') ? 0.8 : 1) * (MG.perk('tactics') ? 0.9 : 1);
 }
 // p: point 스킬의 목표 지점. 쓰면 null, 못 쓰면 이유를 돌려준다
 MG.useSkill = function (sq, p) {
@@ -1639,7 +1663,7 @@ MG.itemLeft = k => (B.items[k] || 0) - (B.itemsUsed[k] || 0);
 MG.toggleCarry = k => {
   if (B.phase !== 'prep') return;
   if (B.carry.has(k)) B.carry.delete(k);
-  else if (B.carry.size < MG.ITEM_CARRY && MG.itemLeft(k) > 0 && MG.itemUsable(k)) B.carry.add(k);
+  else if (B.carry.size < MG.itemCarry() && MG.itemLeft(k) > 0 && MG.itemUsable(k)) B.carry.add(k);
 };
 // p: 지점, sq: 대상 부대(치유 물약). 쓰면 null, 못 쓰면 이유
 MG.useItem = function (k, p, sq) {
@@ -1678,6 +1702,7 @@ MG.update = function (dt) {
   B.time += dt;
   tickSkills(dt);
   tickFort(dt);
+  tickArcane(dt);
   // 해골 부활
   if (B.revives && B.revives.length) {
     for (const r of B.revives) if ((r.t -= dt) <= 0) {

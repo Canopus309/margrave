@@ -112,8 +112,8 @@ function refreshItems(B) {
   const card = $('itemCard');
   card.classList.toggle('hidden', !kinds.length || B.phase === 'result');
   const html = B.phase === 'prep'
-    ? `<h3>소모품 챙기기 (${B.carry.size} / ${MG.ITEM_CARRY}종)</h3>${kinds.map(k => `<label class="tog"><input type="checkbox" data-carry="${k}" ${B.carry.has(k) ? 'checked' : ''}
-        ${!B.carry.has(k) && B.carry.size >= MG.ITEM_CARRY ? 'disabled' : ''}> ${MG.ic(MG.ICONS.item[k])} ${MG.ITEMS[k].name} ×${B.items[k]} <span class="muted small">${MG.ITEMS[k].desc}</span></label>`).join('')}`
+    ? `<h3>소모품 챙기기 (${B.carry.size} / ${MG.itemCarry()}종)</h3>${kinds.map(k => `<label class="tog"><input type="checkbox" data-carry="${k}" ${B.carry.has(k) ? 'checked' : ''}
+        ${!B.carry.has(k) && B.carry.size >= MG.itemCarry() ? 'disabled' : ''}> ${MG.ic(MG.ICONS.item[k])} ${MG.ITEMS[k].name} ×${B.items[k]} <span class="muted small">${MG.ITEMS[k].desc}</span></label>`).join('')}`
     : `<h3>${MG.ic('gift')} 소모품</h3><div class="itemBtns">${[...B.carry].map(k => `<button class="mini" data-useitem="${k}" ${MG.itemLeft(k) > 0 ? '' : 'disabled'} title="${MG.ITEMS[k].desc}">
         ${MG.ic(MG.ICONS.item[k])} ${MG.ITEMS[k].name} <b>${MG.itemLeft(k)}</b></button>`).join('') || '<span class="muted small">챙겨 온 소모품이 없어요</span>'}</div>
         ${B.drumT > 0 ? `<div class="ok small">전투 북: ${Math.ceil(B.drumT)}초</div>` : ''}`;

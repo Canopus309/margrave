@@ -238,3 +238,18 @@ details.report summary { cursor: pointer; color: var(--muted); }
 #resTitle .ti { color: var(--accent); }
 .fbtns { display: inline-flex; gap: 4px; align-items: center; }
 .fortTable { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; } .fortTable td { padding: 3px 4px; } .fortTable .mini { padding: 1px 5px; }
+/* 명성 특성 트리 */
+.panel.perkPanel { width: min(1180px, 96vw); max-height: 92vh; overflow-y: auto; }
+.ptree { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.pcol h3 { margin: 0 0 6px; text-align: center; }
+.ptier { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.perk { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; background: var(--panel2); }
+.perk.lock { opacity: .45; }
+.perk.can { border-color: #4a5a7a; }
+.perk.own { border-color: #3a6a4a; }
+.perk.on { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+.perk.keystone { background: #2a2414; }
+.perk.keystone.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.perk .pact { margin-top: 3px; }
+.perkLine { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.tag.key { background: #3a2e18; color: #ffd38a; }

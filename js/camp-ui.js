@@ -9,7 +9,9 @@ let demolishArmed = null; // 철거 확인 중: 'b'+건물 id 또는 'f'+들판 
 let saveOpen = false;     // 저장·불러오기 창
 let chronOpen = false;    // 연대기 창
 let setupOpen = false;    // 새 캠페인 준비 창
-let setup = { difficulty: 'normal', domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
+let perkOpen = false;     // 특성 트리 창 (준비 창 위에)
+let perkResetArmed = false;
+let setup = { perkSlots: [], keystone: null, difficulty: 'normal', domain: 'none', bonuses: [], siege: 0, originOffer: null, relicOffer: null, origin: null, relic: null };
 let slotArmed = null;     // 두 번 눌러 확인 중인 슬롯 동작 'save:1', 'load:2', 'del:3'
 let tab = 'castle';         // 내정 화면 탭: castle army war market family
 let openGen = new Set();    // 펼쳐 둔 장수 카드
@@ -141,10 +143,10 @@ function selBlock() {
         ${b.level + 1}단계로 강화 · ${MG.costText(cost)} · 행동력 1</button><div class="muted small">다음: ${d.desc(b.level + 1)}</div>`}</div>`;
   }
   const opts = Object.entries(MG.BUILDINGS).map(([k, d]) => {
-    const fit = MG.canPlace(k, sel.i, sel.j), ok = fit && S.ap && MG.canPay(d.cost);
+    const fit = MG.canPlace(k, sel.i, sel.j), ok = fit && S.ap && MG.canPay(MG.costOf(d.cost, 1));
     return `<button class="buildOpt" data-build="${k}" ${ok ? '' : 'disabled'}>
       <b>${MG.ic(MG.ICONS.building[k])} ${d.name}</b> <span class="muted">${d.w}×${d.h}</span><span>${d.desc(1)}</span>
-      <span class="${MG.canPay(d.cost) ? 'muted' : 'danger'}">${MG.costText(d.cost)}${fit ? '' : ' · 자리 부족'}</span></button>`;
+      <span class="${MG.canPay(MG.costOf(d.cost, 1)) ? 'muted' : 'danger'}">${MG.costText(MG.costOf(d.cost, 1))}${fit ? '' : ' · 자리 부족'}</span></button>`;
   }).join('');
   return `<div class="selPanel"><b>여기에 짓기</b> <span class="muted small">(${sel.i}, ${sel.j}칸을 왼쪽 위로) · 행동력 1</span>
     <div class="buildList">${opts}</div></div>`;
@@ -155,7 +157,7 @@ function recruitNote() {
   if (!MG.recruitCap()) return '병영이 필요해요 (부서졌으면 수리)';
   if (MG.S.pop <= MG.MIN_POP) return '주민이 너무 적어요';
   const p = MG.recruitPlan();
-  if (!p.total) return `골드가 모자라요 (1명당 ${MG.RECRUIT_GOLD})`;
+  if (!p.total) return `골드가 모자라요 (1명당 ${Math.ceil(MG.recruitGold())})`;
   const where = [p.squads ? `장수 부대 ${p.squads}` : '', p.garrison ? `직할 ${p.garrison}` : ''].filter(Boolean).join(' · ');
   return `주민 ${p.total}명 → ${where} · ${MG.costText(MG.recruitCost())}`;
 }
@@ -213,7 +215,7 @@ function itemShop() {
     <span><b>${MG.ic(MG.ICONS.item[k])} ${I.name}</b> <span class="count">×${S.items[k] || 0}</span></span>
     <span class="small muted">${I.desc}${I.defense ? ' (방어전)' : ''}</span>
     ${market ? `<button class="mini" data-buyitem="${k}" ${S.res.gold >= I.price && (S.items[k] || 0) < MG.ITEM_MAX ? '' : 'disabled'}>${MG.icRes('gold')} ${I.price}</button>` : ''}</div>`).join('');
-  return `<h3 style="margin-top:10px">${MG.ic('gift')} 전투 소모품 <span class="muted">전투마다 ${MG.ITEM_CARRY}종까지</span></h3>${rows}`;
+  return `<h3 style="margin-top:10px">${MG.ic('gift')} 전투 소모품 <span class="muted">전투마다 ${MG.itemCarry()}종까지</span></h3>${rows}`;
 }
 
 function fieldsBlock() {
@@ -226,7 +228,7 @@ function fieldsBlock() {
         ${MG.ic('trash')}${demolishArmed === 'f' + idx ? ' 한 번 더' : ''}</button></span></div>`;
   }).join('');
   const add = S.fields.length < MG.FIELD_SLOTS ? Object.entries(MG.FIELDS).filter(([, d]) => !d.hidden).map(([k, d]) =>
-    `<button class="mini" data-field="${k}" ${ap && MG.canPay(d.cost) ? '' : 'disabled'} title="${MG.costText(d.cost)}">${MG.ic('plus')} ${MG.ic(MG.ICONS.field[k])} ${d.name}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
+    `<button class="mini" data-field="${k}" ${ap && MG.canPay(MG.costOf(d.cost, 1)) ? '' : 'disabled'} title="${MG.costText(MG.costOf(d.cost, 1))}">${MG.ic('plus')} ${MG.ic(MG.ICONS.field[k])} ${d.name}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
   return `<section class="card"><h3>${MG.ic('plant-2')} 성 밖 들판 ${S.fields.length} / ${MG.FIELD_SLOTS} <span class="muted">적이 부수지 않아요</span></h3>
     ${list}<div class="fieldAdd">${add}</div>
     <div class="muted small">가을엔 식량 2배, 겨울엔 식량 0·목재 절반</div></section>`;
@@ -479,6 +481,69 @@ function pickModal() {
 }
 
 // 가진 유물
+// ---------- 명성 특성 트리 ----------
+// 준비 창에 보이는 요약: 칸 수, 끼운 특성, 결단
+function perkSummary() {
+  const owned = MG.meta().perks, slots = MG.perkSlots();
+  const on = MG.activePerks(setup.perkSlots, setup.keystone), list = on.map(id => perkTag(id)).join(' ');
+  return `<h3>${MG.ic('hierarchy-3')} 명성 특성 <span class="small muted">칸 ${setup.perkSlots.length} / ${slots} · 결단 ${setup.keystone ? 1 : 0} / 1 · 가진 특성 ${owned.length}</span></h3>
+    <div class="perkLine">${list || '<span class="muted small">아직 켠 특성이 없어요</span>'}</div>
+    <div class="row"><button class="mini" id="perkTreeBtn">${MG.ic('hierarchy-3')} 특성 트리 열기</button></div>`;
+}
+const perkTag = id => { const P = MG.PERKS[id]; return `<span class="tag ${P.t === 4 ? 'key' : ''}" title="${P.desc}${P.cons ? ' · 제약: ' + P.cons : ''}">${MG.ic(MG.PERK_BRANCHES[P.b].icon)} ${P.name}</span>`; };
+// 특성 트리: 5갈래 × 4단. 사기(명성) / 칸에 끼우기 / 결단 고르기
+function perkPanel() {
+  const m = MG.meta(), slots = MG.perkSlots(), spent = m.perks.reduce((a, id) => a + MG.PERK_COST[MG.PERKS[id].t], 0);
+  const cols = Object.entries(MG.PERK_BRANCHES).map(([b, Br]) => {
+    const tiers = [1, 2, 3, 4].map(t => {
+      const cells = Object.entries(MG.PERKS).filter(([, P]) => P.b === b && P.t === t).map(([id, P]) => {
+        const own = MG.perkOwned(id), can = MG.perkUnlockable(id), cost = MG.PERK_COST[t];
+        const on = t === 1 ? own : t === 4 ? setup.keystone === id : setup.perkSlots.includes(id);
+        let act;
+        if (!own) act = `<button class="mini" data-pbuy="${id}" ${can && m.renown >= cost ? '' : 'disabled'}>${can ? `${MG.ic('lock-open')} ${cost}` : MG.ic('lock')}</button>`;
+        else if (t === 1) act = `<span class="ok small">${MG.ic('check')} 항상</span>`;
+        else act = `<button class="mini ${on ? 'onBtn' : ''}" data-pon="${id}">${on ? '켜짐' : t === 4 ? '고르기' : '끼우기'}</button>`;
+        return `<div class="perk ${own ? 'own' : can ? 'can' : 'lock'} ${on ? 'on' : ''} ${t === 4 ? 'keystone' : ''}">
+          <b>${t === 4 ? MG.ic('star') + ' ' : ''}${P.name}</b><span class="small">${P.desc}</span>${P.cons ? `<span class="small danger">제약: ${P.cons}</span>` : ''}
+          <div class="pact">${act}</div></div>`;
+      }).join('');
+      return `<div class="ptier"><span class="muted small">${t === 4 ? '결단' : t + '단'} · ${MG.PERK_COST[t]}</span>${cells}</div>`;
+    }).join('');
+    return `<div class="pcol"><h3>${MG.ic(Br.icon)} ${Br.name}</h3>${tiers}</div>`;
+  }).join('');
+  return `<div class="overlay"><div class="panel perkPanel"><h1>${MG.ic('hierarchy-3')} 명성 특성 트리</h1>
+    <p class="small">모아 둔 명성 <b class="warn">${m.renown}</b> · 칸 <b>${setup.perkSlots.length} / ${slots}</b> (모은 명성 ${MG.PERK_SLOTS.per}마다 +1, 최대 ${MG.PERK_SLOTS.max}) · 결단 <b>${setup.keystone ? 1 : 0} / 1</b>
+      <span class="muted">— 1단은 사면 항상 켜지고, 2·3단은 칸에 끼운 것만, 결단은 하나만 켜져요. 아래 단을 하나 사야 다음 단이 열려요.</span></p>
+    <div class="ptree">${cols}</div>
+    ${msg ? `<div class="msg small">${msg}</div>` : ''}
+    <div class="row"><button class="main" id="perkCloseBtn">닫기</button>
+      <button class="${perkResetArmed ? 'danger' : ''}" id="perkResetBtn" ${m.perks.length ? '' : 'disabled'}>${MG.ic('refresh')} ${perkResetArmed ? '정말 모두 돌려받을까요? 한 번 더' : `초기화 (명성 ${spent} 돌려받기)`}</button></div></div></div>`;
+}
+function bindPerks() {
+  if (!perkOpen) return;
+  const q = s => el.querySelectorAll(s);
+  q('[data-pbuy]').forEach(b => b.onclick = () => { msg = MG.buyPerk(b.dataset.pbuy); render(); });
+  q('[data-pon]').forEach(b => b.onclick = () => {
+    const id = b.dataset.pon, P = MG.PERKS[id];
+    if (P.t === 4) setup.keystone = setup.keystone === id ? null : id;
+    else if (setup.perkSlots.includes(id)) setup.perkSlots = setup.perkSlots.filter(x => x !== id);
+    else if (setup.perkSlots.length < MG.perkSlots()) setup.perkSlots = [...setup.perkSlots, id];
+    else msg = '칸이 다 찼어요. 다른 특성을 빼고 끼워요';
+    render();
+  });
+  $('perkCloseBtn').onclick = () => { perkOpen = false; perkResetArmed = false; msg = ''; render(); };
+  $('perkResetBtn').onclick = () => {
+    if (!perkResetArmed) { perkResetArmed = true; render(); return; }
+    perkResetArmed = false; setup.perkSlots = []; setup.keystone = null; msg = MG.resetPerks(); render();
+  };
+}
+// 가문 탭: 이번 판에 켜진 특성
+function activePerksBlock() {
+  const on = MG.S.perks || [];
+  return `<section class="card"><h3>${MG.ic('hierarchy-3')} 명성 특성 ${on.length}</h3>
+    <div class="perkLine">${on.map(perkTag).join(' ') || '<span class="muted small">새 캠페인 준비 창의 특성 트리에서 배우고 끼워요</span>'}</div></section>`;
+}
+
 function relicBlock() {
   const list = (MG.S.relics || []).map(id => { const R = MG.RELICS[id], g = MG.RELIC_GRADES[R.grade];
     return `<li><b style="color:${g.color}">${R.name}</b> <span class="muted">${R.desc}</span></li>`; }).join('');
@@ -568,6 +633,7 @@ function setupPanel() {
     <h3>${MG.ic('diamond')} 시작 유물 <span class="small muted">(일반 유물 셋 중 하나)</span></h3>${(setup.relicOffer || []).map(k => `<div class="pick ${setup.relic === k ? 'on' : ''}">
       <div><b>${MG.RELICS[k].name}</b> <span class="small muted">${MG.RELICS[k].desc}</span></div>
       <button class="mini" data-setrelic="${k}">${setup.relic === k ? '선택됨' : '고르기'}</button></div>`).join('')}
+    ${perkSummary()}
     <h3>${MG.ic('flame')} 난이도 <span class="small muted">${MG.DIFFICULTY[setup.difficulty].desc} · 얻는 명성 ×${MG.DIFFICULTY[setup.difficulty].renown}</span></h3>
     <div class="row">${Object.entries(MG.DIFFICULTY).map(([k, D]) => `<button class="mini ${setup.difficulty === k ? 'onBtn' : ''}" data-setdiff="${k}" title="${D.desc} · 명성 ×${D.renown}">${D.name}</button>`).join('')}</div>
     <h3>${MG.ic('map-2')} 영지 특성 (하나)</h3>${domain}
@@ -651,7 +717,7 @@ function render() {
       <div class="campRow">${garrison}<section class="card">${hospitalBlock()}</section>${tavernBlock()}${weapons}</div>`,
     war: `<div class="campRow two">${conquestBlock()}${expeditionBlock()}</div>`,
     market: `<div class="campRow two">${marketBlock()}${crownBlock()}</div>`,
-    family: `<div class="campRow">${familyBlock()}${relicBlock()}${records}</div>`,
+    family: `<div class="campRow">${familyBlock()}${relicBlock()}${activePerksBlock()}${records}</div>`,
   }[tab];
   el.innerHTML = `<div class="campWrap">
     ${headerBlock()}
@@ -659,7 +725,7 @@ function render() {
     ${tab !== 'castle' && msg ? `<div class="msg small">${msg}</div>` : ''}
     ${body}
   </div>
-  ${setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
+  ${perkOpen ? perkPanel() : setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
     : S.pendingSuccession ? successionModal() : S.pendingPick ? pickModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
   bind();
 }
@@ -774,6 +840,8 @@ MG.openSetup = () => {
   render();
 };
 function bindSetup() {
+  bindPerks();
+  if (perkOpen) return;
   if (!setupOpen) return;
   const q = s => el.querySelectorAll(s);
   q('[data-buy]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.buy.split(','); msg = MG.buyUnlock(k, id) || '해금했어요.'; render(); });
@@ -785,11 +853,12 @@ function bindSetup() {
     setup.bonuses = setup.bonuses.includes(k) ? setup.bonuses.filter(x => x !== k) : [...setup.bonuses, k];
     render();
   });
+  if ($('perkTreeBtn')) $('perkTreeBtn').onclick = () => { perkOpen = true; msg = ''; render(); };
   q('[data-setdiff]').forEach(b => b.onclick = () => { setup.difficulty = b.dataset.setdiff; render(); });
   q('[data-setsiege]').forEach(b => b.onclick = () => { setup.siege = +b.dataset.setsiege; render(); });
   $('startCampBtn').onclick = () => {
     setupOpen = false; sel = null; msg = '';
-    MG.resetCampaign({ difficulty: setup.difficulty, domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
+    MG.resetCampaign({ perks: MG.activePerks(setup.perkSlots, setup.keystone), difficulty: setup.difficulty, domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
     setup.originOffer = setup.relicOffer = null;
     render(); window.scrollTo(0, 0);
   };

@@ -75,6 +75,7 @@ function migrate(s) {
   if (!s.difficulty) s.difficulty = 'normal';
   if (!s.relics) s.relics = [];
   if (!s.fort) s.fort = MG.newFort();
+  if (!s.perks) s.perks = [];
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
 }
 
@@ -86,7 +87,7 @@ MG.newCampaign = (opts = {}) => {
     family: [], tavern: [], retired: 0, pendingSuccession: false,
     crown: MG.CROWN_START, sites: [], event: null, support: null,
     domain: opts.domain || 'none', siege: opts.siege || 0, effects: [], chronicle: [], cevent: null,
-    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(),
+    conquest: {}, outposts: [], march: null, pendingConquest: false, items: {}, difficulty: opts.difficulty || 'normal', fort: MG.newFort(), perks: opts.perks || MG.activePerks([], null),
     era: { main: 'goblin', mix: null, until: 2 + 12 * randInt(...MG.ERA_YEARS) },
     origin: opts.origin || null, relics: opts.relic ? [opts.relic] : [], pendingPick: null,
     lineage: [{ gen: 1, name: MG.LORD.name, from: 2, to: null, cause: null }],
@@ -104,6 +105,11 @@ MG.newCampaign = (opts = {}) => {
   // 명성으로 해금한 시작 보너스
   const bonus = opts.bonuses || [];
   if (bonus.includes('res')) for (const k of Object.keys(s.res)) s.res[k] = Math.round(s.res[k] * 1.5);
+  // 명성 특성: 시작 조건
+  if (MG.perk('stockpile')) for (const k of Object.keys(s.res)) s.res[k] = Math.round(s.res[k] * 1.25);
+  if (MG.perk('recruits')) { s.garrison.archer += 6; s.garrison.infantry += 6; }
+  if (MG.perk('veterans')) for (const g of s.generals) g.level = Math.max(g.level, 3);
+  if (MG.perk('martial')) for (let i = 0; i < 2; i++) s.lord.stats[pick(Object.keys(s.lord.stats))]++;
   if (bonus.includes('general')) {
     const g = newGeneral({ type: pick(Object.keys(MG.WEAPON_KINDS)), level: 2, age: randInt(24, 34) });
     g.healthy = MG.genCap(g);
@@ -189,7 +195,7 @@ function applyLord(B, sum) {
 // ---------- 가문과 후계 ----------
 // 후계 후보는 혈족뿐: 장수가 된 자녀와 아직 어린 자녀
 MG.heirs = () => [
-  ...MG.S.generals.filter(g => g.blood && !g.dead).map(g => ({ kind: 'general', id: g.id, name: g.name, age: g.age, level: g.level, traits: g.traits })),
+  ...MG.S.generals.filter(g => (g.blood || MG.perk('adoption')) && !g.dead).map(g => ({ kind: 'general', id: g.id, name: g.name, age: g.age, level: g.level, traits: g.traits })),
   ...MG.S.family.map(c => ({ kind: 'child', id: c.id, name: c.name, age: c.age, level: 1, traits: c.traits })),
 ];
 
@@ -225,7 +231,7 @@ function setOver(reason) {
 }
 
 MG.chooseHeir = (kind, id) => {
-  const S = MG.S, gen = S.lord.gen + 1;
+  const S = MG.S, gen = S.lord.gen + 1, prevStats = S.lord.stats && { ...S.lord.stats };
   if (kind === 'general') {
     const g = S.generals.find(x => x.id === id);
     if (!g) return;
@@ -241,6 +247,11 @@ MG.chooseHeir = (kind, id) => {
   S.lineage.push({ gen, name: S.lord.name, from: S.month, to: null, cause: null });
   MG.chron(`${S.lord.name}이(가) ${gen}대 성주가 되었어요${S.lord.minor ? ` (${S.lord.age}세, 어린 성주)` : ''}.`, 'lord');
   // 본국이 계승을 인정하며 선물을 보낸다 (관계가 좋을수록 크다)
+  // 명성 특성: 혈통 계승(선대 능력치 1/3), 양자 계승(+2, 본국 관계 -10), 무가의 피(+2)
+  const statKeys = Object.keys(S.lord.stats), bump = n => { for (let i = 0; i < n; i++) S.lord.stats[pick(statKeys)]++; };
+  if (prevStats && MG.perk('lineage')) for (const k of statKeys) S.lord.stats[k] += Math.floor((prevStats[k] || 0) / 3);
+  if (MG.perk('adoption')) { bump(2); addCrown(-10); }
+  if (MG.perk('martial')) bump(2);
   const gift = 100 + 3 * S.crown;
   S.res.gold = Math.min(MG.storageCap(), S.res.gold + gift);
   S.report = [`${S.lord.name}이(가) ${gen}대 성주가 되었어요.${S.lord.minor ? ` 아직 ${S.lord.age}세라 ${MG.ADULT_AGE}세까지는 전투에 나가지 않아요.` : ''}`,
@@ -250,13 +261,15 @@ MG.chooseHeir = (kind, id) => {
 
 // 해가 바뀔 때: 나이, 출생, 성년, 노환
 function newYear(rep) {
+  // 왕의 대리인: 해마다 지원병 20명, 대신 가진 골드의 10%를 공물로
+  if (MG.perk('regent')) { MG.S.garrison.archer += 10; MG.S.garrison.infantry += 10; const t = Math.floor(MG.S.res.gold * 0.1); MG.S.res.gold -= t; rep.push(`왕실이 지원병 20명을 보냈고, 공물로 골드 ${t}을 바쳤어요.`); }
   const S = MG.S, L = S.lord;
   L.age++;
   if (L.minor && L.age >= MG.ADULT_AGE) { L.minor = false; rep.push(`${L.name}이(가) 성년이 되어 이제 전투에 나가요.`); }
   for (const g of S.generals) if (!g.dead) g.age++;
   for (const c of S.family) c.age++;
   // 혼담을 받아들였으면 3년 동안 출생 확률 2배
-  const birth = MG.BIRTH_CHANCE * (MG.hasEffect('marriage') ? 2 : 1);
+  const birth = (MG.BIRTH_CHANCE + (MG.perk('fertile') ? 0.1 : 0)) * (MG.hasEffect('marriage') ? 2 : 1);
   if (L.age >= 20 && L.age <= 45 && Math.random() < birth) {
     const c = { id: S.nextId++, name: MG.randomName(), age: 0, traits: MG.rollTraits() };
     S.family.push(c);
@@ -265,18 +278,18 @@ function newYear(rep) {
   }
   for (const c of S.family.filter(c => c.age >= MG.ADULT_AGE)) {
     const type = pick(Object.keys(MG.WEAPON_KINDS));
-    S.generals.push(newGeneral({ name: c.name, type, lead: Math.random() < 0.3 ? 2 : 1, age: c.age, traits: c.traits, blood: true }));
+    S.generals.push(newGeneral({ name: c.name, type, lead: (Math.random() < 0.3 ? 2 : 1) + (MG.perk('schooling') ? 1 : 0), level: MG.perk('academy') ? 3 : 1, age: c.age, traits: c.traits, blood: true }));
     rep.push(`${c.name}이(가) 성년이 되어 장수가 되었어요 (${MG.UNIT_TYPES[type].name}).`);
     MG.chron(`${c.name}이(가) 성년이 되어 장수가 되었어요.`, 'general');
   }
   S.family = S.family.filter(c => c.age < MG.ADULT_AGE);
   for (const g of S.generals) {
-    if (g.dead || Math.random() >= MG.deathChance(g.age)) continue;
+    if (g.dead || Math.random() >= MG.deathChance(g.age) * (MG.perk('healthy') ? 0.5 : 1)) continue;
     g.dead = true; g.deploy = false; S.stats.generalsLost++;
     rep.push(`장수 ${g.name}이(가) ${g.age}세로 세상을 떠났어요.`);
     MG.chron(`장수 ${g.name}이(가) ${g.age}세로 세상을 떠났어요.`, 'general');
   }
-  if (!S.pendingSuccession && Math.random() < MG.deathChance(L.age)) lordDied(rep, `${L.age}세로 세상을 떠났어요.`);
+  if (!S.pendingSuccession && Math.random() < MG.deathChance(L.age) * (MG.perk('healthy') ? 0.5 : 1)) lordDied(rep, `${L.age}세로 세상을 떠났어요.`);
 }
 
 // ---------- 주점·발탁·은퇴 ----------
@@ -390,9 +403,10 @@ MG.bLevel = type => B_().filter(b => b.type === type && b.hp > 0).reduce((m, b) 
 MG.bSum = type => B_().filter(b => b.type === type && b.hp > 0).reduce((m, b) => m + b.level, 0);
 MG.popCap = () => MG.bSum('house') * MG.HOUSE_POP;
 MG.hospitalCap = () => MG.bSum('hospital') * MG.HOSPITAL_PER_LEVEL * (MG.hasRelic('reliquary') ? 2 : 1);
-MG.storageCap = () => MG.STORAGE_BASE + MG.bSum('storage') * 1000;
+MG.storageCap = () => MG.STORAGE_BASE + MG.bSum('storage') * 1000 + (MG.perk('granary') ? 500 : 0);
 
-MG.costOf = (base, level) => Object.fromEntries(Object.entries(base).map(([k, v]) => [k, v * level]));
+// 절약(명성 특성): 건설·강화·들판 비용 -10%
+MG.costOf = (base, level) => Object.fromEntries(Object.entries(base).map(([k, v]) => [k, Math.round(v * level * (MG.perk('thrift') ? 0.9 : 1))]));
 MG.canPay = cost => Object.entries(cost).every(([k, v]) => MG.S.res[k] >= v);
 const pay = cost => { for (const [k, v] of Object.entries(cost)) MG.S.res[k] -= v; };
 MG.costText = cost => Object.entries(cost).map(([k, v]) => `${MG.RES[k]} ${Math.ceil(v)}`).join(' · ');
@@ -410,14 +424,14 @@ function act(cost, fn) {
   return null;
 }
 
-MG.actBuild = (type, i, j) => act(MG.BUILDINGS[type].cost, () => (MG.canPlace(type, i, j) ? (placeBuilding(type, i, j), null) : '여기에는 지을 수 없어요'));
+MG.actBuild = (type, i, j) => act(MG.costOf(MG.BUILDINGS[type].cost, 1), () => (MG.canPlace(type, i, j) ? (placeBuilding(type, i, j), null) : '여기에는 지을 수 없어요'));
 MG.upgradeCost = b => MG.costOf(MG.BUILDINGS[b.type].cost, b.level + 1);
 MG.actUpgrade = b => {
   if (b.level >= MG.BUILDINGS[b.type].max) return '최고 단계예요';
   if (b.hp <= 0) return '먼저 수리해야 해요';
   return act(MG.upgradeCost(b), () => { b.level++; b.max = Math.round(MG.BUILDINGS[b.type].hp * (1 + 0.3 * (b.level - 1))); b.hp = b.max; });
 };
-MG.actField = type => act(MG.FIELDS[type].cost, () => (MG.S.fields.length < MG.FIELD_SLOTS ? (MG.S.fields.push({ type, level: 1 }), null) : '들판에 빈자리가 없어요'));
+MG.actField = type => act(MG.costOf(MG.FIELDS[type].cost, 1), () => (MG.S.fields.length < MG.FIELD_SLOTS ? (MG.S.fields.push({ type, level: 1 }), null) : '들판에 빈자리가 없어요'));
 MG.fieldUpgradeCost = f => MG.costOf(MG.FIELDS[f.type].cost, f.level + 1);
 MG.actFieldUpgrade = f => (f.level >= MG.FIELDS[f.type].max ? '최고 단계예요' : act(MG.fieldUpgradeCost(f), () => { f.level++; }));
 
@@ -448,7 +462,7 @@ MG.demolishField = idx => {
 };
 
 // 성벽 조각 최대 체력 (국경 요새 영지면 +30%). id의 두 번째 글자 2는 성문
-MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1) * (MG.S && MG.hasRelic('crest') ? 1.15 : 1);
+MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1) * (MG.S && MG.hasRelic('crest') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.5 : 1);
 MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul() * MG.fortLevelMul(MG.S && MG.S.fort, id));
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1). kind: wall gate moat oil towers
@@ -488,7 +502,7 @@ MG.damageList = () => {
 MG.repairNeed = () => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().reduce((a, d) => a + d.max - d.hp, 0));
 // 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.repairCost = () => ({ wood: Math.ceil(MG.repairNeed() * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1)) });
+MG.repairCost = () => ({ wood: Math.ceil(MG.repairNeed() * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)) });
 MG.actRepair = () => {
   if (!MG.repairNeed()) return '고칠 곳이 없어요';
   return act(MG.repairCost(), () => {
@@ -523,9 +537,11 @@ MG.recruitTargets = () => {
 };
 // 병종별로 보충에 필요한 건물
 MG.REFILL_BUILDING = { mage: 'tower', priest: 'temple', engineer: 'workshop', artillery: 'workshop', cavalry: 'stable' };
-MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0;
-MG.recruitAmount = () => Math.min(MG.recruitCap(), Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.RECRUIT_GOLD));
-MG.recruitCost = () => ({ gold: MG.recruitAmount() * MG.RECRUIT_GOLD });
+MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0 || (MG.perk('siegeeng') && (type === 'engineer' || type === 'artillery'));
+// 신병 비용: 싼 모병 -40%, 용병 변경백 3배 (대신 주민이 필요 없다)
+MG.recruitGold = () => MG.RECRUIT_GOLD * (MG.perk('cheapdraft') ? 0.6 : 1) * (MG.perk('mercenary') ? 3 : 1);
+MG.recruitAmount = () => Math.min(MG.recruitCap(), MG.perk('mercenary') ? Infinity : Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.recruitGold()));
+MG.recruitCost = () => ({ gold: Math.ceil(MG.recruitAmount() * MG.recruitGold()) });
 MG.recruitPlan = () => {
   let left = MG.recruitAmount();
   const toSquads = MG.recruitTargets().reduce((a, t) => a + t.need, 0);
@@ -534,7 +550,7 @@ MG.recruitPlan = () => {
 };
 MG.actRecruit = () => {
   if (!MG.recruitCap()) return '병영이 없거나 부서졌어요';
-  if (MG.S.pop <= MG.MIN_POP) return '주민이 너무 적어요';
+  if (MG.S.pop <= MG.MIN_POP && !MG.perk('mercenary')) return '주민이 너무 적어요';
   const n = MG.recruitAmount();
   if (!n) return '골드가 모자라요';
   return act(MG.recruitCost(), () => {
@@ -548,7 +564,7 @@ MG.actRecruit = () => {
     // 남는 신병은 성주 직할 (궁수·보병을 번갈아)
     const gar = MG.S.garrison;
     for (; pool > 0; pool--) { if (gar.archer <= gar.infantry) gar.archer++; else gar.infantry++; }
-    MG.S.pop -= n;
+    if (!MG.perk('mercenary')) MG.S.pop -= n;
   });
 };
 
@@ -559,13 +575,16 @@ MG.actTrain = () => {
   return act(null, () => { for (const g of MG.S.generals) if (!g.dead && !g.injured) addXp(g, MG.trainXp()); });
 };
 
-MG.actScout = () => (MG.S.nextAttack.scout >= 2 ? '더 알아낼 것이 없어요' : act({ gold: 20 }, () => { MG.S.nextAttack.scout++; }));
+// 정찰병(명성 특성): 행동력 없이 골드만
+const freeAct = (cost, fn) => { if (!MG.canPay(cost)) return '자원이 모자라요'; pay(cost); fn(); save(); return null; };
+MG.actScout = () => (MG.S.nextAttack.scout >= 2 ? '더 알아낼 것이 없어요' : (MG.perk('scouts') ? freeAct : act)({ gold: 20 }, () => { MG.S.nextAttack.scout++; }));
 
 MG.actCraft = () => {
   const l = MG.bLevel('smithy');
   if (!l) return '대장간이 없어요';
   let w;
-  const why = act(MG.CRAFT_COST, () => { w = rollWeapon(MG.S.level, l); MG.S.inventory.push(w); });
+  // 대장장이 영주(결단): 행동력 없이, 등급 +1
+  const why = (MG.perk('smith') ? freeAct : act)(MG.CRAFT_COST, () => { w = rollWeapon(MG.S.level, Math.min(3, l + (MG.perk('smith') ? 1 : 0))); MG.S.inventory.push(w); });
   return why || `${MG.WEAPON_GRADES[w.grade].name} ${w.name}을(를) 만들었어요`;
 };
 
@@ -577,7 +596,7 @@ MG.ensureMarket = () => {
 };
 MG.buyPrice = r => MG.S.prices[r] * (MG.hasRelic('scales') ? 0.9 : 1);
 MG.sellPrice = r => MG.S.prices[r] * MG.MARKET.sellRate(MG.bLevel('market')) * (MG.hasRelic('scales') ? 1.1 : 1);
-MG.tradeLeft = () => Math.max(0, MG.MARKET.volume(MG.bLevel('market')) - MG.S.traded);
+MG.tradeLeft = () => Math.max(0, Math.floor(MG.MARKET.volume(MG.bLevel('market')) * (MG.perk('smith') ? 0.5 : 1)) - MG.S.traded);
 // 사기(qty>0) 또는 팔기(qty<0). 행동력은 쓰지 않는다.
 // 소모품: 시장이 있으면 골드로 산다 (행동력 안 씀)
 MG.buyItem = k => {
@@ -633,7 +652,7 @@ MG.squadPower = g => {
   const m = MG.genMods(g);
   return Math.round((g.healthy + g.level * 8) * Math.min(2.5, m.atk * m.hp / m.dmgTaken));
 };
-MG.expeditionChance = (g, site) => Math.max(0.1, Math.min(0.95, 0.6 * MG.squadPower(g) / site.diff));
+MG.expeditionChance = (g, site) => Math.max(0.1, Math.min(0.95, 0.6 * MG.squadPower(g) / site.diff + (MG.perk('expedition') ? 0.1 : 0)));
 MG.canExpedition = g => !g.dead && !g.injured && !g.away && g.healthy > 0;
 MG.actExpedition = (siteId, gid) => {
   const S = MG.S, site = (S.sites || []).find(s => s.id === siteId), g = S.generals.find(x => x.id === gid);
@@ -657,8 +676,8 @@ function returnExpeditions(rep) {
     let gain = '';
     if (ok) {
       if (a.type === 'nest') { S.nextAttack.mul = (S.nextAttack.mul || 1) * 0.75; gain = '다음 습격 규모가 줄었어요'; }
-      if (a.type === 'mine') { const n = Math.round(randInt(150, 300) * (1 + 0.1 * S.level)); S.res.iron = Math.min(MG.storageCap(), S.res.iron + n); gain = `철 +${n}`; }
-      if (a.type === 'escort') { const n = Math.round(randInt(200, 400) * (1 + 0.1 * S.level)); S.res.gold = Math.min(MG.storageCap(), S.res.gold + n); gain = `골드 +${n}`; }
+      if (a.type === 'mine') { const n = Math.round(randInt(150, 300) * (1 + 0.1 * S.level) * (MG.perk('raider') ? 3 : 1)); S.res.iron = Math.min(MG.storageCap(), S.res.iron + n); gain = `철 +${n}`; }
+      if (a.type === 'escort') { const n = Math.round(randInt(200, 400) * (1 + 0.1 * S.level) * (MG.perk('raider') ? 3 : 1)); S.res.gold = Math.min(MG.storageCap(), S.res.gold + n); gain = `골드 +${n}`; }
       if (a.type === 'ruins') {
         const w = rollWeapon(S.level + 4); S.inventory.push(w); gain = `${MG.WEAPON_GRADES[w.grade].name} ${w.name}`;
         // 고대 유적에서는 가끔 유물도 나온다
@@ -684,10 +703,10 @@ const cq = id => (MG.S.conquest[id] = MG.S.conquest[id] || { scout: false, fails
 MG.conquestInfo = cq;
 MG.actConquestScout = id => {
   if (cq(id).scout) return '이미 정찰했어요';
-  return act(MG.CONQUEST_SCOUT, () => { cq(id).scout = true; }) || `${MG.OUTPOSTS[id].name}을(를) 정찰했어요.`;
+  return (MG.perk('scouts') ? freeAct : act)(MG.CONQUEST_SCOUT, () => { cq(id).scout = true; }) || `${MG.OUTPOSTS[id].name}을(를) 정찰했어요.`;
 };
 // 진지 수비대 규모: 실패할 때마다 +20%, 포위 단계 반영
-MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * cq(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0);
+MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * cq(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0) * (MG.perk('conqueror') ? 0.85 : 1);
 MG.actMarch = (id, gids, withLord) => {
   const S = MG.S, O = MG.OUTPOSTS[id];
   if (!O || MG.hasOutpost(id)) return '정벌할 수 없는 곳이에요';
@@ -700,9 +719,11 @@ MG.actMarch = (id, gids, withLord) => {
   if (S.res.food < MG.MARCH_FOOD) return `식량이 ${MG.MARCH_FOOD} 필요해요`;
   S.res.food -= MG.MARCH_FOOD;
   S.ap -= MG.MARCH_AP;
-  for (const g of gens) g.away = { type: 'march', months: O.months };
+  // 행군 기간: 철벽 농성 +1, 빠른 행군·정복자 -1 (최소 1개월)
+  const months = Math.max(1, O.months + (MG.perk('siegehold') ? 1 : 0) - (MG.perk('forcedmarch') ? 1 : 0) - (MG.perk('conqueror') ? 1 : 0));
+  for (const g of gens) g.away = { type: 'march', months };
   // 다음 달 도착해서 싸우고, 남은 달 동안 돌아온다
-  S.march = { id, gids: gens.map(g => g.id), lord: !!withLord, left: O.months, fought: false };
+  S.march = { id, gids: gens.map(g => g.id), lord: !!withLord, left: months, fought: false };
   MG.chron(`${O.name} 정벌군이 출정했어요 (${gens.map(g => g.name).join(', ')}${withLord ? ', 성주 친정' : ''}).`, 'battle');
   save();
   return `정벌군이 ${O.name}(으)로 떠났어요. 다음 달 도착해 전투를 벌여요.`;
@@ -733,7 +754,7 @@ function applyConquest(B) {
   S.stats.kills += B.stats.kills;
   if (B.result.win) {
     S.outposts.push(M.id);
-    sum.gold = MG.conquestGold(O.stars);
+    sum.gold = MG.conquestGold(O.stars) * (MG.perk('plunder') ? 2 : 1) * (MG.perk('raider') ? 3 : 1);
     S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
     // 보스를 쓰러뜨렸으면 전설 무기
     if (B.bossDead) {
@@ -752,7 +773,7 @@ function applyConquest(B) {
     } else {
       // 보복 습격: 늦어도 두 달 안에 크게 온다
       const A = S.nextAttack;
-      A.mul = (A.mul || 1) * MG.RETALIATION_MUL;
+      A.mul = (A.mul || 1) * (MG.perk('conqueror') ? 1.25 : MG.perk('raider') ? 2.25 : MG.RETALIATION_MUL);
       A.month = Math.min(A.month, S.month + 2);
       A.retaliation = M.id;
       sum.retaliation = true;
@@ -837,9 +858,9 @@ function makeCard(kind, big) {
 // 서로 다른 종류 3장. 유물은 평소 25% 확률로만 끼고, 대습격이면 맨 앞에 꼭 들어간다
 function rollCards(big) {
   const others = Object.keys(MG.CARD_KINDS).filter(k => k !== 'relic').sort(() => Math.random() - 0.5);
-  const order = big || Math.random() < 0.25 ? ['relic', ...others] : others;
+  const order = big || Math.random() < (MG.perk('treasure') ? 0.5 : 0.25) ? ['relic', ...others] : others;
   const cards = [];
-  for (const k of order) { if (cards.length >= 3) break; const c = makeCard(k, big); if (c) cards.push(c); }
+  for (const k of order) { if (cards.length >= (MG.perk('conqueror') ? 2 : 3)) break; const c = makeCard(k, big); if (c) cards.push(c); }
   return { cards, big, rerolled: false };
 }
 // 카드 보여줄 글: { title, desc, color }
@@ -888,7 +909,7 @@ MG.actSupport = () => {
   const why = act(null, () => {
     const kind = S.crown >= 70 ? 'general' : S.crown >= 40 ? (Math.random() < 0.5 ? 'soldiers' : 'food') : 'foodSmall';
     S.support = { kind, months: randInt(2, 4) };
-    addCrown(-MG.SUPPORT_COST);
+    addCrown(-MG.SUPPORT_COST * (MG.perk('regent') ? 0.5 : 1));
   });
   return why || `본국에 지원을 요청했어요. ${S.support.months}개월 뒤 도착해요.`;
 };
@@ -1009,6 +1030,8 @@ MG.economy = () => {
   // 영지 특성
   if (S.domain === 'mine') made.iron *= 1.5;
   if (MG.hasRelic('pickaxe')) made.iron *= 1.5;
+  if (MG.perk('smith')) made.iron *= 1.3;
+  if (MG.perk('militia')) made.food += Math.floor((S.garrison.archer + S.garrison.infantry) / 10) * 4;
   if (MG.hasRelic('sickle')) made.food *= 1.25;
   if (S.domain === 'fertile') made.food *= 1.3;
   // 정벌한 거점에서 들어오는 것
@@ -1020,10 +1043,10 @@ MG.economy = () => {
   // 연대기 사건의 지속 효과: 세금 감면, 혹한(겨울 식량 소비 1.5배)
   const winterCold = MG.hasEffect('harshWinter') && season === '겨울';
   return {
-    tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1) * MG.adminMul(S.lord.stats)),
+    tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1) * MG.adminMul(S.lord.stats) * (MG.perk('taxreform') ? 1.1 : 1)),
     market: Math.round(MG.bSum('market') * 40 * (S.domain === 'trade' ? 1.5 : 1)),
-    wages: Math.ceil(soldiers * MG.WAGE_SOLDIER + generals * MG.WAGE_GENERAL),
-    made, eat: Math.ceil((soldiers + generals + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
+    wages: Math.ceil(soldiers * MG.WAGE_SOLDIER * (MG.perk('militia') ? 0.5 : 1) * (MG.perk('mercenary') ? 1.5 : 1) + generals * MG.WAGE_GENERAL),
+    made, eat: Math.ceil(((soldiers + generals) * (MG.perk('rations') ? 0.85 : 1) + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
   };
 };
 MG.production = () => {
@@ -1118,7 +1141,7 @@ MG.advanceClass = g => { if (MG.canAdvance(g)) { g.adv = true; save(); } };
 
 function addXp(g, n) {
   const from = g.level;
-  g.xp += n * traitsOf(g).reduce((a, t) => a * (t.xp || 1), 1);
+  g.xp += n * traitsOf(g).reduce((a, t) => a * (t.xp || 1), 1) * (MG.perk('drill') ? 1.1 : 1);
   while (g.level < MG.MAX_LEVEL && g.xp >= MG.xpToNext(g.level)) { g.xp -= MG.xpToNext(g.level); g.level++; }
   if (g.level >= MG.MAX_LEVEL) g.xp = 0;
   return from;
@@ -1183,7 +1206,7 @@ function tickHospital() {
 function rollWound(prev) {
   const t = MG.WOUND_ROLL[prev || 'none'], r = Math.random();
   const res = r < t.light ? 'light' : r < t.light + t.heavy ? 'heavy' : 'dead';
-  return res === 'dead' && MG.hasRelic('bandage') && Math.random() < 0.3 ? 'light' : res;
+  return res === 'dead' && ((MG.hasRelic('bandage') && Math.random() < 0.3) || (MG.perk('medics') && Math.random() < 0.2)) ? 'light' : res;
 }
 // 경상 1개월, 중상 3~6개월 (설계 문서 4장)
 const newWound = sev => ({ sev, left: sev === 'light' ? 1 : randInt(3, 6) });
@@ -1201,6 +1224,8 @@ MG.buildRoster = march => {
     infantry: { atk: MG.hasRelic('whetstone') ? 1.1 : 1 } };
   if (S.origin === 'arcane') typeMods.mage.atk *= 1.2;
   if (S.origin === 'pious') typeMods.priest.heal *= 1.2;
+  if (MG.perk('archery')) typeMods.archer.range *= 1.1;
+  if (MG.perk('arcane')) { typeMods.mage.atk *= 2; typeMods.priest.heal *= 0.7; }
   for (const g of S.generals) {
     if (march ? !march.gids.includes(g.id) : g.away) continue;  // 원정·정벌 간 부대는 성을 지킬 수 없다
     const withGeneral = !g.dead && (march ? true : g.deploy);
@@ -1211,7 +1236,7 @@ MG.buildRoster = march => {
     squads.push({ gid: g.id, name: g.name, type: g.type, slot, title: MG.genTitle(g),
       general: withGeneral ? { name: g.name, injured: g.injured > 0, ageMul: MG.ageMul(g.age) } : null,
       healthy: g.healthy, mob, level: g.level, train, cls: g.cls,
-      mods: MG.combineMods([MG.genMods(g), typeMods[g.type]]),
+      mods: MG.combineMods([MG.genMods(g), typeMods[g.type], MG.perk('harsh') && { hp: 1.1 }, MG.perk('mobile') && { speed: 1.3, atk: 1.1 }]),
       weaponAtk: g.weapon ? MG.WEAPON_GRADES[g.weapon.grade].atk : 1 });
   }
   const L = S.lord;
@@ -1221,7 +1246,7 @@ MG.buildRoster = march => {
     squads, lord: { name: L.name, level: L.level || 1, minor: !!L.minor, away: lordAway, ageMul: MG.ageMul(L.age || 30), mul: S.origin === 'knight' ? 1.5 : 1, stats: { ...L.stats } },
     relics: [...S.relics], diff: MG.DIFFICULTY[S.difficulty || 'normal'], fort: JSON.parse(JSON.stringify(S.fort)),
     garrison: march ? { archer: 0, infantry: 0 } : { archer: S.garrison.archer, infantry: S.garrison.infantry },
-    walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1),
+    walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
     faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null,
@@ -1252,6 +1277,8 @@ MG.applyResult = B => {
   // 성벽·본성·건물 피해는 다음 전투까지 남는다 (수리 전까지)
   S.walls = {};
   for (const w of B.walls) if (w.hp < w.max) S.walls[w.id] = Math.max(0, Math.round(w.hp));
+  // 정비창(명성 특성): 남은 피해의 30%를 바로 고친다
+  if (MG.perk('depot')) for (const id of Object.keys(S.walls)) S.walls[id] = Math.round(S.walls[id] + (MG.wallMax(id) - S.walls[id]) * 0.3);
   S.keep = Math.max(1, Math.round(B.keep.hp));
   for (const bb of B.buildings) {
     const b = S.buildings.find(x => x.id === bb.id);
@@ -1282,7 +1309,7 @@ MG.applyResult = B => {
     S.stats.wins++;
     addCrown(MG.CROWN_WIN);
     // 마물 대이동이 있는 해에는 전리품 2배
-    sum.gold = MG.battleGold(S.level) * (MG.hasEffect('migration') ? 2 : 1);
+    sum.gold = MG.battleGold(S.level) * (MG.hasEffect('migration') ? 2 : 1) * (MG.perk('raider') ? 2 : 1);
     S.res.gold = Math.min(MG.storageCap(), S.res.gold + sum.gold);
     // 습격 보스를 쓰러뜨렸으면 유물
     if (B.raidBossDead) {
@@ -1448,13 +1475,18 @@ MG.meta = () => {
   m.unlocked.bonus = m.unlocked.bonus || [];
   m.unlocked.siege = m.unlocked.siege || 0;
   m.history = m.history || [];
+  m.perks = m.perks || [];
+  // 모은 명성 합계 (특성 칸이 늘어나는 기준). 예전 기록은 지난 캠페인에서 계산한다
+  if (m.earned == null) m.earned = m.history.reduce((a, h) => a + (h.renown || 0), 0);
   return (MG._meta = m);
 };
 const saveMeta = () => { try { store.set(META_KEY, JSON.stringify(MG.meta())); } catch (e) { /* 무시 */ } };
+MG.saveMeta = saveMeta;
 MG.awardRenown = S => {
   if (S.renownAwarded) return;
   const m = MG.meta(), r = S.renown || MG.renownOf(S);
   m.renown += r.total;
+  m.earned = (m.earned || 0) + r.total;
   m.history.unshift({ endedAt: Date.now(), lord: S.lord.name, gens: S.lord.gen, years: Math.floor((S.month - 2) / 12), wins: S.stats.wins,
     siege: S.siege || 0, reason: S.overReason, renown: r.total });
   m.history = m.history.slice(0, 20);
