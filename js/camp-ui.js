@@ -137,7 +137,8 @@ function selBlock() {
     const b = sel.b, d = MG.BUILDINGS[b.type], maxed = b.level >= d.max, cost = MG.upgradeCost(b);
     return `<div class="selPanel"><b>${d.name} ${b.level}단계</b> <span class="muted small">체력 ${Math.round(b.hp)} / ${b.max}</span>
       <div class="small">${d.desc(b.level)}</div>
-      ${b.hp <= 0 ? '<div class="danger small">부서져서 기능을 잃었어요. 행동의 "수리"로 고쳐요.</div>' : ''}
+      ${b.hp <= 0 ? '<div class="danger small">부서져서 기능을 잃었어요. 아래 "이 건물 수리"로 고쳐요.</div>' : ''}
+      ${b.hp < b.max ? repairBtn(`b:${b.id}`, '이 건물 수리') : ''}
       <button class="mini ${demolishArmed === 'b' + b.id ? 'danger' : ''}" data-demolish="${b.id}" title="행동력 없이 헐고, 들인 자원의 절반(${MG.costText(MG.demolishRefund(d.cost, b.level))})을 돌려받아요">
         ${MG.ic('trash')} ${demolishArmed === 'b' + b.id ? '정말 헐까요? 한 번 더' : `철거 · ${MG.costText(MG.demolishRefund(d.cost, b.level))} 환불`}</button>
       ${maxed ? '<div class="muted small">최고 단계예요</div>' : `<button data-upgrade="${b.id}" ${S.ap && MG.canPay(cost) && b.hp > 0 ? '' : 'disabled'}>
@@ -181,8 +182,16 @@ function actionsBlock() {
     : '<div class="actRow"><span class="small muted">발탁: 훈련장 2단계가 있으면 직할 병사를 장수로 키울 수 있어요</span></div>';
   return `<section class="card"><h3>${MG.ic('bolt')} 행동 <span class="muted">행동력 1씩</span></h3>
     ${rows.map(r => `<div class="actRow"><button class="actBtn" data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${MG.ic(MG.ICONS.act[r.id])} ${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
+    ${S.keep < MG.KEEP_HP ? `<div class="actRow"><span class="small">${MG.ic('building-castle')} <b>본성</b> <span class="muted">${Math.round(S.keep)} / ${MG.KEEP_HP}</span></span>${repairBtn('keep', '본성 수리')}</div>` : ''}
     ${promote}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
+}
+
+// 골라서 수리하는 버튼: spec = 'keep' · 'side:N' · 'b:건물id' (행동력 1, 한 번에 2000까지)
+function repairBtn(spec, label, small) {
+  const S = MG.S, need = MG.repairNeed(spec), cost = MG.repairCost(spec);
+  return `<button class="mini" data-repair="${spec}" ${S.ap && need && MG.canPay(cost) ? '' : 'disabled'}
+    title="${need}만큼 고쳐요 · ${MG.costText(cost)} · 행동력 1">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
 }
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1)
@@ -200,10 +209,11 @@ function fortBlock() {
       <td title="${MG.WALL_LEVELS[F.wall[s]].name}">${MG.ic('wall')} ${lvl(MG.WALL_LEVELS, F.wall[s])} ${wn ? btn('wall', s, MG.ic('arrow-up'), `${wn.name}: 체력 ×${wn.mul}${wn.desc ? ' · ' + wn.desc : ''}`) : ''}</td>
       <td title="${MG.GATE_LEVELS[F.gate[s]].name}">${MG.ic('door')} ${lvl(MG.GATE_LEVELS, F.gate[s])} ${gn ? btn('gate', s, MG.ic('arrow-up'), `${gn.name}: 체력 ×${gn.mul}${gn.desc ? ' · ' + gn.desc : ''}`) : ''}</td>
       <td>${btn('moat', s, MG.ic('ripple'), `해자 · ${MG.FORT_EXTRAS.moat.desc}`)}</td>
-      <td>${btn('oil', s, MG.ic('flame'), `기름 구멍 · ${MG.FORT_EXTRAS.oil.desc}`)}</td></tr>`;
+      <td>${btn('oil', s, MG.ic('flame'), `기름 구멍 · ${MG.FORT_EXTRAS.oil.desc}`)}</td>
+      <td>${MG.repairNeed('side:' + s) ? repairBtn('side:' + s, '', true) : ''}</td></tr>`;
   }).join('');
   return `<section class="card"><h3>${MG.ic('wall')} 성벽과 성문 <span class="muted">면마다 강화 · 행동력 1</span></h3>
-    <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td></tr>${rows}</table>
+    <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td><td>수리</td></tr>${rows}</table>
     <div class="actRow"><span class="small">${MG.ic('building-lighthouse')} ${MG.CORNER_TOWERS.name} <span class="muted">${MG.CORNER_TOWERS.desc}</span></span>
       ${btn('towers', null, F.towers ? '있음' : MG.costText(MG.CORNER_TOWERS.cost), MG.CORNER_TOWERS.desc)}</div>
     <div class="muted small">버튼에 마우스를 올리면 효과와 비용이 보여요. 석벽 ×1.4 → 강화 석벽 ×1.8(성벽 위 궁수 사거리 +10%), 철 성문 ×1.6 → 쇠창살 ×2.2(성문 앞 적 이동 -30%)</div></section>`;
@@ -761,6 +771,7 @@ function bind() {
   q('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; render(); });
   q('[data-gopen]').forEach(b => b.onclick = () => { const id = +b.dataset.gopen; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); });
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
+  q('[data-repair]').forEach(b => b.onclick = () => run(MG.actRepair(b.dataset.repair)));
   q('[data-fort]').forEach(b => b.onclick = () => { const [k, s] = b.dataset.fort.split(','); run(MG.actFort(k, s || null)); });
   q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));

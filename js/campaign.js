@@ -499,16 +499,23 @@ MG.damageList = () => {
   for (const b of S.buildings) if (b.hp < b.max) list.push({ kind: 'building', b, hp: b.hp, max: b.max });
   return list;
 };
-MG.repairNeed = () => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().reduce((a, d) => a + d.max - d.hp, 0));
+// 수리 대상: 'all'(알아서), 'keep'(본성), 'side:N'(그 면 성벽·성문), 'b:건물id'
+const repairFilter = spec => {
+  if (!spec || spec === 'all') return () => true;
+  if (spec === 'keep') return d => d.kind === 'keep';
+  if (spec.startsWith('side:')) return d => d.kind === 'wall' && d.id[0] === spec[5];
+  return d => d.kind === 'building' && d.b.id === +spec.slice(2);
+};
+MG.repairNeed = spec => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
 // 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.repairCost = () => ({ wood: Math.ceil(MG.repairNeed() * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)) });
-MG.actRepair = () => {
-  if (!MG.repairNeed()) return '고칠 곳이 없어요';
-  return act(MG.repairCost(), () => {
+MG.repairCost = spec => ({ wood: Math.ceil(MG.repairNeed(spec) * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)) });
+MG.actRepair = spec => {
+  if (!MG.repairNeed(spec)) return '고칠 곳이 없어요';
+  return act(MG.repairCost(spec), () => {
     let left = MG.REPAIR_PER_ACTION;
-    // 무너진 곳(체력 0)부터
-    for (const d of MG.damageList().sort((a, b) => a.hp / a.max - b.hp / b.max)) {
+    // 고른 대상 안에서, 무너진 곳(체력 0)부터
+    for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => a.hp / a.max - b.hp / b.max)) {
       const add = Math.min(left, d.max - d.hp);
       left -= add;
       if (d.kind === 'wall') MG.S.walls[d.id] = d.hp + add;
