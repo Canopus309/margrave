@@ -281,6 +281,18 @@ function classBlock(g) {
   return `<div class="clsDesc muted">Lv.5에 전직할 수 있어요</div>`;
 }
 
+// 편제: 직할 병사를 이 장수 부대로 (같은 병종은 무료, 다른 병종은 재훈련 골드)
+function assignRow(g) {
+  if (g.away) return '';
+  const n = MG.assignable(g), retrain = !['archer', 'infantry'].includes(g.type), room = MG.genCap(g) - g.healthy;
+  if (room <= 0) return '';
+  const src = MG.assignSource(g).map(k => `${MG.icUnit(k)}${MG.S.garrison[k]}`).join(' ');
+  const cost = k => (retrain ? ` · 골드 ${k * MG.RETRAIN_GOLD}` : '');
+  return `<div class="actRow"><span class="small">${MG.ic('users-plus')} 직할에서 편제 <span class="muted">직할 ${src} · 빈자리 ${room}${retrain ? ' · 재훈련' : ''}</span></span>
+    <span>${n ? `<button class="mini" data-assign="${g.id},10">+${Math.min(10, n)}${cost(Math.min(10, n))}</button>
+      <button class="mini" data-assign="${g.id},999">가득 +${n}${cost(n)}</button>` : '<span class="muted small">옮길 병사 없음</span>'}</span></div>`;
+}
+
 function skillLine(g) {
   const K = MG.SKILLS[g.type];
   return `<div class="small">스킬 <b>${K.name}</b> <span class="muted">${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''} · 쿨 ${K.cd}초</span></div>`;
@@ -318,6 +330,7 @@ function genCard(g) {
     `<span title="스킬 ${K.name}: ${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''}">${MG.ic(MG.ICONS.skill[g.type])}</span>`,
     g.wounded.length && `<span class="warn" title="부상병 ${g.wounded.length}명 (${woundCounts(g.wounded)})">${MG.ic('first-aid-kit')}${g.wounded.length}</span>`,
     !g.deploy && !g.away && `<span class="muted" title="출전하지 않아요">${MG.ic('eye-off')}</span>`,
+    !g.away && MG.assignable(g) > 0 && `<span class="ok" title="빈자리가 있어요. 펼쳐서 직할 병사를 편제할 수 있어요">${MG.ic('users-plus')}</span>`,
     !MG.canRefill(g.type) && `<span class="warn" title="${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
   ].filter(Boolean).join('');
   return `<div class="gen ${g.injured ? 'hurt' : ''} ${open ? 'open' : ''}">
@@ -333,6 +346,7 @@ function genCard(g) {
     ${open ? `<div class="gdetail">
     <div class="muted small">통솔 ${MG.genLead(g)} · ${g.age}세</div>
     ${role ? `<div class="muted small">${role}</div>` : ''}${skillLine(g)}${refill}${classBlock(g)}${weaponBlock(g)}
+    ${assignRow(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
     ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
@@ -774,6 +788,7 @@ function bind() {
   if ($('lordDeploy')) $('lordDeploy').onchange = ev => { S.lord.deployInjured = ev.target.checked; MG.saveCampaign(); render(); };
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
   q('[data-repair]').forEach(b => b.onclick = () => run(MG.actRepair(b.dataset.repair)));
+  q('[data-assign]').forEach(b => b.onclick = () => { const [id, n] = b.dataset.assign.split(',').map(Number); run(MG.assignFromGarrison(id, n)); });
   q('[data-fort]').forEach(b => b.onclick = () => { const [k, s] = b.dataset.fort.split(','); run(MG.actFort(k, s || null)); });
   q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
   q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));

@@ -544,7 +544,30 @@ MG.recruitTargets = () => {
 };
 // 병종별로 보충에 필요한 건물
 MG.REFILL_BUILDING = { mage: 'tower', priest: 'temple', engineer: 'workshop', artillery: 'workshop', cavalry: 'stable' };
-MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0 || (MG.perk('siegeeng') && (type === 'engineer' || type === 'artillery'));
+// 편제: 성벽 위 직할 병사를 장수 부대로. 같은 병종(궁수·보병)은 무료, 다른 병종은 다시 훈련해 1명당 골드 10.
+MG.RETRAIN_GOLD = 10;
+MG.assignSource = g => (g.type === 'archer' ? ['archer'] : g.type === 'infantry' ? ['infantry'] : ['infantry', 'archer']);
+MG.assignable = g => {
+  const S = MG.S, room = Math.max(0, MG.genCap(g) - g.healthy);
+  return Math.min(room, MG.assignSource(g).reduce((a, k) => a + S.garrison[k], 0));
+};
+MG.assignFromGarrison = (gid, want) => {
+  const S = MG.S, g = S.generals.find(x => x.id === gid);
+  if (!g || g.dead) return '장수가 없어요';
+  if (g.away) return '원정·정벌에서 돌아온 뒤에 편제해요';
+  if (!MG.canRefill(g.type)) return `${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이(가) 있어야 ${MG.UNIT_TYPES[g.type].name}을(를) 훈련해요`;
+  const retrain = !['archer', 'infantry'].includes(g.type);
+  let n = Math.min(want, MG.assignable(g));
+  if (retrain) n = Math.min(n, Math.floor(S.res.gold / MG.RETRAIN_GOLD));
+  if (n <= 0) return MG.assignable(g) ? '골드가 모자라요' : MG.genCap(g) <= g.healthy ? '부대가 가득 찼어요' : '옮길 직할 병사가 없어요';
+  let left = n;
+  for (const k of MG.assignSource(g)) { const take = Math.min(left, S.garrison[k]); S.garrison[k] -= take; left -= take; }
+  g.healthy += n;
+  if (retrain) S.res.gold -= n * MG.RETRAIN_GOLD;
+  save();
+  return `직할 병사 ${n}명을 ${g.name} 부대로 옮겼어요${retrain ? ` (재훈련 골드 ${n * MG.RETRAIN_GOLD})` : ''}.`;
+};
+MG.canRefill = type =>!MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING[type]) > 0 || (MG.perk('siegeeng') && (type === 'engineer' || type === 'artillery'));
 // 신병 비용: 싼 모병 -40%, 용병 변경백 3배 (대신 주민이 필요 없다)
 MG.recruitGold = () => MG.RECRUIT_GOLD * (MG.perk('cheapdraft') ? 0.6 : 1) * (MG.perk('mercenary') ? 3 : 1);
 MG.recruitAmount = () => Math.min(MG.recruitCap(), MG.perk('mercenary') ? Infinity : Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.recruitGold()));
