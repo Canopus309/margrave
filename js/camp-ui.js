@@ -292,9 +292,9 @@ function genCard(g) {
       <span class="muted">${MG.ic(open ? 'chevron-up' : 'chevron-down')}</span></div>
     <div class="bar thin" title="경험치 ${Math.floor(g.xp)} / ${need || '최고'}"><div style="width:${need ? pct(g.xp, need) : 100}%;background:#6aa8ff"></div></div>
     <div class="gline small"><span title="병사 / 정원 (통솔 ${MG.genLead(g)})">${MG.ic('users')} ${g.healthy}/${cap}</span>${flags}</div>
+    ${traitTags(g.traits)}
     ${open ? `<div class="gdetail">
     <div class="muted small">통솔 ${MG.genLead(g)} · ${g.age}세</div>
-    ${traitTags(g.traits)}
     ${role ? `<div class="muted small">${role}</div>` : ''}${skillLine(g)}${refill}${classBlock(g)}${weaponBlock(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
@@ -381,7 +381,8 @@ function conquestBlock() {
     pickArea = `<div class="warn small">정벌군이 ${MG.OUTPOSTS[M.id].name}에 나가 있어요 (${names}${M.lord ? ', 성주 친정' : ''}) ·
       ${M.fought ? `${M.left}개월 뒤 귀환` : S.pendingConquest ? '도착했어요. 정벌 전투를 치러요' : '다음 달 도착'}</div>`;
   } else {
-    pickArea = `<div class="small"><b>정벌군 고르기</b> <span class="muted">(장수 부대 ${MG.MARCH_MIN}개 이상, 건강하고 병사가 있는 장수만)</span></div>
+    pickArea = `<div class="small"><b>정벌군 고르기</b> <span class="muted">(장수 부대 ${MG.MARCH_MIN}개 이상, 건강하고 병사가 있는 장수만)</span>
+        ${ready.length ? `<button class="mini" data-mall="1">${MG.ic(marchPick.size === ready.length ? 'square' : 'checks')} ${marchPick.size === ready.length ? '전체 해제' : '전체 선택'}</button>` : ''}</div>
       <div class="marchPick">${ready.map(g => `<label class="tog"><input type="checkbox" data-mpick="${g.id}" ${marchPick.has(g.id) ? 'checked' : ''}>
         ${MG.icUnit(g.type)} ${g.name} <span class="muted small">${MG.genTitle(g)} Lv.${g.level} · 병사 ${g.healthy}</span></label>`).join('') || '<span class="muted small">보낼 수 있는 장수가 없어요</span>'}
       ${S.lord.minor ? '' : `<label class="tog"><input type="checkbox" id="marchLord" ${marchLord ? 'checked' : ''}>
@@ -676,6 +677,11 @@ function bind() {
     run(MG.actExpedition(+b.dataset.site, +sel.value));
   });
   q('[data-mpick]').forEach(c => c.onchange = () => { const id = +c.dataset.mpick; c.checked ? marchPick.add(id) : marchPick.delete(id); render(); });
+  q('[data-mall]').forEach(b => b.onclick = () => {
+    const ready = S.generals.filter(MG.canExpedition).map(g => g.id);
+    marchPick = marchPick.size === ready.length ? new Set() : new Set(ready);
+    render();
+  });
   if ($('marchLord')) $('marchLord').onchange = ev => { marchLord = ev.target.checked; render(); };
   q('[data-cscout]').forEach(b => b.onclick = () => run(MG.actConquestScout(b.dataset.cscout)));
   q('[data-march]').forEach(b => b.onclick = () => {

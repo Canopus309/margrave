@@ -57,6 +57,14 @@ MG.beginItem = k => {
 function fireAim(p) {
   const a = input.aim;
   input.aim = null;
+  if (a.kind === 'amove') {
+    // 적을 찍으면 그 적을 집중 공격, 땅을 찍으면 어택땅
+    const e = enemyAt(MG.B, p);
+    if (e) { for (const sq of MG.B.selected) MG.orderAttack(sq, e); input.marks.push({ x: e.x, y: e.y, t: 0.6, color: '#ff6b6b' }); }
+    else moveSelected(MG.B, p, true);
+    MG.ui.refresh(true);
+    return;
+  }
   if (a.kind === 'skill') for (const sq of a.squads) { if (MG.B.squads.includes(sq)) report(MG.useSkill(sq, p)); }
   else report(MG.useItem(a.id, p));
   input.marks.push({ x: p.x, y: p.y, t: 0.6, color: '#9fd4ff' });
@@ -64,7 +72,7 @@ function fireAim(p) {
 }
 
 // 여러 부대를 함께 옮길 때는 옆으로 나란히 세운다
-function moveSelected(B, p) {
+function moveSelected(B, p, attack) {
   const sel = [...B.selected];
   if (!sel.length) return;
   const wallSide = MG.onWall(p) ? MG.side(p) : null;
@@ -85,9 +93,9 @@ function moveSelected(B, p) {
   sel.forEach((sq, i) => {
     const o = off + widths[i] / 2;
     off += widths[i];
-    MG.orderMove(sq, p.x + perp.x * o, p.y + perp.y * o, facing);
+    (attack ? MG.orderAttackMove : MG.orderMove)(sq, p.x + perp.x * o, p.y + perp.y * o, facing);
   });
-  input.marks.push({ x: p.x, y: p.y, t: 0.6, color: '#6bdc8f' });
+  input.marks.push({ x: p.x, y: p.y, t: 0.6, color: attack ? '#ff6b6b' : '#6bdc8f' });
 }
 
 cv.addEventListener('contextmenu', ev => ev.preventDefault());
@@ -161,6 +169,9 @@ window.addEventListener('keydown', ev => {
   } else if (ev.key === ' ') {
     ev.preventDefault();
     MG.ui.togglePause();
+  } else if ((ev.key === 'a' || ev.key === 'A') && !ev.ctrlKey) {
+    // 어택땅: 다음 좌클릭 지점으로 싸우면서 이동
+    if (B.selected.size) input.aim = { kind: 'amove', r: 12 };
   } else if (ev.key === 'q' || ev.key === 'Q') {
     MG.beginSkill([...B.selected]);
   } else if (ev.key === 'Escape') {
@@ -187,7 +198,7 @@ cv.addEventListener('wheel', ev => {
 }, { passive: false });
 
 const PAN_KEYS = {
-  w: [0, -1], a: [-1, 0], s: [0, 1], d: [1, 0], W: [0, -1], A: [-1, 0], S: [0, 1], D: [1, 0],
+  // A키는 어택땅이라 WASD 대신 방향키로만 화면을 옮긴다
   ArrowUp: [0, -1], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowRight: [1, 0],
 };
 

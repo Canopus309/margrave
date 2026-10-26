@@ -551,6 +551,13 @@ MG.orderMove = function (sq, tx, ty, facing, teleport) {
   sq.anchor = { x: tx, y: ty };
   sq.facing = facing;
   sq.focus = null;
+  sq.attackMove = false;
+};
+
+// 어택땅: 그 자리로 가면서 가는 길에 만나는 적과 싸운다
+MG.orderAttackMove = function (sq, tx, ty, facing) {
+  MG.orderMove(sq, tx, ty, facing);
+  sq.attackMove = true;
 };
 
 MG.orderAttack = function (sq, enemy) {
@@ -744,7 +751,7 @@ function pickTarget(s, eGrid) {
   if (f && !f.dead) {
     if (T.kind === 'melee' ? dist(f, slot) < 300 : dist(s, f) <= effRange(s) && dist(s, f) >= minR) return f;
   }
-  if (s.moving) return null;
+  if (s.moving && !s.squad.attackMove) return null;  // 그냥 이동 중에는 싸우지 않는다 (어택땅이면 싸운다)
   const r = T.kind === 'melee' ? 90 : effRange(s);
   let best = null, score = Infinity;
   nearby(eGrid, s, r, e => {
@@ -752,7 +759,9 @@ function pickTarget(s, eGrid) {
     const d = dist(s, e);
     if (d > r || d < minR) return;  // 포병은 너무 가까운 적을 못 쏜다
     // 근접병은 같은 쪽(성 안/밖)의 적을 쫓고, 성벽 너머 적은 손이 닿을 때만 친다
-    if (T.kind === 'melee' && (dist(e, slot) > 150 || (cls(e) !== cls(s) && d > s.range + e.r))) return;
+    if (s.moving && e.struct) return;  // 어택땅 중에는 목책 같은 구조물에 붙잡히지 않는다
+    const ref = s.moving ? s : slot;  // 어택땅 중에는 지금 자리 기준
+    if (T.kind === 'melee' && (dist(e, ref) > (s.moving ? 110 : 150) || (cls(e) !== cls(s) && d > s.range + e.r))) return;
     // 저격수는 체력 높은 적부터. 진지 구조물은 다른 적이 없을 때만 스스로 노린다.
     const sc = (m.tough && T.kind !== 'melee' ? -e.hp : d) + (e.struct ? 100000 : 0);
     if (sc < score) { score = sc; best = e; }
@@ -865,9 +874,11 @@ function updateSoldier(s, dt, eGrid) {
     } else if (d <= effRange(s) + (t.r || 0)) {
       if (s.cdT <= 0) { s.cdT = s.cd * cdMul(); attack(s, t); }
       return;
-    } else if (T.kind === 'melee' && !s.moving) {
+    } else if (T.kind === 'melee' && (!s.moving || s.squad.attackMove)) {
+      // 어택땅으로 가는 중이면 지금 자리에서 가까운 적만 쫓는다
       const leash = s.squad.focus === t || dist(t, C) < C.keepR + 40 ? 320 : 170;
-      if (dist(t, { x: s.slotX, y: s.slotY }) < leash && stepToward(s, t.x, t.y, sp, false, noWall)) { moved(); return; }
+      const near = s.moving ? dist(t, s) < 140 : dist(t, { x: s.slotX, y: s.slotY }) < leash;
+      if (near && stepToward(s, t.x, t.y, sp, false, noWall)) { moved(); return; }
       s.target = null;
     }
   }

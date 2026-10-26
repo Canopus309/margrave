@@ -627,7 +627,7 @@ MG.render = function (B, input) {
   drawBanner(B);
   drawLog(B);
   if (input.aim) {
-    const name = input.aim.kind === 'skill' ? input.aim.squads.map(sq => MG.skillOf(sq).name).filter((v, i, a) => a.indexOf(v) === i).join('·') : MG.ITEMS[input.aim.id].name;
+    const name = input.aim.kind === 'amove' ? '어택땅' : input.aim.kind === 'skill' ? input.aim.squads.map(sq => MG.skillOf(sq).name).filter((v, i, a) => a.indexOf(v) === i).join('·') : MG.ITEMS[input.aim.id].name;
     ctx.font = 'bold 16px "Malgun Gothic", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(view.w / 2 - 230, view.h - 64, 460, 28);
     ctx.fillStyle = '#9fd4ff'; ctx.fillText(`${name}: 쓸 곳을 클릭하세요 · 우클릭/Esc 취소`, view.w / 2, view.h - 50);
