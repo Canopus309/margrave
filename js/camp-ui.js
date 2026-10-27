@@ -588,24 +588,7 @@ function perkPanel() {
     <div class="row"><button class="main" id="perkCloseBtn">닫기</button>
       <button class="${perkResetArmed ? 'danger' : ''}" id="perkResetBtn" ${m.perks.length ? '' : 'disabled'}>${MG.ic('refresh')} ${perkResetArmed ? '정말 모두 돌려받을까요? 한 번 더' : `초기화 (명성 ${spent} 돌려받기)`}</button></div></div></div>`;
 }
-function bindPerks() {
-  if (!perkOpen) return;
-  const q = s => el.querySelectorAll(s);
-  q('[data-pbuy]').forEach(b => b.onclick = () => { msg = MG.buyPerk(b.dataset.pbuy); render(); });
-  q('[data-pon]').forEach(b => b.onclick = () => {
-    const id = b.dataset.pon, P = MG.PERKS[id];
-    if (P.t === 4) setup.keystone = setup.keystone === id ? null : id;
-    else if (setup.perkSlots.includes(id)) setup.perkSlots = setup.perkSlots.filter(x => x !== id);
-    else if (setup.perkSlots.length < MG.perkSlots()) setup.perkSlots = [...setup.perkSlots, id];
-    else msg = '칸이 다 찼어요. 다른 특성을 빼고 끼워요';
-    render();
-  });
-  $('perkCloseBtn').onclick = () => { perkOpen = false; perkResetArmed = false; msg = ''; render(); };
-  $('perkResetBtn').onclick = () => {
-    if (!perkResetArmed) { perkResetArmed = true; render(); return; }
-    perkResetArmed = false; setup.perkSlots = []; setup.keystone = null; msg = MG.resetPerks(); render();
-  };
-}
+
 // 가문 탭: 이번 판에 켜진 특성
 function activePerksBlock() {
   const on = MG.S.perks || [];
@@ -799,111 +782,177 @@ function render() {
   </div>`}
   ${perkOpen ? perkPanel() : setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
     : S.pendingSuccession ? successionModal() : S.pendingPick ? pickModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
-  bind();
 }
 
 // 행동 결과(실패 이유 또는 알림)를 보여주고 다시 그린다
 const run = why => { msg = why || ''; render(); };
 
-function bind() {
-  const S = MG.S, gen = id => S.generals.find(g => g.id === +id), q = s => el.querySelectorAll(s);
-  q('[data-cell]').forEach(c => c.onclick = () => { const [i, j] = c.dataset.cell.split(',').map(Number); sel = { i, j }; msg = ''; render(); });
-  q('[data-bld]').forEach(c => c.onclick = () => { sel = { b: S.buildings.find(b => b.id === +c.dataset.bld) }; msg = ''; render(); });
-  q('[data-build]').forEach(b => b.onclick = () => { const why = MG.actBuild(b.dataset.build, sel.i, sel.j); if (!why) sel = null; run(why); });
-  q('[data-upgrade]').forEach(b => b.onclick = () => run(MG.actUpgrade(sel.b)));
-  // 철거는 두 번 눌러 확인
-  q('[data-demolish]').forEach(b => b.onclick = () => {
-    const k = 'b' + b.dataset.demolish;
-    if (demolishArmed !== k) { demolishArmed = k; render(); return; }
-    demolishArmed = null; const why = MG.demolish(sel.b); sel = null; run(why);
-  });
-  q('[data-fdel]').forEach(b => b.onclick = () => {
-    const k = 'f' + b.dataset.fdel;
-    if (demolishArmed !== k) { demolishArmed = k; render(); return; }
-    demolishArmed = null; run(MG.demolishField(+b.dataset.fdel));
-  });
-  q('[data-act]').forEach(b => b.onclick = () => {
-    const a = b.dataset.act;
-    run(a === 'repair' ? MG.actRepair() : a === 'recruit' ? MG.actRecruit() : a === 'train' ? MG.actTrain() : a === 'scout' ? MG.actScout()
-      : a === 'support' ? MG.actSupport() : MG.actCraft());
-  });
-  q('[data-field]').forEach(b => b.onclick = () => run(MG.actField(b.dataset.field)));
-  q('[data-trade]').forEach(b => b.onclick = () => { const [r, n] = b.dataset.trade.split(','); run(MG.trade(r, +n)); });
-  q('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; msg = ''; render(); });
-  q('[data-gopen]').forEach(b => b.onclick = () => { const id = +b.dataset.gopen; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); });
-  if ($('lordDeploy')) $('lordDeploy').onchange = ev => { S.lord.deployInjured = ev.target.checked; MG.saveCampaign(); render(); };
-  q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
-  q('[data-repair]').forEach(b => b.onclick = () => run(MG.actRepair(b.dataset.repair)));
-  q('[data-assign]').forEach(b => b.onclick = () => { const [id, n] = b.dataset.assign.split(',').map(Number); run(MG.assignReserve(id, n)); });
-  if ($('assignAll')) $('assignAll').onclick = () => run(MG.assignAll());
-  q('[data-train]').forEach(b => b.onclick = () => { const [t, n] = b.dataset.train.split(','); run(MG.startTraining(t, +n)); });
-  q('[data-gmove]').forEach(b => b.onclick = () => { const [t, n, d] = b.dataset.gmove.split(','); run(MG.moveGarrisonReserve(t, +n, d)); });
-  if ($('mobReserve')) $('mobReserve').onchange = ev => { S.mobilizeReserve = ev.target.checked; MG.saveCampaign(); render(); };
-  q('[data-fort]').forEach(b => b.onclick = () => { const [k, s] = b.dataset.fort.split(','); run(MG.actFort(k, s || null)); });
-  q('[data-buyitem]').forEach(b => b.onclick = () => run(MG.buyItem(b.dataset.buyitem)));
-  q('[data-hire]').forEach(b => b.onclick = () => run(MG.hire(+b.dataset.hire)));
-  q('[data-site]').forEach(b => b.onclick = () => {
-    const sel = el.querySelector(`[data-site-gen="${b.dataset.site}"]`);
-    run(MG.actExpedition(+b.dataset.site, +sel.value));
-  });
-  q('[data-mpick]').forEach(c => c.onchange = () => { const id = +c.dataset.mpick; c.checked ? marchPick.add(id) : marchPick.delete(id); render(); });
-  q('[data-mall]').forEach(b => b.onclick = () => {
-    const ready = S.generals.filter(MG.canExpedition).map(g => g.id);
+// ---------- 눌렀을 때 ----------
+// 그릴 때마다 붙이지 않고 #camp 하나에서 click·change를 받는다. 눌린 곳에서 위로 올라가며
+// 처음 만나는 id(ON_ID) 또는 data-속성(ON_DATA) 하나만 처리한다. 꺼진 버튼은 무시한다.
+const gen = id => MG.gen(+id);
+// 두 번 눌러 확인: 처음 누르면 표시만 하고, 같은 것을 다시 누르면 true
+const armedTwice = (cur, key, arm) => { if (cur !== key) { arm(key); render(); return false; } arm(null); return true; };
+const ACTS = { repair: MG.actRepair, recruit: MG.actRecruit, train: MG.actTrain, scout: MG.actScout, support: MG.actSupport, craft: MG.actCraft };
+// 다음 습격까지 넘기기: 매달 소식 중 수입 줄은 빼고 마지막 6개만
+function skipMonths() {
+  sel = null; msg = '';
+  const all = [];
+  let n = 0;
+  while (!MG.mustFight() && n++ < 24) all.push(...MG.endMonth());
+  MG.S.report = [`${n}개월이 지났어요.`, ...all.filter(r => !r.startsWith('수입')).slice(-6)];
+  MG.saveCampaign();
+  render(); window.scrollTo(0, 0);
+}
+function exportFile() {
+  const S = MG.S, blob = new Blob([MG.exportSave()], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `변경백-${S.lord.gen}대-${MG.year()}년차${S.month % 12 + 1}월.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  msg = '파일로 내보냈어요.'; render();
+}
+const closeSave = () => { saveOpen = false; slotArmed = null; msg = ''; render(); };
+const openSave = () => { saveOpen = true; slotArmed = null; msg = ''; render(); };
+const openChron = () => { chronOpen = true; render(); };
+
+const ON_ID = {
+  goBtn: () => { resetArmed = false; sel = null; msg = ''; MG.startNextBattle(); },
+  conquestBtn: () => { resetArmed = false; sel = null; msg = ''; MG.startConquest(); },
+  endBtn: () => { sel = null; msg = ''; MG.endMonth(); render(); window.scrollTo(0, 0); },
+  skipBtn: skipMonths,
+  resetBtn: () => { if (armedTwice(resetArmed, true, k => { resetArmed = !!k; })) MG.openSetup(); },
+  assignAll: () => run(MG.assignAll()),
+  continueBtn: () => { MG.continueReign(); render(); },
+  finishBtn: () => { MG.finishStory(); render(); },
+  newCampBtn: () => MG.openSetup(),
+  rerollBtn: () => run(MG.rerollCards()),
+  chronBtn: openChron, chronBtn2: openChron,
+  chronCloseBtn: () => { chronOpen = false; render(); },
+  // 새 캠페인 준비 창과 특성 트리
+  perkTreeBtn: () => { perkOpen = true; msg = ''; render(); },
+  perkCloseBtn: () => { perkOpen = false; perkResetArmed = false; msg = ''; render(); },
+  perkResetBtn: () => {
+    if (!armedTwice(perkResetArmed, true, k => { perkResetArmed = !!k; })) return;
+    setup.perkSlots = []; setup.keystone = null; msg = MG.resetPerks(); render();
+  },
+  startCampBtn: () => {
+    setupOpen = false; sel = null; msg = '';
+    MG.resetCampaign({ perks: MG.activePerks(setup.perkSlots, setup.keystone), difficulty: setup.difficulty, domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
+    setup.originOffer = setup.relicOffer = null;
+    render(); window.scrollTo(0, 0);
+  },
+  setupCloseBtn: () => { setupOpen = false; msg = ''; render(); },
+  // 저장·불러오기 창
+  saveMenuBtn: openSave, saveMenuBtn2: openSave,
+  saveCloseBtn: closeSave,
+  exportBtn: exportFile,
+  openDirBtn: () => MG.openSaveDir(),
+  importBtn: () => $('importFile').click(),
+};
+
+const ON_DATA = {
+  // 성 안 지도와 건물
+  cell: v => { const [i, j] = v.split(',').map(Number); sel = { i, j }; msg = ''; render(); },
+  bld: v => { sel = { b: MG.S.buildings.find(b => b.id === +v) }; msg = ''; render(); },
+  build: v => { const why = MG.actBuild(v, sel.i, sel.j); if (!why) sel = null; run(why); },
+  upgrade: () => run(MG.actUpgrade(sel.b)),
+  demolish: v => { if (armedTwice(demolishArmed, 'b' + v, k => { demolishArmed = k; })) { const why = MG.demolish(sel.b); sel = null; run(why); } },
+  fdel: v => { if (armedTwice(demolishArmed, 'f' + v, k => { demolishArmed = k; })) run(MG.demolishField(+v)); },
+  field: v => run(MG.actField(v)),
+  fup: v => run(MG.actFieldUpgrade(MG.S.fields[+v])),
+  // 행동·수리·성벽
+  act: v => run(ACTS[v]()),
+  repair: v => run(MG.actRepair(v)),
+  fort: v => { const [k, s] = v.split(','); run(MG.actFort(k, s || null)); },
+  promote: v => run(MG.actPromote(v)),
+  // 시장
+  trade: v => { const [r, n] = v.split(','); run(MG.trade(r, +n)); },
+  buyitem: v => run(MG.buyItem(v)),
+  // 탭·장수
+  tab: v => { tab = v; msg = ''; render(); },
+  gopen: v => { const id = +v; openGen.has(id) ? openGen.delete(id) : openGen.add(id); render(); },
+  lstat: v => { MG.lordSpend(v); render(); },
+  assign: v => { const [id, n] = v.split(',').map(Number); run(MG.assignReserve(id, n)); },
+  train: v => { const [t, n] = v.split(','); run(MG.startTraining(t, +n)); },
+  gmove: v => { const [t, n, d] = v.split(','); run(MG.moveGarrisonReserve(t, +n, d)); },
+  cls: v => { const [id, k] = v.split(','); MG.chooseClass(gen(id), k); render(); },
+  adv: v => { MG.advanceClass(gen(v)); render(); },
+  unequip: v => { MG.unequip(gen(v)); render(); },
+  retire: v => run(MG.retire(gen(v))),
+  dismiss: v => { if (armedTwice(dismissArmed, +v, k => { dismissArmed = k; })) run(MG.dismiss(gen(v))); },
+  hire: v => run(MG.hire(+v)),
+  // 원정·정벌
+  site: v => run(MG.actExpedition(+v, +el.querySelector(`[data-site-gen="${v}"]`).value)),
+  mall: () => {
+    const ready = MG.S.generals.filter(MG.canExpedition).map(g => g.id);
     marchPick = marchPick.size === ready.length ? new Set() : new Set(ready);
     render();
-  });
-  if ($('marchLord')) $('marchLord').onchange = ev => { marchLord = ev.target.checked; render(); };
-  q('[data-cscout]').forEach(b => b.onclick = () => run(MG.actConquestScout(b.dataset.cscout)));
-  q('[data-march]').forEach(b => b.onclick = () => {
-    const why = MG.actMarch(b.dataset.march, [...marchPick], marchLord);
+  },
+  cscout: v => run(MG.actConquestScout(v)),
+  march: v => {
+    const why = MG.actMarch(v, [...marchPick], marchLord);
     if (MG.S.march) { marchPick.clear(); marchLord = false; }
     run(why);
-  });
-  q('[data-event]').forEach(b => b.onclick = () => run(MG.resolveEvent(+b.dataset.event)));
-  q('[data-promote]').forEach(b => b.onclick = () => run(MG.actPromote(b.dataset.promote)));
-  q('[data-retire]').forEach(b => b.onclick = () => run(MG.retire(gen(b.dataset.retire))));
-  q('[data-dismiss]').forEach(b => b.onclick = () => {
-    const id = +b.dataset.dismiss;
-    if (dismissArmed !== id) { dismissArmed = id; render(); return; }
-    dismissArmed = null;
-    run(MG.dismiss(gen(id)));
-  });
-  q('[data-heir]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.heir.split(','); MG.chooseHeir(k, +id); render(); });
-  if ($('continueBtn')) $('continueBtn').onclick = () => { MG.continueReign(); render(); };
-  if ($('finishBtn')) $('finishBtn').onclick = () => { MG.finishStory(); render(); };
-  const nc = $('newCampBtn');
-  if (nc) nc.onclick = () => MG.openSetup();
-  q('[data-card]').forEach(b => b.onclick = () => run(MG.pickCard(+b.dataset.card)));
-  if ($('rerollBtn')) $('rerollBtn').onclick = () => run(MG.rerollCards());
-  q('[data-chron]').forEach(b => b.onclick = () => run(MG.resolveChronicle(+b.dataset.chron)));
-  for (const id of ['chronBtn', 'chronBtn2']) { const b = $(id); if (b) b.onclick = () => { chronOpen = true; render(); }; }
-  if ($('chronCloseBtn')) $('chronCloseBtn').onclick = () => { chronOpen = false; render(); };
-  bindSetup();
-  bindSave();
-  q('[data-fup]').forEach(b => b.onclick = () => run(MG.actFieldUpgrade(S.fields[+b.dataset.fup])));
-  q('[data-cls]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.cls.split(','); MG.chooseClass(gen(id), k); render(); });
-  q('[data-adv]').forEach(b => b.onclick = () => { MG.advanceClass(gen(b.dataset.adv)); render(); });
-  q('[data-unequip]').forEach(b => b.onclick = () => { MG.unequip(gen(b.dataset.unequip)); render(); });
-  q('[data-equip]').forEach(s => s.onchange = () => { if (s.value) MG.equip(gen(s.dataset.equip), +s.value); render(); });
-  q('[data-deploy]').forEach(c => c.onchange = () => { gen(c.dataset.deploy).deploy = c.checked; MG.saveCampaign(); render(); });
-  const go = $('goBtn'), end = $('endBtn'), skip = $('skipBtn'), cq = $('conquestBtn');
-  if (go) go.onclick = () => { resetArmed = false; sel = null; msg = ''; MG.startNextBattle(); };
-  if (cq) cq.onclick = () => { resetArmed = false; sel = null; msg = ''; MG.startConquest(); };
-  if (end) end.onclick = () => { sel = null; msg = ''; MG.endMonth(); render(); window.scrollTo(0, 0); };
-  if (skip) skip.onclick = () => {
-    sel = null; msg = '';
-    const all = [];
-    let n = 0;
-    while (!MG.mustFight() && n++ < 24) all.push(...MG.endMonth());
-    MG.S.report = [`${n}개월이 지났어요.`, ...all.filter(r => !r.startsWith('수입')).slice(-6)];
-    MG.saveCampaign();
-    render(); window.scrollTo(0, 0);
-  };
-  if ($('resetBtn')) $('resetBtn').onclick = () => {
-    if (!resetArmed) { resetArmed = true; render(); return; }
-    resetArmed = false; MG.openSetup();
-  };
+  },
+  // 창: 이벤트·후계·보상 카드·연대기 사건
+  event: v => run(MG.resolveEvent(+v)),
+  heir: v => { const [k, id] = v.split(','); MG.chooseHeir(k, +id); render(); },
+  card: v => run(MG.pickCard(+v)),
+  chron: v => run(MG.resolveChronicle(+v)),
+  // 새 캠페인 준비 창과 특성 트리
+  pbuy: v => { msg = MG.buyPerk(v); render(); },
+  pon: id => {
+    if (MG.PERKS[id].t === 4) setup.keystone = setup.keystone === id ? null : id;
+    else if (setup.perkSlots.includes(id)) setup.perkSlots = setup.perkSlots.filter(x => x !== id);
+    else if (setup.perkSlots.length < MG.perkSlots()) setup.perkSlots = [...setup.perkSlots, id];
+    else msg = '칸이 다 찼어요. 다른 특성을 빼고 끼워요';
+    render();
+  },
+  buy: v => { const [k, id] = v.split(','); msg = MG.buyUnlock(k, id) || '해금했어요.'; render(); },
+  setorigin: v => { setup.origin = v; render(); },
+  setrelic: v => { setup.relic = v; render(); },
+  setdomain: v => { setup.domain = v; render(); },
+  setbonus: k => { setup.bonuses = setup.bonuses.includes(k) ? setup.bonuses.filter(x => x !== k) : [...setup.bonuses, k]; render(); },
+  setdiff: v => { setup.difficulty = v; render(); },
+  setsiege: v => { setup.siege = +v; render(); },
+  // 저장 슬롯: 빈 슬롯에 저장할 때만 바로, 나머지는 두 번 눌러야 한다
+  slot: k => {
+    const [act, n] = k.split(':'), i = +n;
+    if ((act !== 'save' || MG.slotInfo(i)) && !armedTwice(slotArmed, k, v => { slotArmed = v; })) return;
+    slotArmed = null;
+    msg = act === 'save' ? MG.saveSlot(i) : act === 'load' ? MG.loadSlot(i) : MG.deleteSlot(i);
+    if (act === 'load' && !MG.S.over) sel = null;
+    render();
+  },
+};
+
+// 체크박스·목록: 바뀐 값으로
+const saveAndRender = () => { MG.saveCampaign(); render(); };
+const ON_CHANGE_ID = {
+  lordDeploy: c => { MG.S.lord.deployInjured = c.checked; saveAndRender(); },
+  mobReserve: c => { MG.S.mobilizeReserve = c.checked; saveAndRender(); },
+  marchLord: c => { marchLord = c.checked; render(); },
+  importFile: c => { const f = c.files[0]; if (f) f.text().then(t => { msg = MG.importSave(t); sel = null; render(); }); },
+};
+const ON_CHANGE_DATA = {
+  mpick: (v, c) => { c.checked ? marchPick.add(+v) : marchPick.delete(+v); render(); },
+  equip: (v, c) => { if (c.value) MG.equip(gen(v), +c.value); render(); },
+  deploy: (v, c) => { gen(v).deploy = c.checked; saveAndRender(); },
+};
+
+// 눌린 곳에서 #camp까지 올라가며 처음 맞는 처리 하나
+function dispatch(ev, byId, byData) {
+  for (let n = ev.target; n && n !== el; n = n.parentElement) {
+    if (n.disabled) return;
+    if (n.id && byId[n.id]) return byId[n.id](n);
+    for (const k of Object.keys(n.dataset)) if (byData[k]) return byData[k](n.dataset[k], n);
+  }
 }
+el.addEventListener('click', ev => dispatch(ev, ON_ID, ON_DATA));
+el.addEventListener('change', ev => dispatch(ev, ON_CHANGE_ID, ON_CHANGE_DATA));
+
 
 MG.openSetup = () => {
   const u = MG.meta().unlocked;
@@ -917,65 +966,6 @@ MG.openSetup = () => {
   setupOpen = true; saveOpen = false; chronOpen = false; msg = '';
   render();
 };
-function bindSetup() {
-  bindPerks();
-  if (perkOpen) return;
-  if (!setupOpen) return;
-  const q = s => el.querySelectorAll(s);
-  q('[data-buy]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.buy.split(','); msg = MG.buyUnlock(k, id) || '해금했어요.'; render(); });
-  q('[data-setorigin]').forEach(b => b.onclick = () => { setup.origin = b.dataset.setorigin; render(); });
-  q('[data-setrelic]').forEach(b => b.onclick = () => { setup.relic = b.dataset.setrelic; render(); });
-  q('[data-setdomain]').forEach(b => b.onclick = () => { setup.domain = b.dataset.setdomain; render(); });
-  q('[data-setbonus]').forEach(b => b.onclick = () => {
-    const k = b.dataset.setbonus;
-    setup.bonuses = setup.bonuses.includes(k) ? setup.bonuses.filter(x => x !== k) : [...setup.bonuses, k];
-    render();
-  });
-  if ($('perkTreeBtn')) $('perkTreeBtn').onclick = () => { perkOpen = true; msg = ''; render(); };
-  q('[data-setdiff]').forEach(b => b.onclick = () => { setup.difficulty = b.dataset.setdiff; render(); });
-  q('[data-setsiege]').forEach(b => b.onclick = () => { setup.siege = +b.dataset.setsiege; render(); });
-  $('startCampBtn').onclick = () => {
-    setupOpen = false; sel = null; msg = '';
-    MG.resetCampaign({ perks: MG.activePerks(setup.perkSlots, setup.keystone), difficulty: setup.difficulty, domain: setup.domain, bonuses: setup.bonuses.slice(), siege: setup.siege, origin: setup.origin, relic: setup.relic });
-    setup.originOffer = setup.relicOffer = null;
-    render(); window.scrollTo(0, 0);
-  };
-  if ($('setupCloseBtn')) $('setupCloseBtn').onclick = () => { setupOpen = false; msg = ''; render(); };
-}
-
-function bindSave() {
-  const open = () => { saveOpen = true; slotArmed = null; msg = ''; render(); };
-  for (const id of ['saveMenuBtn', 'saveMenuBtn2']) { const b = $(id); if (b) b.onclick = open; }
-  if (!saveOpen) return;
-  $('saveCloseBtn').onclick = () => { saveOpen = false; slotArmed = null; msg = ''; render(); };
-  el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => {
-    const k = b.dataset.slot, [act, n] = k.split(':'), i = +n;
-    // 빈 슬롯에 저장할 때만 바로, 나머지는 두 번 눌러야 한다
-    const needConfirm = act !== 'save' || !!MG.slotInfo(i);
-    if (needConfirm && slotArmed !== k) { slotArmed = k; render(); return; }
-    slotArmed = null;
-    msg = act === 'save' ? MG.saveSlot(i) : act === 'load' ? MG.loadSlot(i) : MG.deleteSlot(i);
-    if (act === 'load' && !MG.S.over) { sel = null; }
-    render();
-  });
-  $('exportBtn').onclick = () => {
-    const S = MG.S, blob = new Blob([MG.exportSave()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `변경백-${S.lord.gen}대-${MG.year()}년차${S.month % 12 + 1}월.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    msg = '파일로 내보냈어요.'; render();
-  };
-  if ($('openDirBtn')) $('openDirBtn').onclick = () => MG.openSaveDir();
-  $('importBtn').onclick = () => $('importFile').click();
-  $('importFile').onchange = ev => {
-    const f = ev.target.files[0];
-    if (!f) return;
-    f.text().then(t => { msg = MG.importSave(t); sel = null; render(); });
-  };
-}
-
 MG.enterCamp = () => {
   msg = '';
   if (MG.music) MG.music('camp');
