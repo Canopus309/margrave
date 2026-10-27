@@ -76,7 +76,7 @@ function fillSquad(g, n) {
   S.reserve[g.type] -= n; g.healthy += n;
 }
 MG.assignReserve = (gid, want) => {
-  const S = MG.S, g = S.generals.find(x => x.id === gid);
+  const S = MG.S, g = MG.gen(gid);
   if (!g || g.dead) return '장수가 없어요';
   if (g.away) return '원정·정벌에서 돌아온 뒤에 편제해요';
   const n = Math.min(want, MG.assignable(g));
@@ -190,13 +190,25 @@ function tickHospital() {
   return recovered;
 }
 
-function rollWound(prev) {
-  const t = MG.WOUND_ROLL[prev || 'none'], r = Math.random();
+function rollWound() {
+  const t = MG.WOUND_ROLL, r = Math.random();
   const res = r < t.light ? 'light' : r < t.light + t.heavy ? 'heavy' : 'dead';
   return res === 'dead' && ((MG.hasRelic('bandage') && Math.random() < 0.3) || (MG.perk('medics') && Math.random() < 0.2)) ? 'light' : res;
 }
 // 경상 1개월, 중상 3~6개월 (설계 문서 4장)
 const newWound = sev => ({ sev, left: sev === 'light' ? 1 : randInt(3, 6) });
+// 쓰러진 병사 한 명의 부상 판정: 결과를 sum에 세고(있으면), 살았으면 onWound(부상)
+function judgeFallen(sum, onWound) {
+  const r = rollWound();
+  if (sum) sum.wound[r]++;
+  if (r === 'dead') MG.S.stats.soldiersLost++; else onWound(newWound(r));
+}
+// 장수 부대 병사 중 rate만큼 앓아눕는다 (경상, 예비군 부상병으로). 앓아누운 수를 돌려준다
+function sicken(rate) {
+  let n = 0;
+  for (const g of MG.S.generals) { const k = Math.floor(g.healthy * rate); g.healthy -= k; n += k; for (let i = 0; i < k; i++) woundToReserve(g, { sev: 'light', left: 1 }); }
+  return n;
+}
 
 // ---------- 전투 준비 ----------
 // 전투에 나갈 구성. 저장 상태는 건드리지 않는다(전투 중 새로고침하면 전투 전으로 돌아감).
@@ -244,5 +256,5 @@ MG.buildRoster = march => {
   return roster;
 };
 
-Object.assign(MG.lib, { woundToReserve, tickTraining, tickHospital, rollWound, newWound });
+Object.assign(MG.lib, { woundToReserve, tickTraining, tickHospital, judgeFallen, sicken });
 })();

@@ -1,6 +1,6 @@
 // 캠페인 시작과 진행: 새 캠페인, 예전 저장 이관, 한 달 마치기, 저장 슬롯.
 (() => {
-const { KEY, store, pick, randInt, save, nextChronicleMonth, newGeneral, lordGrowth, newYear, refreshTavern, placeBuilding, moveMarket, tickTraining, tickHospital, woundToReserve, arriveSupport, rollEvent, CHRONICLES, rollChronicle, scheduleAttack, rollSites, returnExpeditions, advanceMarch, rollEra } = MG.lib;
+const { KEY, store, pick, randInt, addRes, save, nextChronicleMonth, newGeneral, lordGrowth, newYear, refreshTavern, placeBuilding, placeAnywhere, moveMarket, tickTraining, tickHospital, woundToReserve, arriveSupport, rollEvent, CHRONICLES, rollChronicle, scheduleAttack, rollSites, returnExpeditions, advanceMarch, rollEra } = MG.lib;
 
 MG.loadCampaign = () => {
   try {
@@ -46,7 +46,7 @@ function migrate(s) {
   if (!s.era) s.era = { main: 'goblin', mix: null, until: s.month + 12 * randInt(...MG.ERA_YEARS) };
   // 예전 저장: 장수 부대에 남아 있던 부상병은 예비군 부상병으로
   for (const g of s.generals) {
-    for (const w of g.wounded || []) s.garrison.wounded.push({ type: g.type, reserve: true, vet: g.vet || 0, sev: w.sev, left: w.left });
+    for (const w of g.wounded || []) woundToReserve(g, { sev: w.sev, left: w.left });
     delete g.wounded; delete g.mobilize;
   }
 }
@@ -87,10 +87,7 @@ MG.newCampaign = (opts = {}) => {
     g.healthy = MG.genCap(g);
     s.generals.push(g);
   }
-  for (const t of ['workshop', 'stable']) {
-    if (!bonus.includes(t)) continue;
-    outer: for (let j = 1; j < MG.GRID.n; j++) for (let i = 1; i < MG.GRID.n; i++) if (MG.canPlace(t, i, j)) { placeBuilding(t, i, j); break outer; }
-  }
+  for (const t of ['workshop', 'stable']) if (bonus.includes(t)) placeAnywhere(t);
   applyOrigin(s);
   MG.ensureMarket();
   scheduleAttack(4);
@@ -105,18 +102,17 @@ MG.newCampaign = (opts = {}) => {
 
 // 가문 내력: 시작할 때 한 번 적용 (전투 보정은 buildRoster에서)
 function applyOrigin(s) {
-  const place = t => { for (let j = 1; j < MG.GRID.n; j++) for (let i = 1; i < MG.GRID.n; i++) if (MG.canPlace(t, i, j)) return placeBuilding(t, i, j); };
-  if (s.origin === 'merchant') { s.res.gold *= 2; place('market'); }
-  if (s.origin === 'arcane') place('tower');
+  if (s.origin === 'merchant') { s.res.gold *= 2; placeAnywhere('market'); }
+  if (s.origin === 'arcane') placeAnywhere('tower');
   if (s.origin === 'fallen') s.crown = 20;
-  if (s.origin === 'iron') { s.res.iron += 200; place('smithy'); }
-  if (s.origin === 'pious') place('temple');
+  if (s.origin === 'iron') { s.res.iron += 200; placeAnywhere('smithy'); }
+  if (s.origin === 'pious') placeAnywhere('temple');
 }
 
 MG.endMonth = () => {
   const S = MG.S, rep = [];
-  const prod = MG.production(), eco = MG.economy(), cap = MG.storageCap();
-  for (const k of Object.keys(prod)) S.res[k] = Math.min(cap, S.res[k] + prod[k]);
+  const prod = MG.production(), eco = MG.economy();
+  for (const k of Object.keys(prod)) addRes(k, prod[k]);
   rep.push(`골드 ${prod.gold >= 0 ? '+' : ''}${prod.gold} (세금 ${eco.tax}${eco.market ? ` · 시장 ${eco.market}` : ''} · 급여 -${eco.wages})`
     + ` · 식량 ${prod.food >= 0 ? '+' : ''}${Math.round(prod.food)} · 목재 +${Math.round(prod.wood)} · 철 +${Math.round(prod.iron)}`);
   // 병사 일부가 탈영한다 (굶주림·급여 체불)

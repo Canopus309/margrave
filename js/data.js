@@ -179,12 +179,8 @@ MG.WEAPON_OPTS = {
   guard: { name: '수호',   desc: '부대가 받는 피해 -10%',    mods: { dmgTaken: 0.9 } },
 };
 
-// 부상: 일반 병사는 확률로 경상·중상·사망. 동원됐던 부상병이 또 쓰러지면 더 위험하다.
-MG.WOUND_ROLL = {
-  none:  { light: 0.5, heavy: 0.3, dead: 0.2 },
-  light: { light: 0,   heavy: 0.5, dead: 0.5 },
-  heavy: { light: 0,   heavy: 0.3, dead: 0.7 },
-};
+// 부상: 쓰러진 병사는 확률로 경상·중상·사망
+MG.WOUND_ROLL = { light: 0.5, heavy: 0.3, dead: 0.2 };
 MG.INJURED_GENERAL_HP = 0.5;               // 출전한 부상 장수의 시작 체력
 MG.HOSPITAL_CAP = 20;
 MG.RECRUITS_PER_MONTH = 15;

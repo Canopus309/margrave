@@ -1,6 +1,6 @@
 // 성주와 가문: 장수 만들기·성장, 성주 능력치, 후계, 해마다 나이·출생, 주점·발탁·은퇴, 무기.
 (() => {
-const { pick, randInt, save, act, addCrown } = MG.lib;
+const { pick, randInt, shuffle, addRes, save, act, addCrown } = MG.lib;
 
 // ---------- 장수 만들기 ----------
 function usedNames() {
@@ -13,7 +13,7 @@ MG.randomName = () => {
 };
 // 좋은 특성 1개(30%는 2개), 20% 확률로 단점 1개
 MG.rollTraits = () => {
-  const good = Object.keys(MG.TRAITS).filter(k => !MG.TRAITS[k].bad).sort(() => Math.random() - 0.5);
+  const good = shuffle(Object.keys(MG.TRAITS).filter(k => !MG.TRAITS[k].bad));
   const bad = Object.keys(MG.TRAITS).filter(k => MG.TRAITS[k].bad);
   const t = good.slice(0, Math.random() < 0.3 ? 2 : 1);
   if (Math.random() < 0.2) t.push(pick(bad));
@@ -102,7 +102,7 @@ function setOver(reason) {
 MG.chooseHeir = (kind, id) => {
   const S = MG.S, gen = S.lord.gen + 1, prevStats = S.lord.stats && { ...S.lord.stats };
   if (kind === 'general') {
-    const g = S.generals.find(x => x.id === id);
+    const g = MG.gen(id);
     if (!g) return;
     S.lord = { given: g.name, name: `변경백 ${g.name}`, gen, age: g.age, level: g.level, traits: g.traits, minor: false, ...lordGrowth(g.level) };
     disband(g);
@@ -122,7 +122,7 @@ MG.chooseHeir = (kind, id) => {
   if (MG.perk('adoption')) { bump(2); addCrown(-10); }
   if (MG.perk('martial')) bump(2);
   const gift = 100 + 3 * S.crown;
-  S.res.gold = Math.min(MG.storageCap(), S.res.gold + gift);
+  addRes('gold', gift);
   S.report = [`${MG.josa(S.lord.name, '이가')} ${gen}대 성주가 되었어요.${S.lord.minor ? ` 아직 ${S.lord.age}세라 ${MG.ADULT_AGE}세까지는 전투에 나가지 않아요.` : ''}`,
     `본국이 계승을 인정하며 축하 선물로 골드 ${gift}을 보냈어요.`];
   save();
@@ -217,6 +217,7 @@ MG.retire = g => {
 };
 
 // ---------- 장수 ----------
+MG.gen = id => MG.S.generals.find(g => g.id === id);
 const traitsOf = g => (g.traits || []).map(t => MG.TRAITS[t]);
 MG.genLead = g => g.baseLead + (g.level >= 5 ? 1 : 0) + (g.level >= 10 ? 1 : 0) + traitsOf(g).reduce((a, t) => a + (t.lead || 0), 0);
 // 통솔 1당 병사 수는 병종마다 다르다 (공병·포병은 5명)
@@ -257,7 +258,7 @@ function rollWeapon(level, smithy, force) {
   if (force) { /* 정해진 등급 */ } else if (smithy) grade = smithy === 1 ? (r < 0.7 ? 'common' : 'rare') : smithy === 2 ? (r < 0.7 ? 'rare' : 'heroic') : (r < 0.75 ? 'heroic' : 'legendary');
   else grade = r < 0.03 + 0.01 * level ? 'legendary' : r < 0.15 + 0.03 * level ? 'heroic' : r < 0.45 + 0.03 * level ? 'rare' : 'common';
   const type = pick(Object.keys(MG.WEAPON_KINDS)), kind = pick(MG.WEAPON_KINDS[type]);
-  const opts = Object.keys(MG.WEAPON_OPTS).sort(() => Math.random() - 0.5).slice(0, MG.WEAPON_GRADES[grade].opts);
+  const opts = shuffle(Object.keys(MG.WEAPON_OPTS)).slice(0, MG.WEAPON_GRADES[grade].opts);
   const name = grade === 'legendary' ? `전설의 ${kind}` : opts.length ? `${MG.WEAPON_OPTS[opts[0]].name}의 ${kind}` : kind;
   return { id: MG.S.nextId++, name, type, grade, opts };
 }

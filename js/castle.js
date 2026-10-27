@@ -1,6 +1,6 @@
 // 성: 건물·들판, 철거, 성벽 강화, 수리, 대장간 제작, 시장, 매달 수입·지출.
 (() => {
-const { save, act, freeAct, rollWeapon } = MG.lib;
+const { addRes, save, act, freeAct, rollWeapon } = MG.lib;
 
 // ---------- 건물 ----------
 const B_ = () => MG.S.buildings;
@@ -17,6 +17,10 @@ function placeBuilding(type, i, j) {
   const b = { id: MG.S.nextId++, type, i, j, level: 1, hp: d.hp, max: d.hp };
   MG.S.buildings.push(b);
   return b;
+}
+// 빈자리 중 위쪽·왼쪽부터 처음 맞는 곳에 짓는다 (자리가 없으면 undefined)
+function placeAnywhere(type) {
+  for (let j = 1; j < MG.GRID.n; j++) for (let i = 1; i < MG.GRID.n; i++) if (MG.canPlace(type, i, j)) return placeBuilding(type, i, j);
 }
 // 멀쩡한 건물 중 가장 높은 단계 (부서진 건물은 기능 없음)
 MG.bLevel = type => B_().filter(b => b.type === type && b.hp > 0).reduce((m, b) => Math.max(m, b.level), 0);
@@ -43,7 +47,7 @@ MG.demolishRefund = (base, level) => {
   for (const k of Object.keys(out)) out[k] = Math.floor(out[k] / 2);
   return out;
 };
-const refund = cost => { const cap = MG.storageCap(); for (const [k, v] of Object.entries(cost)) MG.S.res[k] = Math.min(cap, MG.S.res[k] + v); };
+const refund = cost => { for (const [k, v] of Object.entries(cost)) addRes(k, v); };
 MG.demolish = b => {
   const S = MG.S, d = MG.BUILDINGS[b.type], back = MG.demolishRefund(d.cost, b.level);
   if (!S.buildings.includes(b)) return '이미 없는 건물이에요';
@@ -192,7 +196,7 @@ MG.trade = (r, qty) => {
   } else {
     const k = Math.min(n, Math.floor(S.res[r]));
     if (k <= 0) return `팔 ${MG.josa(MG.RES[r], '이가')} 없어요`;
-    S.res[r] -= k; S.res.gold = Math.min(MG.storageCap(), S.res.gold + Math.floor(k * MG.sellPrice(r))); S.traded += k;
+    S.res[r] -= k; addRes('gold', Math.floor(k * MG.sellPrice(r))); S.traded += k;
   }
   save();
   return null;
@@ -244,5 +248,5 @@ MG.production = () => {
   return { gold: Math.round(e.tax + e.market + e.made.gold - e.wages), food: e.made.food - e.eat, wood: e.made.wood, iron: e.made.iron };
 };
 
-Object.assign(MG.lib, { placeBuilding, moveMarket });
+Object.assign(MG.lib, { placeBuilding, placeAnywhere, moveMarket });
 })();

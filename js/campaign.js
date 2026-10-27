@@ -11,6 +11,9 @@ MG.saveDir = () => (FS ? FS.dir() : null);
 MG.openSaveDir = () => FS && FS.openDir();
 const pick = arr => arr[(Math.random() * arr.length) | 0];
 const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const shuffle = arr => arr.sort(() => Math.random() - 0.5);
+// 자원을 더한다 (창고 한도까지)
+const addRes = (k, n) => { MG.S.res[k] = Math.min(MG.storageCap(), MG.S.res[k] + n); };
 
 function save() {
   try { store.set(KEY, JSON.stringify(MG.S)); } catch (e) { /* 저장 불가 환경: 이번 세션만 유지 */ }
@@ -113,5 +116,5 @@ MG.buyUnlock = (kind, id) => {
   return null;
 };
 
-MG.lib = { KEY, store, pick, randInt, save, nextChronicleMonth, addEffect, pay, act, freeAct, addCrown };
+MG.lib = { KEY, store, pick, randInt, shuffle, addRes, save, nextChronicleMonth, addEffect, pay, act, freeAct, addCrown };
 })();

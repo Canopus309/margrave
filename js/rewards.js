@@ -1,6 +1,6 @@
 // 보상과 사건: 유물·3택1 카드, 본국 지원, 랜덤 이벤트, 연대기 사건.
 (() => {
-const { pick, randInt, save, act, addCrown, addEffect, newGeneral, addXp, rollWeapon, woundToReserve } = MG.lib;
+const { pick, randInt, shuffle, addRes, save, act, addCrown, addEffect, newGeneral, addXp, rollWeapon, sicken } = MG.lib;
 
 // ---------- 유물·3택1 보상 ----------
 const freeRelics = grades => Object.keys(MG.RELICS).filter(k => !MG.hasRelic(k) && (!grades || grades.includes(MG.RELICS[k].grade)));
@@ -18,8 +18,8 @@ MG.grantRelic = id => {
   MG.chron(`유물 ${MG.josa(MG.RELICS[id].name, '을를')} 얻었어요.`, 'etc');
   return id;
 };
-MG.startRelicOffer = () => Object.keys(MG.RELICS).filter(k => MG.RELICS[k].grade === 'common').sort(() => Math.random() - 0.5).slice(0, 3);
-MG.originOffer = () => Object.keys(MG.ORIGINS).sort(() => Math.random() - 0.5).slice(0, 3);
+MG.startRelicOffer = () => shuffle(Object.keys(MG.RELICS).filter(k => MG.RELICS[k].grade === 'common')).slice(0, 3);
+MG.originOffer = () => shuffle(Object.keys(MG.ORIGINS)).slice(0, 3);
 const ITEM_KEYS = ['potion', 'firepot', 'drum', 'oil', 'timber'];
 function makeCard(kind, big) {
   const S = MG.S, L = S.level, m = big ? 1.6 : 1;
@@ -41,7 +41,7 @@ function makeCard(kind, big) {
 }
 // 서로 다른 종류 3장. 유물은 평소 25% 확률로만 끼고, 대습격이면 맨 앞에 꼭 들어간다
 function rollCards(big) {
-  const others = Object.keys(MG.CARD_KINDS).filter(k => k !== 'relic').sort(() => Math.random() - 0.5);
+  const others = shuffle(Object.keys(MG.CARD_KINDS).filter(k => k !== 'relic'));
   const order = big || Math.random() < (MG.perk('treasure') ? 0.5 : 0.25) ? ['relic', ...others] : others;
   const cards = [];
   for (const k of order) { if (cards.length >= (MG.perk('conqueror') ? 2 : 3)) break; const c = makeCard(k, big); if (c) cards.push(c); }
@@ -60,10 +60,9 @@ MG.cardInfo = c => {
 MG.pickCard = i => {
   const S = MG.S, P = S.pendingPick, c = P && P.cards[i];
   if (!c) return '고를 카드가 없어요';
-  const cap = MG.storageCap();
   if (c.kind === 'weapon') S.inventory.push(c.weapon);
   if (c.kind === 'relic') MG.grantRelic(c.id);
-  if (c.kind === 'res') for (const [k, v] of Object.entries(c.res)) S.res[k] = Math.min(cap, S.res[k] + v);
+  if (c.kind === 'res') for (const [k, v] of Object.entries(c.res)) addRes(k, v);
   if (c.kind === 'troops') S.garrison[c.type] += c.n;
   if (c.kind === 'xp') for (const g of S.generals) if (!g.dead) addXp(g, c.xp);
   if (c.kind === 'items') for (const [k, v] of Object.entries(c.items)) S.items[k] = Math.min(MG.ITEM_MAX, (S.items[k] || 0) + v);
@@ -108,7 +107,7 @@ function arriveSupport(rep) {
     rep.push('본국이 병사 20명을 보냈어요 (직할).');
   } else {
     const n = k === 'food' ? 300 : 200;
-    S.res.food = Math.min(MG.storageCap(), S.res.food + n);
+    addRes('food', n);
     rep.push(`본국이 식량 ${n}을 보냈어요.`);
   }
 }
@@ -140,17 +139,13 @@ const EVENTS = {
     text: e => `병영에 역병이 돌아요. 골드 ${e.cost}으로 약을 구하면 막을 수 있어요. 그냥 두면 병사 일부가 앓아누워요.`,
     choices: [
       { label: e => `골드 ${e.cost}으로 치료`, ok: e => MG.S.res.gold >= e.cost, run: e => { MG.S.res.gold -= e.cost; return '역병을 막았어요.'; } },
-      { label: () => '그냥 두기', run: () => {
-        let n = 0;
-        for (const g of MG.S.generals) { const k = Math.floor(g.healthy * 0.15); g.healthy -= k; n += k; for (let i = 0; i < k; i++) woundToReserve(g, { sev: 'light', left: 1 }); }
-        return `병사 ${n}명이 앓아누웠어요 (경상).`;
-      } },
+      { label: () => '그냥 두기', run: () => `병사 ${sicken(0.15)}명이 앓아누웠어요 (경상).` },
     ],
   },
   harvest: {
     title: '풍작', weight: 0.8, when: () => ['여름', '가을'].includes(MG.SEASON(MG.S.month)),
     make: () => ({ n: randInt(100, 200) }), text: e => `올해 들판이 풍성해요. 식량 +${e.n}`,
-    choices: [{ label: () => '좋아요', run: e => { MG.S.res.food = Math.min(MG.storageCap(), MG.S.res.food + e.n); return null; } }],
+    choices: [{ label: () => '좋아요', run: e => { addRes('food', e.n); return null; } }],
   },
   blight: {
     title: '병충해', weight: 0.6, make: () => ({ n: randInt(60, 140) }), text: e => `창고의 곡식에 벌레가 들었어요. 식량 -${e.n}`,
@@ -242,7 +237,7 @@ const CHRONICLES = {
     choices: [
       { label: () => '받아들이기', run: e => {
         MG.S.res.gold += e.gold;
-        if (Math.random() < 0.3) { let n = 0; for (const g of MG.S.generals) { const k = Math.floor(g.healthy * 0.1); g.healthy -= k; n += k; for (let i = 0; i < k; i++) woundToReserve(g, { sev: 'light', left: 1 }); } return `헌금을 받았지만 병이 돌아 병사 ${n}명이 앓아누웠어요.`; }
+        if (Math.random() < 0.3) return `헌금을 받았지만 병이 돌아 병사 ${sicken(0.1)}명이 앓아누웠어요.`;
         return `헌금 골드 ${e.gold}을 받았어요.`;
       } },
       { label: () => '돌려보내기', run: () => '순례단이 다른 곳으로 떠났어요.' },
