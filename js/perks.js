@@ -76,7 +76,7 @@ MG.buyPerk = id => {
   m.renown -= cost;
   m.perks.push(id);
   MG.saveMeta();
-  return `${P.name}을(를) 배웠어요.`;
+  return `${MG.josa(P.name, '을를')} 배웠어요.`;
 };
 // 초기화: 산 특성을 모두 내려놓고 명성을 돌려받는다 (무료)
 MG.resetPerks = () => {

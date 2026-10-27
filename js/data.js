@@ -1,5 +1,15 @@
 // 게임 데이터: 병종, 적, 시작 병력, 웨이브 구성. 밸런스 조정은 여기서 한다.
 window.MG = window.MG || {};
+// 조사: 앞말 받침에 맞춰 을/를, 이/가, 은/는, 과/와, 으로/로 (pair: '을를' · '이가' · '은는' · '과와' · '으로')
+MG.josa = (word, pair) => {
+  const s = String(word), c = s.charCodeAt(s.length - 1), last = s[s.length - 1];
+  let has, rieul;
+  if (c >= 0xac00 && c <= 0xd7a3) { const j = (c - 0xac00) % 28; has = j > 0; rieul = j === 8; }
+  else if (c >= 48 && c <= 57) { has = '013678'.includes(last); rieul = '178'.includes(last); }
+  else return s + { 을를: '을(를)', 이가: '이(가)', 은는: '은(는)', 과와: '과(와)', 으로: '(으)로' }[pair];
+  if (pair === '으로') return s + (has && !rieul ? '으로' : '로');
+  return s + (has ? pair[0] : pair[1]);
+};
 
 MG.WORLD = { w: 2000, h: 1400 };
 // R: 성벽 바깥 반폭, T: 성벽 두께, gateHalf: 성문 반폭, keepR: 본성 반지름
@@ -175,7 +185,6 @@ MG.WOUND_ROLL = {
   light: { light: 0,   heavy: 0.5, dead: 0.5 },
   heavy: { light: 0,   heavy: 0.3, dead: 0.7 },
 };
-MG.WOUND_HP = { light: 0.7, heavy: 0.4 };  // 동원된 부상병의 시작 체력
 MG.INJURED_GENERAL_HP = 0.5;               // 출전한 부상 장수의 시작 체력
 MG.HOSPITAL_CAP = 20;
 MG.RECRUITS_PER_MONTH = 15;
@@ -428,6 +437,7 @@ MG.MARCH_MIN = 2;            // 장수 부대 최소 수
 MG.CONQUEST_SCOUT = { gold: 50 };
 MG.CONQUEST_FAIL_MUL = 0.2;  // 실패할 때마다 거점 수비 +20%
 MG.RETALIATION_MUL = 1.5;    // 정벌 직후 보복 습격 규모
+MG.RETALIATION_MONTHS = 2;  // 보복 습격은 늦어도 이 개월 안에 온다
 MG.REINF_GAP = 30;           // 본진 증원 간격(초)
 MG.conquestGold = stars => 200 * stars;
 

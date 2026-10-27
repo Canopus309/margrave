@@ -219,12 +219,11 @@ function makeSoldier(squad, type, x, y, opts = {}) {
   if (opts.atk) atk = opts.atk;
   let hp = max;
   if (opts.injured) hp = max * MG.INJURED_GENERAL_HP;
-  if (opts.wound) hp = max * MG.WOUND_HP[opts.wound.sev];
   const s = { id: B.nextId++, squad, type, T, x, y, hp, max, atk,
     cd: T.cd * m.cd, range: T.range * m.range, splash: (T.splash || 0) * m.splash, heal: atk * m.heal,
     cdT: rand(0, T.cd), retT: rand(0, 0.3), target: null, path: [], slotX: x, slotY: y,
     moving: false, stuckT: 0, replanT: 0, isGeneral: !!opts.general, isLord: !!opts.lord, name: opts.name || null,
-    wound: opts.wound || null, injuredStart: !!opts.injured, dead: false };
+    injuredStart: !!opts.injured, dead: false };
   squad.soldiers.push(s);
   B.soldiers.push(s);
   return s;
@@ -296,7 +295,6 @@ MG.createBattle = function (level, roster) {
         weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
     } else sq.leaderDown = true;
     for (let i = 0; i < rs.healthy; i++) makeSoldier(sq, rs.type, x, y);
-    for (const m of rs.mob) makeSoldier(sq, rs.type, x, y, { wound: m });
     sq.initial = sq.soldiers.length;
     MG.orderMove(sq, x, y, { x: 0, y: -1 }, true);
   }
@@ -700,15 +698,15 @@ function damageFriendly(s, dmg) {
   decal(s.x, s.y, '#5a1414', 3);
   const sq = s.squad;
   B.stats.fallen.push({ name: s.name, type: s.type, squad: sq.name, gid: sq.gid, garrison: sq.isGarrison,
-    general: s.isGeneral, lord: s.isLord, wound: s.wound, injured: s.injuredStart });
+    general: s.isGeneral, lord: s.isLord, injured: s.injuredStart });
   B.fx.push({ kind: 'p', x: s.x, y: s.y, vx: 0, vy: -20, t: 0.6, max: 0.6, color: '#ff8080' });
   if (s.isLord) {
     B.lordDead = true; B.lord = null;
-    log(`${s.name}이(가) 쓰러졌어요! 전군의 사기가 떨어져요.${B.roster.lord.injured ? ' (부상 중이었어요)' : ''}`, '#ff6b6b');
+    log(`${MG.josa(s.name, '이가')} 쓰러졌어요! 전군의 사기가 떨어져요.${B.roster.lord.injured ? ' (부상 중이었어요)' : ''}`, '#ff6b6b');
     banner('성주가 쓰러졌어요!', B.roster.lord.injured ? `${s.name} · 부상 중이라 목숨이 위험해요` : `${s.name} · 전투가 끝나면 부상으로 돌아와요`, '#ff6b6b'); sfx('lose');
   } else if (s.isGeneral) {
     sq.leaderDown = true;
-    log(`${s.name}이(가) 쓰러졌어요. ${sq.name}의 공격력이 떨어져요.`, '#ffb36b');
+    log(`${MG.josa(s.name, '이가')} 쓰러졌어요. ${sq.name}의 공격력이 떨어져요.`, '#ffb36b');
   }
 }
 
@@ -925,7 +923,7 @@ function attackBuilding(e, b) {
   b.hp = 0;
   markBuilding(b, 0);
   B.fieldDirty = true;
-  log(`${MG.BUILDINGS[b.type].name}이(가) 부서졌어요!`, b.type === 'house' ? '#ff6b6b' : '#ffb36b');
+  log(`${MG.josa(MG.BUILDINGS[b.type].name, '이가')} 부서졌어요!`, b.type === 'house' ? '#ff6b6b' : '#ffb36b');
 }
 
 // 성 안에 들어온 약탈자는 가장 가까운 건물을 노린다
@@ -1236,13 +1234,13 @@ function bossDown(e) {
   if (!B.conquest) {
     // 습격 보스: 유물은 전투가 끝난 뒤 캠페인이 준다
     B.raidBossDead = e.type;
-    log(`${e.T.name}을(를) 쓰러뜨렸어요! 유물을 얻을 거예요.`, '#ffd36b');
+    log(`${MG.josa(e.T.name, '을를')} 쓰러뜨렸어요! 유물을 얻을 거예요.`, '#ffd36b');
     banner(`${e.T.name} 격파!`, '전투가 끝나면 유물을 얻어요'); sfx('horn'); shake(8);
     return;
   }
   B.bossDead = true;
   B.enemyMorale = 0.8;
-  log(`${e.T.name}을(를) 쓰러뜨렸어요! 증원이 끊기고 적의 기세가 꺾여요.`, '#ffd36b');
+  log(`${MG.josa(e.T.name, '을를')} 쓰러뜨렸어요! 증원이 끊기고 적의 기세가 꺾여요.`, '#ffd36b');
   banner(`${e.T.name} 격파!`, '증원이 끊기고 적의 기세가 꺾여요'); sfx('horn'); shake(8);
 }
 
@@ -1691,7 +1689,7 @@ MG.toggleCarry = k => {
 MG.useItem = function (k, p, sq) {
   const I = MG.ITEMS[k];
   if (B.phase !== 'battle') return '전투가 시작된 뒤에 써요';
-  if (!B.carry.has(k) || MG.itemLeft(k) <= 0) return `${I.name}이(가) 없어요`;
+  if (!B.carry.has(k) || MG.itemLeft(k) <= 0) return `${MG.josa(I.name, '이가')} 없어요`;
   if (k === 'potion') {
     if (!sq) return '치유 물약: 부대를 먼저 고르세요';
     for (const s of sq.soldiers) { s.hp = Math.min(s.max, s.hp + s.max * 0.4); B.fx.push({ kind: 'heal', x: s.x, y: s.y, t: 0.5, max: 0.5 }); }
@@ -1714,7 +1712,7 @@ MG.useItem = function (k, p, sq) {
     }
   }
   B.itemsUsed[k] = (B.itemsUsed[k] || 0) + 1;
-  log(`${I.name}을(를) 썼어요.`, '#ffd36b');
+  log(`${MG.josa(I.name, '을를')} 썼어요.`, '#ffd36b');
   sfx(k === 'potion' ? 'heal' : 'item');
   return null;
 };
@@ -1763,7 +1761,7 @@ MG.update = function (dt) {
   B.soldiers = B.soldiers.filter(s => !s.dead);
   for (const sq of B.squads) sq.soldiers = sq.soldiers.filter(s => !s.dead);
   for (const sq of B.squads.filter(q => !q.soldiers.length)) {
-    log(`${sq.name}이(가) 전멸했어요.`, '#ff6b6b');
+    log(`${MG.josa(sq.name, '이가')} 전멸했어요.`, '#ff6b6b');
     B.selected.delete(sq);
   }
   B.squads = B.squads.filter(q => q.soldiers.length);
@@ -1780,7 +1778,7 @@ MG.update = function (dt) {
   else if (!B.spawnQueue.length && !B.enemies.some(e => e.boss) && B.enemies.length <= Math.max(3, Math.ceil(B.stats.spawned * MG.ROUT_SHARE))) startRout();
   else if (!B.spawnQueue.length && B.time - Math.max(B.lastKill || 0, B.lastSpawn || 0) > MG.RETREAT_AFTER) {
     // 서로 닿지 않는 채로 버티면 남은 적은 물러난다 (끝나지 않는 전투 방지)
-    log(`남은 적 ${B.enemies.length}이(가) 물러났어요.`, '#6bdc8f');
+    log(`남은 적 ${B.enemies.length}명이 물러났어요.`, '#6bdc8f');
     B.enemies = [];
     finish(true);
   }
@@ -1790,7 +1788,7 @@ MG.update = function (dt) {
 function updateConquest(dt) {
   if (B.hq.dead) {
     const left = B.enemies.filter(e => !e.struct).length;
-    if (left) log(`남은 적 ${left}이(가) 흩어져 달아났어요.`, '#6bdc8f');
+    if (left) log(`남은 적 ${left}명이 흩어져 달아났어요.`, '#6bdc8f');
     B.enemies = B.enemies.filter(e => e.struct);
     finish(true);
     return;
@@ -1815,7 +1813,7 @@ function updateConquest(dt) {
     makeFoe(O.reinf, p.x, p.y, { leash: 9999, hpScale: B.foeHp });
     B.stats.spawned++;
   }
-  log(`적 본진에서 증원 ${n}이(가) 나왔어요.`, '#ffd36b');
+  log(`적 본진에서 증원 ${n}명이 나왔어요.`, '#ffd36b');
 }
 
 // 퇴각: 지금 살아 있는 병력은 그대로 돌아오고, 정벌은 실패로 끝난다
@@ -1835,7 +1833,7 @@ function startRout() {
     const d = [[e.x, -1, 0], [W.w - e.x, 1, 0], [e.y, 0, -1], [W.h - e.y, 0, 1]].sort((a, b) => a[0] - b[0])[0];
     e.rout = { x: d[1], y: d[2] }; e.target = null; e.prey = null;
   }
-  log(`남은 적 ${B.enemies.length}이(가) 퇴각해요.`, '#6bdc8f');
+  log(`남은 적 ${B.enemies.length}명이 퇴각해요.`, '#6bdc8f');
   banner('적이 퇴각해요!', `남은 ${B.enemies.length}마리가 달아나요. 쫓아가 잡으면 처치로 쳐요`, '#6bdc8f'); sfx('horn');
 }
 function finish(win) {

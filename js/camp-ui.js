@@ -35,7 +35,7 @@ const sign = v => (v >= 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
 function headerBlock() {
   const S = MG.S, prod = MG.production(), eco = MG.economy(), cap = MG.storageCap(), fc = MG.attackForecast(), A = S.nextAttack;
   let intel = '';
-  if (A.scout >= 1) intel += ` <span class="tag" title="${MG.FACTIONS[A.faction || 'goblin'].desc}">${MG.ic(MG.ICONS.faction[A.faction || 'goblin'])} ${MG.factionText(A.faction, A.mix)}</span>`;
+  if (A.scout >= 1 || A.retaliation) intel += ` <span class="tag" title="${MG.FACTIONS[A.faction || 'goblin'].desc}">${MG.ic(MG.ICONS.faction[A.faction || 'goblin'])} ${MG.factionText(A.faction, A.mix)}</span>`;
   if (A.scout >= 1) intel += A.dirs.map(d => ` <span class="tag" title="${MG.SIDE_NAME[d]}쪽에서 와요">${MG.ic(MG.ICONS.side[d])}${MG.SIDE_NAME[d]}</span>`).join('');
   if (A.scout >= 2) {
     const sum = {};
@@ -43,7 +43,7 @@ function headerBlock() {
     intel += ` <span class="muted small">${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} ${n}`).join(' · ')}</span>`;
   }
   if (A.mul && A.mul < 1) intel += ` <span class="tag ok" title="고블린 둥지 소탕">${MG.ic('arrow-down')}${Math.round((1 - A.mul) * 100)}%</span>`;
-  if (A.retaliation) intel += ` <span class="tag danger">${MG.ic('flame')} ${MG.OUTPOSTS[A.retaliation].name}의 보복</span>`;
+  if (A.retaliation) intel += ` <span class="tag danger" title="정벌한 거점의 마물이 복수하러 와요. 세력과 날짜는 정찰 없이 알 수 있어요">${MG.ic('flame')} ${MG.OUTPOSTS[A.retaliation].name}의 보복</span>`;
   const attackNow = MG.isAttackMonth();
   const marchNow = S.pendingConquest && S.march;
   const I = MG.ICONS, season = MG.SEASON(S.month);
@@ -79,7 +79,7 @@ function headerBlock() {
     <div class="atkIcon">${MG.ic(marchNow ? 'flag-3' : 'swords')}</div>
     <div class="atkText"><b>${marchNow ? `정벌군 도착 · ${MG.OUTPOSTS[S.march.id].name}` : `습격 ${fc.text}`}</b>
       <span class="muted small">전투 ${S.level}${S.level % 5 === 0 ? ' · 대습격' : ''}</span>${intel}
-      ${A.scout < 2 && !marchNow ? `<span class="muted small" title="행동의 정찰로 더 알 수 있어요"> ${MG.ic('eye')} ${A.scout ? '구성 모름' : '세력·방향 모름'}</span>` : ''}</div>
+      ${A.scout < 2 && !marchNow ? `<span class="muted small" title="행동의 정찰로 더 알 수 있어요"> ${MG.ic('eye')} ${A.scout ? '구성 모름' : A.retaliation ? '방향·구성 모름' : '세력·방향 모름'}</span>` : ''}</div>
     <div class="btns">${marchNow
       ? `<button class="main danger" id="conquestBtn">${MG.ic('flag-3')} 정벌 전투</button>`
       : attackNow
@@ -170,7 +170,8 @@ function actionsBlock() {
         : `성벽·성문·본성 피해 ${MG.repairDamage()} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ' (목재 부족: 있는 만큼만)' : ''}`,
       ok: MG.repairNeed() > 0 },
     { id: 'recruit', name: '모집', note: recruitNote(), ok: MG.recruitAmount() > 0 },
-    { id: 'train', name: '훈련', note: MG.bLevel('training') ? `건강한 장수 모두 경험치 +${30 * MG.bLevel('training')}` : '훈련장이 필요해요', ok: MG.bLevel('training') },
+    { id: 'train', name: '훈련', note: !MG.bLevel('training') ? '훈련장이 필요해요' : !MG.trainees().length ? '성에 훈련할 장수가 없어요'
+        : `성에 있는 장수 ${MG.trainees().length}명 경험치 +${MG.trainXp()} · 병사 숙련도 +${10 * MG.bLevel('training')}`, ok: MG.bLevel('training') && MG.trainees().length },
     { id: 'scout', name: '정찰', note: S.nextAttack.scout >= 2 ? '다 알아냈어요' : `${S.nextAttack.scout ? '적 구성' : '날짜와 방향'}을 알아내요 · 골드 20`,
       ok: S.nextAttack.scout < 2 && S.res.gold >= 20 },
     { id: 'craft', name: '제작', note: MG.bLevel('smithy') ? `무기 1개 · ${MG.costText(MG.CRAFT_COST)}` : '대장간이 필요해요',
@@ -283,7 +284,7 @@ function classBlock(g) {
   if (MG.canAdvance(g)) {
     const n = C[g.cls].lv10;
     return `<div class="choose"><div class="hint">Lv.10 승급 가능</div>
-      <button data-adv="${g.id}"><b>${n.name}(으)로 승급</b><span>${n.desc}</span></button></div>`;
+      <button data-adv="${g.id}"><b>${MG.josa(n.name, '으로')} 승급</b><span>${n.desc}</span></button></div>`;
   }
   const c = MG.genClass(g);
   if (c) return `<div class="clsDesc">${c.desc}</div>`;
@@ -293,9 +294,9 @@ function classBlock(g) {
 // 편제: 같은 병종 예비군을 이 장수 부대로
 function assignRow(g) {
   if (g.away) return '';
-  const room = MG.genCap(g) - g.healthy, have = MG.S.reserve[g.type] || 0, n = MG.assignable(g), hurt = g.wounded.length;
+  const room = MG.genCap(g) - g.healthy, have = MG.S.reserve[g.type] || 0, n = MG.assignable(g);
   if (room <= 0) return '';
-  return `<div class="actRow"><span class="small">${MG.ic('users-plus')} 예비군에서 편제 <span class="muted">${MG.icUnit(g.type)} 예비군 ${have} · 빈자리 ${room}${hurt ? ` <span title="부상병 자리까지 채우면, 넘치는 부상병은 나은 뒤 예비군으로 가요">(부상 ${hurt}명 자리 포함)</span>` : ''}</span></span>
+  return `<div class="actRow"><span class="small">${MG.ic('users-plus')} 예비군에서 편제 <span class="muted">${MG.icUnit(g.type)} 예비군 ${have} · 빈자리 ${room}</span></span>
     <span>${n ? `<button class="mini" data-assign="${g.id},10">+${Math.min(10, n)}</button>
       <button class="mini" data-assign="${g.id},999">가득 +${n}</button>` : '<span class="muted small">군대 탭 훈련소에서 훈련시켜요</span>'}</span></div>`;
 }
@@ -318,7 +319,7 @@ function trainingBlock() {
       <button class="mini" data-gmove="${t},10,toReserve" ${S.garrison[t] ? '' : 'disabled'} title="성벽 위 직할 → 예비군">${MG.ic('arrow-down')} 예비군으로 10</button></span></div>`).join('');
   return `<section class="card wideCard"><h3>${MG.ic('tent')} 훈련소 <span class="muted">훈련병 <b>${S.recruits || 0}</b>명 · 훈련 중 ${now} / ${cap}명 (병영 단계 × ${MG.TRAIN_PER_BARRACKS})${MG.bLevel('training') ? ' · 훈련장: 기간 -1개월' : ''}</span></h3>
     <table class="trainTable"><tr class="muted small"><td>병종</td><td>훈련</td><td>훈련 중</td><td>예비군</td><td></td></tr>${rows}</table>
-    <div class="actRow"><span class="small">${MG.ic('users-plus')} 장수 부대 빈자리 모두 채우기 <span class="muted">같은 병종 예비군으로, 성에 있는 부대만. 넘치는 부상병은 나은 뒤 예비군으로</span></span>
+    <div class="actRow"><span class="small">${MG.ic('users-plus')} 장수 부대 빈자리 모두 채우기 <span class="muted">같은 병종 예비군으로, 성에 있는 부대만</span></span>
       <span><button class="mini" id="assignAll" ${MG.assignAllCount() ? '' : 'disabled'}>${MG.ic('users-plus')} 모두 채우기 +${MG.assignAllCount()}</button></span></div>
     <div class="small muted">행동의 모집으로 뽑은 주민이 훈련병이 돼요(1명당 골드 ${Math.ceil(MG.recruitGold())}). 훈련을 마친 예비군을 장수 카드에서 같은 병종 부대에 편제해요. 훈련병·예비군도 급여와 식량이 나가요 (기병은 식량 2배).</div>
     <h3 style="margin-top:8px">${MG.ic('wall')} 성벽 위 직할 ↔ 예비군</h3>${gar}
@@ -360,7 +361,6 @@ function genCard(g) {
   const flags = [
     g.weapon && `<span title="${g.weapon.name} · ${MG.weaponDesc(g.weapon)}" style="color:${MG.WEAPON_GRADES[g.weapon.grade].color}">${MG.ic('sword')}</span>`,
     `<span title="스킬 ${K.name}: ${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''}">${MG.ic(MG.ICONS.skill[g.type])}</span>`,
-    g.wounded.length && `<span class="warn" title="부상병 ${g.wounded.length}명 (${woundCounts(g.wounded)})">${MG.ic('first-aid-kit')}${g.wounded.length}</span>`,
     !g.deploy && !g.away && `<span class="muted" title="출전하지 않아요">${MG.ic('eye-off')}</span>`,
     !g.away && MG.assignable(g) > 0 && `<span class="ok" title="빈자리가 있어요. 펼쳐서 직할 병사를 편제할 수 있어요">${MG.ic('users-plus')}</span>`,
     !MG.canRefill(g.type) && `<span class="warn" title="${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
@@ -381,8 +381,6 @@ function genCard(g) {
     ${assignRow(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
       ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
-    ${g.wounded.length ? `<label class="tog"><input type="checkbox" data-mob="${g.id}" ${g.mobilize ? 'checked' : ''}>
-      <span class="warn">부상병 ${g.wounded.length}명 동원 (체력 감소, 또 쓰러지면 사망 위험 큼)</span></label>` : ''}
     <div class="genBtns">
       ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">${MG.ic('school')} 은퇴 (교관, 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
       ${MG.canDismiss(g) ? `<button class="mini ${dismissArmed === g.id ? 'danger' : ''}" data-dismiss="${g.id}">${MG.ic('door-exit')} ${dismissArmed === g.id ? '정말 해고? 한 번 더' : '해고'}</button>` : ''}
@@ -438,6 +436,18 @@ function tavernBlock() {
 }
 
 // ---------- 정벌 ----------
+// 정벌에 성공하면 오는 보복 습격 예고. 정찰하면 규모와 구성까지 보인다
+function retaliationLine(id, scouted) {
+  const S = MG.S, O = MG.OUTPOSTS[id], f = MG.retaliationMul(), fac = O.faction || S.nextAttack.faction || 'goblin';
+  let detail = '';
+  if (scouted) {
+    const sum = {};
+    for (const g of MG.retaliationPreview(id)) sum[g.type] = (sum[g.type] || 0) + g.count;
+    const total = Object.values(sum).reduce((a, n) => a + n, 0);
+    detail = `<div class="muted small">보복 예상: 약 ${total}명 (${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} ${n}`).join(' · ')}) · 방향은 정벌 뒤 정찰로</div>`;
+  }
+  return `<div class="warn small" title="정벌에 성공하면 거점을 잃은 마물이 복수하러 와요">${MG.ic('flame')} 정벌하면 보복: ${MG.FACTIONS[fac].name} · 규모 ×${Math.round(f * 100) / 100} · 정벌 뒤 늦어도 ${MG.RETALIATION_MONTHS}개월 안${scouted ? '' : ' · 정찰하면 규모가 보여요'}</div>${detail}`;
+}
 // 거점 3곳(순서 자유)과 검은 성채. 장수 부대를 2개 이상 골라 출정한다.
 function conquestBlock() {
   const S = MG.S, M = S.march, ready = S.generals.filter(MG.canExpedition);
@@ -451,13 +461,14 @@ function conquestBlock() {
       <div class="muted small">거점 3곳을 모두 정벌하면 열려요. 이곳을 무너뜨리면 엔딩이에요.</div></div></div>`;
     const intel = info.scout
       ? `<div class="small">${MG.ic('skull')} ${boss.name}: ${O.bossDesc}</div>
-        <div class="muted small">${O.garrison.map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${Math.round(n * MG.conquestMul(id))}`).join(', ')} · 망루 ${O.towers} · 본진 체력 ${Math.round(O.hq * MG.conquestMul(id))}</div>`
+        <div class="muted small">${O.garrison.map(([t, n]) => `${MG.ENEMY_TYPES[t].name} 약 ${Math.round(n * MG.conquestFortMul(id))}`).join(', ')} · 망루 ${O.towers} · 본진 체력 ${Math.round(O.hq * MG.conquestFortMul(id))}</div>`
       : `<div class="muted small">${MG.ic('skull')} ${boss.name} · ${MG.ic('eye-off')} 수비 규모는 정찰해야 알 수 있어요</div>`;
+    const ret = O.final ? '' : retaliationLine(id, info.scout);
     const go = M ? '' : `<div class="siteGo">
       ${info.scout ? '' : `<button class="mini" data-cscout="${id}" ${S.ap && MG.canPay(MG.CONQUEST_SCOUT) ? '' : 'disabled'}>정찰 · ${MG.costText(MG.CONQUEST_SCOUT)} · 행동력 1</button>`}
       <button class="mini" data-march="${id}" ${S.ap >= MG.MARCH_AP && S.res.food >= MG.MARCH_FOOD && marchPick.size >= MG.MARCH_MIN ? '' : 'disabled'}>
         출정 · 식량 ${MG.MARCH_FOOD} · 행동력 ${MG.MARCH_AP}</button></div>`;
-    return `<div class="siteRow"><div>${head}<div class="small">얻는 것: ${O.reward}</div>${intel}</div>${go}</div>`;
+    return `<div class="siteRow"><div>${head}<div class="small">얻는 것: ${O.reward}</div>${intel}${ret}</div>${go}</div>`;
   }).join('');
   let pickArea = '';
   if (M) {
@@ -501,7 +512,7 @@ function expeditionBlock() {
 
 function crownBlock() {
   const S = MG.S, c = S.crown;
-  const sup = S.support ? `<div class="ok small">지원이 오는 중이에요 (${S.support.months}개월 뒤)</div>` : '';
+  const sup = S.support ? `<div class="ok small">지원이 오는 중이에요 (${S.support.months}개월 뒤, ${(S.month + S.support.months) % 12 + 1}월 초)</div>` : '';
   return `<section class="card"><h3>${MG.ic('flag')} 본국과의 관계 ${c} / 100</h3>
     <div class="bar"><div style="width:${c}%;background:${c >= 70 ? '#6bdc8f' : c >= 40 ? '#e6b450' : '#ff6b6b'}"></div></div>
     ${sup}
@@ -520,7 +531,7 @@ function eventModal() {
 function successionModal() {
   const S = MG.S, heirs = MG.heirs();
   return `<div class="overlay"><div class="panel"><h1>${MG.ic('crown')} 후계자를 고르세요</h1>
-    <p class="muted">${S.lord.name}이(가) 세상을 떠났어요. 혈족 중에서 다음 성주를 골라요.</p>
+    <p class="muted">${MG.josa(S.lord.name, '이가')} 세상을 떠났어요. 혈족 중에서 다음 성주를 골라요.</p>
     ${heirs.map(h => `<button class="heirBtn" data-heir="${h.kind},${h.id}">
       <b>${h.name}</b> · ${h.age}세${h.kind === 'general' ? ` · 장수 Lv.${h.level} (부대 병사는 직할로)` : h.age < MG.ADULT_AGE ? ' · 어린 자녀 (성년까지 전투 불참)' : ''}
       ${traitTags(h.traits)}</button>`).join('')}</div></div>`;
@@ -624,7 +635,7 @@ function endingPanel() {
     .map(c => `<li><span class="muted">${MG.monthLabel(c.month)}</span> ${c.text}</li>`).join('');
   return `<div class="overlay"><div class="panel wide ending"><div class="muted small">엔딩</div>
     <h1>${MG.ic('building-castle')} 변경에 평화가 찾아왔어요</h1>
-    <p>${S.lord.name}이(가) 검은 성채를 무너뜨리고 고대 드래곤을 물리쳤어요. 변경백 가문은 ${lords}대, ${MG.year()}년에 걸쳐 왕국의 전진 기지를 지켰어요.
+    <p>${MG.josa(S.lord.name, '이가')} 검은 성채를 무너뜨리고 고대 드래곤을 물리쳤어요. 변경백 가문은 ${lords}대, ${MG.year()}년에 걸쳐 왕국의 전진 기지를 지켰어요.
       치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}, 잃은 장수 ${S.stats.generalsLost}.</p>
     <h3>정벌의 기록</h3><ul class="chronList">${big}</ul>
     <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
@@ -741,8 +752,9 @@ function hospitalBlock() {
   const S = MG.S, list = MG.patients(), cap = MG.hospitalCap(), over = Math.max(0, list.length - cap);
   const lines = [];
   for (const g of S.generals) if (!g.dead && g.injured) lines.push(`<li>장수 ${g.name} — ${g.injured}개월 남음</li>`);
-  for (const g of S.generals) if (!g.dead && g.wounded.length) lines.push(`<li>${g.name} 부대 ${g.wounded.length}명 (${woundCounts(g.wounded)})</li>`);
-  if (S.garrison.wounded.length) lines.push(`<li>직할 병력 ${S.garrison.wounded.length}명 (${woundCounts(S.garrison.wounded)})</li>`);
+  const gw = S.garrison.wounded.filter(w => !w.reserve), rw = S.garrison.wounded.filter(w => w.reserve);
+  if (gw.length) lines.push(`<li>직할 병력 ${gw.length}명 (${woundCounts(gw)})</li>`);
+  if (rw.length) lines.push(`<li title="장수 부대·예비군에서 다친 병사예요. 나으면 예비군으로 가요">예비군 ${rw.length}명 (${woundCounts(rw)}) · 나으면 예비군으로</li>`);
   return `<h3>${MG.ic('first-aid-kit')} 병원 ${list.length} / ${cap}</h3>
     <div class="bar"><div style="width:${pct(list.length, cap || 1)}%;background:${over ? '#ff6b6b' : '#6bdc8f'}"></div></div>
     ${!cap ? '<div class="danger small">병원이 없거나 부서져서 아무도 회복하지 못해요.</div>' : over ? `<div class="danger small">수용 인원을 넘은 ${over}명은 회복이 멈춰 있어요.</div>` : ''}
@@ -778,12 +790,13 @@ function render() {
     market: `<div class="campRow two">${marketBlock()}${crownBlock()}</div>`,
     family: `<div class="campRow">${familyBlock()}${relicBlock()}${activePerksBlock()}${records}</div>`,
   }[tab];
-  el.innerHTML = `<div class="campWrap">
+  // 끝난 캠페인은 정비 화면 없이 종료 창만
+  el.innerHTML = `${S.over ? '' : `<div class="campWrap">
     ${headerBlock()}
     <nav class="tabs">${tabs}</nav>
     ${tab !== 'castle' && msg ? `<div class="msg small">${msg}</div>` : ''}
     ${body}
-  </div>
+  </div>`}
   ${perkOpen ? perkPanel() : setupOpen ? setupPanel() : saveOpen ? savePanel() : chronOpen ? chronPanel() : S.over ? overPanel()
     : S.pendingSuccession ? successionModal() : S.pendingPick ? pickModal() : S.endingPending ? endingPanel() : S.cevent ? chronicleModal() : S.event ? eventModal() : ''}`;
   bind();
@@ -873,7 +886,6 @@ function bind() {
   q('[data-unequip]').forEach(b => b.onclick = () => { MG.unequip(gen(b.dataset.unequip)); render(); });
   q('[data-equip]').forEach(s => s.onchange = () => { if (s.value) MG.equip(gen(s.dataset.equip), +s.value); render(); });
   q('[data-deploy]').forEach(c => c.onchange = () => { gen(c.dataset.deploy).deploy = c.checked; MG.saveCampaign(); render(); });
-  q('[data-mob]').forEach(c => c.onchange = () => { gen(c.dataset.mob).mobilize = c.checked; MG.saveCampaign(); render(); });
   const go = $('goBtn'), end = $('endBtn'), skip = $('skipBtn'), cq = $('conquestBtn');
   if (go) go.onclick = () => { resetArmed = false; sel = null; msg = ''; MG.startNextBattle(); };
   if (cq) cq.onclick = () => { resetArmed = false; sel = null; msg = ''; MG.startConquest(); };
