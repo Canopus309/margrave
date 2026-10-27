@@ -67,7 +67,6 @@ function act(cost, fn) {
 const freeAct = (cost, fn) => { if (!MG.canPay(cost)) return '자원이 모자라요'; pay(cost); fn(); save(); return null; };
 
 // ---------- 본국 ----------
-MG.crown = () => MG.S.crown;
 const addCrown = n => { if (n > 0 && MG.hasRelic('royalseal')) n *= 2; MG.S.crown = Math.max(0, Math.min(100, MG.S.crown + n)); };
 
 // ---------- 명성과 해금 (캠페인 바깥에 따로 저장) ----------

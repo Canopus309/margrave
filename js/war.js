@@ -27,14 +27,16 @@ MG.retaliationPreview = id => {
   const A = MG.S.nextAttack, O = MG.OUTPOSTS[id];
   return MG.attackGroups({ ...A, mul: (A.mul || 1) * MG.retaliationMul(), faction: O.faction || A.faction, mix: O.faction ? null : A.mix, retaliation: id });
 };
-// 다음 습격의 적 구성 (고블린 둥지를 소탕하면 줄어든다)
-MG.attackGroups = (A = MG.S.nextAttack) => {
+// 다음 습격의 적 구성과 방향. 정찰 예보와 전투(buildRoster → createBattle)가 이것을 그대로 쓴다.
+// 고블린 둥지 소탕·마물 대이동·포위 단계·거점·난이도(어려움·악몽은 전투 1~2에 초반 배율도)가 적 수를 바꾼다
+MG.attackWaves = (A = MG.S.nextAttack) => {
   const S = MG.S, tm = MG.typeMul(), diff = MG.DIFFICULTY[S.difficulty || 'normal'];
-  // 전투(createBattle)와 같은 배율: 난이도 개수 배율, 어려움·악몽은 초반(전투 1~2) 배율도
   const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul()
     * diff.count * (diff.early && S.level <= 2 ? diff.early : 1);
-  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix, diff, A.retaliation).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
+  const w = MG.buildWaves(S.level, A.dirs, A.faction, A.mix, diff, A.retaliation);
+  return { dirs: w.dirs, groups: w.groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) })) };
 };
+MG.attackGroups = A => MG.attackWaves(A).groups;
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
   const A = MG.S.nextAttack, left = A.month - MG.S.month;

@@ -45,7 +45,6 @@ function buildingAt(p) {
 function markBuilding(b, idx) {
   for (let y = b.y0; y < b.y1; y += NC) for (let x = b.x0; x < b.x1; x += NC) B.bgrid[cellIdx({ x: x + 1, y: y + 1 })] = idx;
 }
-MG.buildingAt = p => buildingAt(p);
 
 // 성벽 경계(바깥 테두리)를 넘을 수 있는지: 무너진 조각은 누구나, 멀쩡한 성문은 아군만
 function wallOK(a, b, enemy) {
@@ -258,12 +257,7 @@ function makeSquad(name, type, opts = {}) {
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
   const diff = roster.diff || MG.DIFFICULTY.normal;
-  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix, diff, roster.retaliation);
-  // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
-  // 어려움·악몽은 초반(전투 1~2) 습격이 더 크다
-  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1) * diff.count * (diff.early && level <= 2 ? diff.early : 1);
-  const tm = roster.typeMul || {};
-  for (const g of waves.groups) if (!MG.ENEMY_TYPES[g.type].boss) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
+  const waves = roster.waves;  // 적 구성과 방향 (예보와 같은 MG.attackWaves)
   B = MG.B = {
     level, phase: 'prep', time: 0, speed: 1, paused: false, nextId: 1,
     keep: { hp: roster.keep != null ? roster.keep : MG.KEEP_HP, max: MG.KEEP_HP }, morale: roster.morale || 1,
@@ -1445,7 +1439,6 @@ function fortSlow(e) {
   return m;
 }
 const TOWER_AT = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => ({ x: C.x + x * (C.R - C.T / 2), y: C.y + y * (C.R - C.T / 2) }));
-MG.TOWER_AT = TOWER_AT;
 function tickFort(dt) {
   const F = fortOf();
   if (!F) return;

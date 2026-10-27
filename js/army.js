@@ -5,21 +5,10 @@ const { randInt, save, pay, act, addXp } = MG.lib;
 // 다친 장수 부대 병사는 바로 부대에서 빠져 예비군 부상병이 된다 (병원에서 나으면 예비군으로)
 function woundToReserve(g, w) { MG.S.garrison.wounded.push({ type: g.type, reserve: true, vet: g.vet || 0, ...w }); }
 
-// 모집: 병영 단계만큼, 주민 중에서. 장수 부대의 빈자리를 먼저 채우고, 남는 신병은 모두 성주 직할로 간다.
+// 모집: 병영 단계만큼 주민을 훈련병으로 뽑는다. 훈련소에서 병종별로 훈련하면 예비군이 되고, 장수 부대에 편제한다.
 // 직할 병력에는 상한이 없다 — 병력은 식량으로만 제한된다 (설계 문서 4장).
-// 마법사·사제 부대는 마법탑·사원이 있어야 채운다.
 MG.MIN_POP = 10;  // 주민을 이보다 적게 남기며 뽑지는 않는다
 MG.recruitCap = () => (MG.bLevel('barracks') ? MG.bLevel('barracks') * 10 + Math.max(0, MG.S.lord.stats.admin - 3) : 0);
-MG.recruitTargets = () => {
-  const list = [];
-  for (const g of MG.S.generals) {
-    if (g.dead) continue;
-    if (!MG.canRefill(g.type)) continue;
-    const need = MG.genCap(g) - g.healthy;
-    if (need > 0) list.push({ g, need });
-  }
-  return list;
-};
 // 병종별로 보충에 필요한 건물
 MG.REFILL_BUILDING = { mage: 'tower', priest: 'temple', engineer: 'workshop', artillery: 'workshop', cavalry: 'stable' };
 // ---------- 훈련소와 예비군 ----------
@@ -131,12 +120,6 @@ MG.canRefill = type => !MG.REFILL_BUILDING[type] || MG.bLevel(MG.REFILL_BUILDING
 MG.recruitGold = () => MG.RECRUIT_GOLD * (MG.perk('cheapdraft') ? 0.6 : 1) * (MG.perk('mercenary') ? 3 : 1);
 MG.recruitAmount = () => Math.min(MG.recruitCap(), MG.perk('mercenary') ? Infinity : Math.max(0, MG.S.pop - MG.MIN_POP), Math.floor(MG.S.res.gold / MG.recruitGold()));
 MG.recruitCost = () => ({ gold: Math.ceil(MG.recruitAmount() * MG.recruitGold()) });
-MG.recruitPlan = () => {
-  let left = MG.recruitAmount();
-  const toSquads = MG.recruitTargets().reduce((a, t) => a + t.need, 0);
-  const squads = Math.min(left, toSquads);
-  return { total: left, squads, garrison: left - squads };
-};
 MG.actRecruit = () => {
   if (!MG.recruitCap()) return '병영이 없거나 부서졌어요';
   if (MG.S.pop <= MG.MIN_POP && !MG.perk('mercenary')) return '주민이 너무 적어요';
@@ -248,9 +231,8 @@ MG.buildRoster = march => {
     reserve: !march && S.mobilizeReserve ? { ...S.reserve } : null, reserveVet: { ...S.reserveVet }, garrisonVet: S.garrison.vet || 0,
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
-    dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
-    faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null, retaliation: S.nextAttack.retaliation || null,
-    items: { ...S.items }, typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
+    waves: march ? null : MG.attackWaves(),
+    items: { ...S.items }, siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
   if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestFortMul(march.id); }
   return roster;

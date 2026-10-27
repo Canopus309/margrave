@@ -182,8 +182,6 @@ MG.WEAPON_OPTS = {
 // 부상: 쓰러진 병사는 확률로 경상·중상·사망
 MG.WOUND_ROLL = { light: 0.5, heavy: 0.3, dead: 0.2 };
 MG.INJURED_GENERAL_HP = 0.5;               // 출전한 부상 장수의 시작 체력
-MG.HOSPITAL_CAP = 20;
-MG.RECRUITS_PER_MONTH = 15;
 
 function shuffled(arr) {
   const a = arr.slice();
