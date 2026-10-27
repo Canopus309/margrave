@@ -243,10 +243,12 @@ function makeSquad(name, type, opts = {}) {
 
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
-  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix);
+  const diff0 = roster.diff || MG.DIFFICULTY.normal;
+  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix, diff0, roster.retaliation);
   // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
   const diff = roster.diff || MG.DIFFICULTY.normal;
-  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1) * diff.count;
+  // 어려움·악몽은 초반(전투 1~2) 습격이 더 크다
+  const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1) * diff.count * (diff.early && level <= 2 ? diff.early : 1);
   const tm = roster.typeMul || {};
   for (const g of waves.groups) if (!MG.ENEMY_TYPES[g.type].boss) g.count = Math.max(1, Math.round(g.count * countMul * (tm[g.type] || 1)));
   B = MG.B = {
@@ -468,7 +470,8 @@ MG.createConquest = function (roster) {
       B.stats.spawned++;
     }
   }
-  B.boss = makeFoe(O.boss, hx - 75, hy, { hpScale: (roster.siegeMul || 1) * fort, leash: 320, aggro: 220 });
+  // 보스는 본진 앞을 지킨다 (멀리 쫓아 나오지 않고, 경보에도 끌려 나오지 않는다)
+  B.boss = makeFoe(O.boss, hx - 75, hy, { hpScale: (roster.siegeMul || 1) * fort, leash: 180, aggro: 200 });
   B.stats.spawned++;
   // 아군: 왼쪽 출발 지역에 세로로 늘어선다
   const n = roster.squads.length;
@@ -1176,7 +1179,8 @@ function bossSkill(e, dt, fGrid) {
       return true;
     }
     if (e.chargeT <= 0) {
-      const far = near(230).filter(s => dist(e, s) > 70);
+      // 지키는 범위 밖의 병사에게는 돌진하지 않는다 (본진을 비우지 않게)
+      const far = near(230).filter(s => dist(e, s) > 70 && dist(s, e.home) <= e.leash + 40);
       if (far.length) { e.chargeT = 7; const s = far[(Math.random() * far.length) | 0]; e.dash = { x: s.x, y: s.y, t: 1.2 }; return true; }
     }
     return false;
@@ -1248,6 +1252,8 @@ function updateEnemy(e, dt, fGrid) {
   if (e.burnT > 0) { e.burnT -= dt; damageEnemy(e, e.burnDps * dt, e.burnSrc); if (e.dead) return; }
   if (e.slowT > 0) e.slowT -= dt;
   if (e.frozenT > 0) { e.frozenT -= dt; return; }
+  // 퇴각: 싸우지 않고 가장 가까운 가장자리로 달아난다
+  if (e.rout) { e.x += e.rout.x * T.speed * 1.6 * dt; e.y += e.rout.y * T.speed * 1.6 * dt; return; }
   const sp = T.speed * dt * (e.slowT > 0 ? 1 - e.slowF : 1) * fortSlow(e);
   if (B.conquest) { if (e.struct) updateStruct(e, dt, fGrid); else updateFoe(e, dt, fGrid, sp); return; }
   if (e.boss && raidBossSkill(e, dt, fGrid)) return;
@@ -1770,6 +1776,8 @@ MG.update = function (dt) {
   if (B.conquest) updateConquest(dt);
   else if (B.keep.hp <= 0) { B.keep.hp = 0; finish(false); }
   else if (!B.spawnQueue.length && !B.enemies.length && !(B.revives || []).length) finish(true);
+  else if (B.routT != null) { if ((B.routT -= dt) <= 0) { B.enemies = []; finish(true); } }
+  else if (!B.spawnQueue.length && !B.enemies.some(e => e.boss) && B.enemies.length <= Math.max(3, Math.ceil(B.stats.spawned * MG.ROUT_SHARE))) startRout();
   else if (!B.spawnQueue.length && B.time - Math.max(B.lastKill || 0, B.lastSpawn || 0) > MG.RETREAT_AFTER) {
     // 서로 닿지 않는 채로 버티면 남은 적은 물러난다 (끝나지 않는 전투 방지)
     log(`남은 적 ${B.enemies.length}이(가) 물러났어요.`, '#6bdc8f');
@@ -1793,7 +1801,7 @@ function updateConquest(dt) {
   // 아군이 진지에 다가오면 경보: 수비대 전체가 맞서 나온다
   if (!B.alarm && B.soldiers.some(s => Math.max(Math.abs(s.x - B.camp.x), Math.abs(s.y - B.camp.y)) < B.camp.r + 140)) {
     B.alarm = true;
-    for (const e of B.enemies) if (!e.struct && e.leash < 9999) { e.aggro = Math.max(e.aggro, 380); e.leash = Math.max(e.leash, 460); }
+    for (const e of B.enemies) if (!e.struct && !e.boss && e.leash < 9999) { e.aggro = Math.max(e.aggro, 380); e.leash = Math.max(e.leash, 460); }
     log('진지에 경보가 울렸어요! 수비대가 몰려나와요.', '#ffd36b');
     banner('진지에 경보!', `${B.boss.T.name}과(와) 수비대가 몰려나와요`, '#ff9a6b'); sfx('horn');
   }
@@ -1819,6 +1827,17 @@ MG.retreat = function () {
 };
 
 // 부상·경험치 같은 전투 후 처리는 캠페인이 맡는다 (MG.applyResult)
+// 남은 적이 적으면 퇴각한다. 달아나는 동안 잡은 적은 처치로 센다.
+function startRout() {
+  const W = MG.WORLD;
+  B.routT = MG.ROUT_TIME; B.revives = [];
+  for (const e of B.enemies) {
+    const d = [[e.x, -1, 0], [W.w - e.x, 1, 0], [e.y, 0, -1], [W.h - e.y, 0, 1]].sort((a, b) => a[0] - b[0])[0];
+    e.rout = { x: d[1], y: d[2] }; e.target = null; e.prey = null;
+  }
+  log(`남은 적 ${B.enemies.length}이(가) 퇴각해요.`, '#6bdc8f');
+  banner('적이 퇴각해요!', `남은 ${B.enemies.length}마리가 달아나요. 쫓아가 잡으면 처치로 쳐요`, '#6bdc8f'); sfx('horn');
+}
 function finish(win) {
   B.phase = 'result';
   B.result = { win, lordDead: B.lordDead, time: B.time };

@@ -166,8 +166,9 @@ function recruitNote() {
 function actionsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const rows = [
-    { id: 'repair', name: '수리', note: MG.repairNeed() ? `피해 ${Math.round(MG.damageList().reduce((a, d) => a + d.max - d.hp, 0))} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}` : '고칠 곳이 없어요',
-      ok: MG.repairNeed() && MG.canPay(MG.repairCost()) },
+    { id: 'repair', name: '수리', note: !MG.repairDamage() ? '고칠 곳이 없어요' : !MG.repairNeed() ? '목재가 모자라요'
+        : `피해 ${Math.round(MG.damageList().reduce((a, d) => a + d.max - d.hp, 0))} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ' (목재 부족: 있는 만큼만)' : ''}`,
+      ok: MG.repairNeed() > 0 },
     { id: 'recruit', name: '모집', note: recruitNote(), ok: MG.recruitAmount() > 0 },
     { id: 'train', name: '훈련', note: MG.bLevel('training') ? `건강한 장수 모두 경험치 +${30 * MG.bLevel('training')}` : '훈련장이 필요해요', ok: MG.bLevel('training') },
     { id: 'scout', name: '정찰', note: S.nextAttack.scout >= 2 ? '다 알아냈어요' : `${S.nextAttack.scout ? '적 구성' : '날짜와 방향'}을 알아내요 · 골드 20`,
@@ -189,8 +190,8 @@ function actionsBlock() {
 // 골라서 수리하는 버튼: spec = 'keep' · 'side:N' · 'b:건물id' (행동력 1, 한 번에 2000까지)
 function repairBtn(spec, label, small) {
   const S = MG.S, need = MG.repairNeed(spec), cost = MG.repairCost(spec);
-  return `<button class="mini" data-repair="${spec}" ${S.ap && need && MG.canPay(cost) ? '' : 'disabled'}
-    title="${need}만큼 고쳐요 · ${MG.costText(cost)} · 행동력 1">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
+  return `<button class="mini" data-repair="${spec}" ${S.ap && need ? '' : 'disabled'}
+    title="${need ? `${need}만큼 고쳐요${need < MG.repairDamage(spec) ? ' (목재가 모자라 있는 만큼만)' : ''} · ${MG.costText(cost)} · 행동력 1` : '목재가 모자라요'}">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
 }
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1)
@@ -209,7 +210,7 @@ function fortBlock() {
       <td title="${MG.GATE_LEVELS[F.gate[s]].name}">${MG.ic('door')} ${lvl(MG.GATE_LEVELS, F.gate[s])} ${gn ? btn('gate', s, MG.ic('arrow-up'), `${gn.name}: 체력 ×${gn.mul}${gn.desc ? ' · ' + gn.desc : ''}`) : ''}</td>
       <td>${btn('moat', s, MG.ic('ripple'), `해자 · ${MG.FORT_EXTRAS.moat.desc}`)}</td>
       <td>${btn('oil', s, MG.ic('flame'), `기름 구멍 · ${MG.FORT_EXTRAS.oil.desc}`)}</td>
-      <td>${MG.repairNeed('side:' + s) ? repairBtn('side:' + s, '', true) : ''}</td></tr>`;
+      <td>${MG.repairDamage('side:' + s) ? repairBtn('side:' + s, '', true) : ''}</td></tr>`;
   }).join('');
   return `<section class="card"><h3>${MG.ic('wall')} 성벽과 성문 <span class="muted">면마다 강화 · 행동력 1</span></h3>
     <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td><td>수리</td></tr>${rows}</table>
@@ -613,7 +614,7 @@ function endingPanel() {
   return `<div class="overlay"><div class="panel wide ending"><div class="muted small">엔딩</div>
     <h1>${MG.ic('building-castle')} 변경에 평화가 찾아왔어요</h1>
     <p>${S.lord.name}이(가) 검은 성채를 무너뜨리고 고대 드래곤을 물리쳤어요. 변경백 가문은 ${lords}대, ${MG.year()}년에 걸쳐 왕국의 전진 기지를 지켰어요.
-      치른 전투 ${S.stats.battles}(습격 승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}, 잃은 장수 ${S.stats.generalsLost}.</p>
+      치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}, 잃은 장수 ${S.stats.generalsLost}.</p>
     <h3>정벌의 기록</h3><ul class="chronList">${big}</ul>
     <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
     <h3>지금 마치면 받는 명성 <b class="warn">+${r.total}</b> <span class="small muted">(엔딩 +${MG.ENDING_RENOWN} 포함)</span></h3>

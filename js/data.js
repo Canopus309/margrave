@@ -58,6 +58,8 @@ MG.ENEMY_TYPES = {
   wyvernQueen: { name: '와이번 여왕',  color: '#9a3030', hp: 3200, atk: 30, cd: 1.3, speed: 58, r: 15, wallDmg: 40, aggro: 100, boss: true, fly: true, raider: true },
 };
 MG.UPHILL_HIT = 0.5;      // 아래에서 성벽 위를 쏘면 명중률
+MG.ROUT_SHARE = 0.05;     // 모든 적이 나온 뒤 남은 적이 처음 온 수의 이만큼(최소 3) 이하면 퇴각한다 (보스가 없을 때)
+MG.ROUT_TIME = 3;         // 퇴각을 시작하고 이만큼(초) 뒤 남은 적이 사라지고 승리
 MG.RETREAT_AFTER = 60;    // 모든 적이 나온 뒤 이만큼(초) 적이 하나도 안 죽으면 남은 적은 물러난다
 MG.GARRISON_HP = 35;      // 직할 병사 한 명이 쓰러지는 데 드는 피해
 
@@ -204,7 +206,8 @@ MG.ERA_YEARS = [4, 6];     // 시대(주도 세력)가 바뀌는 간격(년)
 MG.ERA_MIX = 0.35;         // 새 시대에 두 세력이 섞여 올 확률
 
 // faction: 주도 세력, mix: 섞여 오는 세력(습격 무리 중 절반이 이쪽)
-MG.buildWaves = function (level, dirs, faction, mix) {
+// diff: 난이도 (early가 있으면 고블린 궁수가 2번째 전투부터), retaliation: 보복하는 거점 (트롤 거점이면 트롤이 섞인다)
+MG.buildWaves = function (level, dirs, faction, mix, diff, retaliation) {
   const [a, b] = dirs || MG.rollDirs(level);
   const c = (dirs && dirs[2]) || MG.SIDES.find(s => s !== a && s !== b);
   const L = level;
@@ -224,8 +227,8 @@ MG.buildWaves = function (level, dirs, faction, mix) {
     groups.push({ wave: 3, t: 90, dir: c, type: 'goblin', count: 20 + 6 * L },
                 { wave: 3, t: 92, dir: c, type: 'orc',    count: 2 * L });
   }
-  // 원거리 적: 3번째 전투부터 고블린 궁수, 5번째부터 오크 투석병
-  if (L >= 3) groups.push({ wave: 2, t: 46, dir: a, type: 'goblinArcher', count: 4 + 2 * L },
+  // 원거리 적: 3번째 전투부터(어려움·악몽은 2번째부터) 고블린 궁수, 5번째부터 오크 투석병
+  if (L >= (diff && diff.early ? 2 : 3)) groups.push({ wave: 2, t: 46, dir: a, type: 'goblinArcher', count: 4 + 2 * L },
                          { wave: 3, t: 89, dir: b, type: 'goblinArcher', count: 3 + 2 * L });
   if (L >= 5) groups.push({ wave: 3, t: 92, dir: a, type: 'orcThrower', count: 1 + Math.floor(L / 2) });
   // 5번째 전투마다 대습격
@@ -241,6 +244,8 @@ MG.buildWaves = function (level, dirs, faction, mix) {
     const F = MG.FACTIONS[(mix && i % 2) ? mix : (faction || 'goblin')], u = F.units[g.type];
     if (u) { g.type = u[0]; g.count = Math.max(1, Math.round(g.count * u[1])); }
   });
+  // 트롤 늪 요새의 보복: 트롤이 2·3파에 섞여 온다
+  if (retaliation === 'troll') groups.push({ wave: 2, t: 48, dir: b, type: 'troll', count: 3 + L }, { wave: 3, t: 93, dir: a, type: 'troll', count: 4 + L });
   // 대습격에는 그 시대 세력의 보스가 온다
   if (L % 5 === 0) groups.push({ wave: 3, t: 96, dir: a, type: MG.FACTIONS[faction || 'goblin'].boss, count: 1 });
   return { groups, dirs: L >= 3 ? [a, b, c] : [a, b] };
@@ -270,7 +275,7 @@ MG.BUILDINGS = {
   temple:   { name: '사원',   w: 2, h: 2, hp: 600, color: '#c8b46a', cost: { gold: 100, wood: 80 },          max: 3, desc: l => `사제 보충 가능, 회복량 +${10 * l}%, 매달 본성 +${150 * l}` },
   hospital: { name: '병원',   w: 2, h: 2, hp: 600, color: '#d0d0d0', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `부상자 ${MG.HOSPITAL_PER_LEVEL * l}명 수용` },
   storage:  { name: '창고',   w: 2, h: 2, hp: 600, color: '#8a7050', cost: { gold: 40, wood: 100 },          max: 3, desc: l => `자원 보관 한도 +${1000 * l}` },
-  market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}, 자원 거래 (한 달 ${150 * l}개, 파는 값 ${65 + 5 * l}%)` },
+  market:   { name: '시장',   w: 2, h: 2, hp: 500, color: '#c07040', cost: { gold: 60, wood: 80 },           max: 3, desc: l => `매달 골드 +${40 * l}, 자원 거래 (한 달 ${150 * l}개, 파는 값 ${65 + 5 * l}%). 두 번째 시장부터는 단계당 골드 +${MG.MARKET_EXTRA_GOLD}, 거래 +${MG.MARKET_EXTRA_VOLUME}개` },
   workshop: { name: '공방',   w: 2, h: 2, hp: 600, color: '#8a6a3a', cost: { gold: 100, wood: 120, iron: 40 }, max: 3, desc: l => `공병·포병 보충 가능, 포병 공격력 +${10 * l}%` },
   stable:   { name: '마구간', w: 2, h: 2, hp: 500, color: '#9a7a50', cost: { gold: 120, wood: 100 },          max: 3, desc: l => `기병 보충 가능, 기병 체력 +${10 * l}%` },
   tavern:   { name: '주점',   w: 1, h: 1, hp: 400, color: '#a0603a', cost: { gold: 80, wood: 60 },           max: 3, desc: l => `떠돌이 장수가 찾아와요 (최대 ${l + 1}명, 레벨 최대 ${l * 2 + 1})` },
@@ -394,18 +399,18 @@ MG.CHRONICLE_GAP = [24, 36];  // 연대기 사건 간격(달), 봄에 온다
 // 정벌 전투: 넓은 들판에서 적 진지(목책·망루·본진)를 친다. 본진을 부수면 이긴다.
 // garrison: 진지 수비대 [적 종류, 수], reinf: 보스가 살아 있는 동안 본진에서 나오는 증원, power: 적 체력 배율
 MG.OUTPOSTS = {
-  goblin: { name: '고블린 소굴', boss: 'goblinKing', biome: 'forest', stars: 1, months: 2,
+  goblin: { name: '고블린 소굴', faction: 'goblin', boss: 'goblinKing', biome: 'forest', stars: 1, months: 2,
     garrison: [['goblin', 140], ['goblinArcher', 40], ['wolf', 30]], towers: 2, hq: 5000, reinf: 'goblin', power: 1.3,
     bossDesc: '졸개를 불러내고, 체력이 낮아지면 진지 안쪽으로 달아나요', reward: '앞으로의 습격 규모 -15%' },
-  orc: { name: '오크 전쟁 야영지', boss: 'orcWarlord', biome: 'plain', stars: 2, months: 2,
-    garrison: [['orc', 90], ['goblin', 120], ['orcThrower', 15]], towers: 3, hq: 8000, reinf: 'orc', power: 1.7,
+  orc: { name: '오크 전쟁 야영지', faction: 'orc', boss: 'orcWarlord', biome: 'plain', stars: 2, months: 2,
+    garrison: [['orc', 90], ['goblin', 120], ['orcThrower', 15]], towers: 4, hq: 8000, reinf: 'orc', power: 1.7,
     bossDesc: '함성으로 주변 적을 강하게 하고, 돌진해서 병사들을 밀쳐내요', reward: '매달 철 +20, 습격에서 오크 -30%' },
-  troll: { name: '트롤 늪 요새', boss: 'trollChief', biome: 'swamp', stars: 3, months: 3,
-    garrison: [['troll', 60], ['orc', 90], ['goblinArcher', 80]], towers: 4, hq: 12000, reinf: 'troll', power: 2.2,
+  troll: { name: '트롤 늪 요새', faction: 'orc', boss: 'trollChief', biome: 'swamp', stars: 3, months: 3,
+    garrison: [['troll', 60], ['orc', 90], ['goblinArcher', 80]], towers: 5, hq: 12000, reinf: 'troll', power: 2.2,
     bossDesc: '체력이 계속 차오르고, 강타로 넓은 범위를 때려요', reward: '매달 목재 +30, 식량 +20' },
   // 마지막 목표: 거점 3곳을 모두 정벌해야 열린다. 목책 대신 돌벽.
   citadel: { name: '검은 성채', boss: 'ancientDragon', biome: 'stone', stars: 4, months: 3, final: true, wall: 'stonewall',
-    garrison: [['orc', 110], ['troll', 50], ['goblinArcher', 90], ['orcThrower', 20]], towers: 4, hq: 18000, reinf: 'orc', power: 2.6,
+    garrison: [['orc', 110], ['troll', 50], ['goblinArcher', 90], ['orcThrower', 20]], towers: 6, hq: 18000, reinf: 'orc', power: 2.6,
     bossDesc: '날아다녀서 벽과 지형을 무시하고, 불숨으로 부채꼴 범위를 태워요', reward: '변경의 평화 (엔딩)' },
 };
 MG.STRUCTS = {
@@ -432,8 +437,11 @@ MG.MARKET = {
   drift: 0.12, pull: 0.3, min: 0.4, max: 2.5,       // 매달 ±12%, 기준값으로 30% 복귀, 기준의 0.4~2.5배
   season: { food: { 봄: 1.2, 여름: 1.0, 가을: 0.7, 겨울: 1.4 } },
   sellRate: l => 0.65 + 0.05 * l,                   // 파는 값 = 사는 값 × (70% / 75% / 80%)
-  volume: l => 150 * l,                             // 한 달 거래 한도 (개수)
+  volume: l => 150 * l,                             // 한 달 거래 한도 (개수, 가장 높은 시장 단계)
 };
+MG.MARKET_GOLD = 40;          // 가장 높은 시장 단계마다 매달 골드
+MG.MARKET_EXTRA_GOLD = 12;    // 나머지 시장 단계마다 매달 골드 (여러 개 지으면 효율이 떨어진다)
+MG.MARKET_EXTRA_VOLUME = 50;  // 두 번째 시장부터 하나마다 거래 한도
 MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
 MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
 MG.REPAIR_WOOD_PER_HP = 0.1;
@@ -549,8 +557,8 @@ MG.enemyAtkScale = L => 1.15 * (1 + 0.06 * (L - 1));
 MG.DIFFICULTY = {
   easy:      { name: '쉬움',  desc: '예전 밸런스에 가까워요', count: 0.8,  hp: 0.85, atk: 0.75, renown: 0.7 },
   normal:    { name: '보통',  desc: '기본',                  count: 1,    hp: 1,    atk: 1,    renown: 1 },
-  hard:      { name: '어려움', desc: '적 수 +25%, 체력·공격 +15%', count: 1.25, hp: 1.15, atk: 1.15, renown: 1.3 },
-  nightmare: { name: '악몽',  desc: '적 수 +50%, 체력·공격 +30%', count: 1.5,  hp: 1.3,  atk: 1.3,  renown: 1.6 },
+  hard:      { name: '어려움', desc: '적 수 +25%, 체력·공격 +15%', count: 1.25, hp: 1.15, atk: 1.15, renown: 1.3, early: 1.25 },
+  nightmare: { name: '악몽',  desc: '적 수 +50%, 체력·공격 +30%', count: 1.5,  hp: 1.3,  atk: 1.3,  renown: 1.6, early: 1.25 },
 };
 
 // ---------- 성벽·성문 강화와 부가 시설 (면별) ----------

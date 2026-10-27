@@ -379,7 +379,7 @@ MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 MG.attackGroups = () => {
   const S = MG.S, A = S.nextAttack, tm = MG.typeMul();
   const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul();
-  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
+  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix, MG.DIFFICULTY[S.difficulty || 'normal'], A.retaliation).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
 };
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
@@ -508,19 +508,26 @@ MG.damageList = () => {
 };
 // 수리 대상: 'all'(알아서), 'keep'(본성), 'side:N'(그 면 성벽·성문), 'b:건물id'
 const repairFilter = spec => {
-  if (!spec || spec === 'all') return () => true;
+  if (!spec || typeof spec !== 'string' || spec === 'all') return () => true;
   if (spec === 'keep') return d => d.kind === 'keep';
   if (spec.startsWith('side:')) return d => d.kind === 'wall' && d.id[0] === spec[5];
   return d => d.kind === 'building' && d.b.id === +spec.slice(2);
 };
-MG.repairNeed = spec => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
+// 고를 수 있는 피해 (한 번에 2000까지)
+MG.repairDamage = spec => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
+// 체력 1을 고치는 목재
+const repairWoodPerHp = () => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1);
+// 이번에 고치는 양: 목재가 모자라면 있는 목재만큼만
+MG.repairNeed = spec => Math.min(MG.repairDamage(spec), Math.floor(Math.floor(MG.S.res.wood) / repairWoodPerHp()));
 // 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.repairCost = spec => ({ wood: Math.ceil(MG.repairNeed(spec) * MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)) });
+MG.repairCost = spec => ({ wood: Math.ceil(MG.repairNeed(spec) * repairWoodPerHp() - 1e-9) });
 MG.actRepair = spec => {
-  if (!MG.repairNeed(spec)) return '고칠 곳이 없어요';
+  if (!MG.repairDamage(spec)) return '고칠 곳이 없어요';
+  const need = MG.repairNeed(spec);
+  if (!need) return '목재가 모자라요';
   return act(MG.repairCost(spec), () => {
-    let left = MG.REPAIR_PER_ACTION;
+    let left = need;
     // 고른 대상 안에서, 무너진 곳(체력 0)부터
     for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => a.hp / a.max - b.hp / b.max)) {
       const add = Math.min(left, d.max - d.hp);
@@ -598,7 +605,8 @@ function tickTraining(rep) {
   if (list) rep.push(`훈련을 마친 병사가 예비군이 되었어요: ${list}`);
 }
 // 편제: 같은 병종 예비군을 장수 부대로 (정원까지, 행동력 없음)
-MG.assignable = g => Math.min(Math.max(0, MG.genCap(g) - g.healthy), MG.S.reserve[g.type] || 0);
+// 병원에 있는 부상병은 나으면 돌아오니 그 자리를 남겨 둔다
+MG.assignable = g => Math.min(Math.max(0, MG.genCap(g) - g.healthy - g.wounded.length), MG.S.reserve[g.type] || 0);
 MG.assignReserve = (gid, want) => {
   const S = MG.S, g = S.generals.find(x => x.id === gid);
   if (!g || g.dead) return '장수가 없어요';
@@ -683,7 +691,11 @@ MG.ensureMarket = () => {
 };
 MG.buyPrice = r => MG.S.prices[r] * (MG.hasRelic('scales') ? 0.9 : 1);
 MG.sellPrice = r => MG.S.prices[r] * MG.MARKET.sellRate(MG.bLevel('market')) * (MG.hasRelic('scales') ? 1.1 : 1);
-MG.tradeLeft = () => Math.max(0, Math.floor(MG.MARKET.volume(MG.bLevel('market')) * (MG.perk('smith') ? 0.5 : 1)) - MG.S.traded);
+// 시장 골드: 가장 높은 시장 단계 × 40 + 나머지 시장 단계 × 12
+MG.marketGold = () => { const top = MG.bLevel('market'); return top * MG.MARKET_GOLD + (MG.bSum('market') - top) * MG.MARKET_EXTRA_GOLD; };
+// 거래 한도: 가장 높은 시장 단계 기준 + 두 번째 시장부터 하나마다 +50
+MG.tradeVolume = () => { const n = MG.S.buildings.filter(b => b.type === 'market' && b.hp > 0).length; return n ? MG.MARKET.volume(MG.bLevel('market')) + (n - 1) * MG.MARKET_EXTRA_VOLUME : 0; };
+MG.tradeLeft = () => Math.max(0, Math.floor(MG.tradeVolume() * (MG.perk('smith') ? 0.5 : 1)) - MG.S.traded);
 // 사기(qty>0) 또는 팔기(qty<0). 행동력은 쓰지 않는다.
 // 소모품: 시장이 있으면 골드로 산다 (행동력 안 씀)
 MG.buyItem = k => {
@@ -764,7 +776,7 @@ function returnExpeditions(rep) {
     if (ok) {
       if (a.type === 'nest') { S.nextAttack.mul = (S.nextAttack.mul || 1) * 0.75; gain = '다음 습격 규모가 줄었어요'; }
       if (a.type === 'mine') { const n = Math.round(randInt(150, 300) * (1 + 0.1 * S.level) * (MG.perk('raider') ? 3 : 1)); S.res.iron = Math.min(MG.storageCap(), S.res.iron + n); gain = `철 +${n}`; }
-      if (a.type === 'escort') { const n = Math.round(randInt(200, 400) * (1 + 0.1 * S.level) * (MG.perk('raider') ? 3 : 1)); S.res.gold = Math.min(MG.storageCap(), S.res.gold + n); gain = `골드 +${n}`; }
+      if (a.type === 'escort') { const n = Math.round(randInt(120, 200) * (1 + 0.15 * S.level) * (MG.perk('raider') ? 3 : 1)); S.res.gold = Math.min(MG.storageCap(), S.res.gold + n); gain = `골드 +${n}`; }
       if (a.type === 'ruins') {
         const w = rollWeapon(S.level + 4); S.inventory.push(w); gain = `${MG.WEAPON_GRADES[w.grade].name} ${w.name}`;
         // 고대 유적에서는 가끔 유물도 나온다
@@ -852,6 +864,7 @@ function applyConquest(B) {
       sum.relic = MG.grantRelic(rollRelic(true, ['rare', 'legendary']));
     }
     addCrown(O.final ? 30 : 10);
+    S.stats.wins++;
     MG.chron(`${O.name}을(를) ${O.final ? '함락' : '정벌'}했어요!${B.bossDead ? ` ${MG.ENEMY_TYPES[O.boss].name}을(를) 쓰러뜨렸어요.` : ''}`, 'battle');
     if (O.final) {
       // 엔딩: 내정 화면에서 엔딩을 보고, 계속 다스릴지 마칠지 고른다
@@ -861,10 +874,14 @@ function applyConquest(B) {
     } else {
       // 보복 습격: 늦어도 두 달 안에 크게 온다
       const A = S.nextAttack;
-      A.mul = (A.mul || 1) * (MG.perk('conqueror') ? 1.25 : MG.perk('raider') ? 2.25 : MG.RETALIATION_MUL);
+      let f = MG.perk('conqueror') ? 1.25 : MG.perk('raider') ? 2.25 : MG.RETALIATION_MUL;
+      // 다음 전투가 대습격이면 보복 배율을 절반만 (×1.5 → ×1.25)
+      if (S.level % 5 === 0) f = 1 + (f - 1) / 2;
+      A.mul = (A.mul || 1) * f;
+      if (O.faction) { A.faction = O.faction; A.mix = null; }
       A.month = Math.min(A.month, S.month + 2);
       A.retaliation = M.id;
-      sum.retaliation = true;
+      sum.retaliation = Math.round(f * 100) / 100;
     }
   } else {
     cq(M.id).fails++;
@@ -1133,7 +1150,7 @@ MG.economy = () => {
   const winterCold = MG.hasEffect('harshWinter') && season === '겨울';
   return {
     tax: Math.floor(S.pop * MG.TAX_PER_POP * (MG.hasEffect('lowtax') ? 0.7 : 1) * (MG.hasRelic('ledger') ? 1.15 : 1) * MG.adminMul(S.lord.stats) * (MG.perk('taxreform') ? 1.1 : 1)),
-    market: Math.round(MG.bSum('market') * 40 * (S.domain === 'trade' ? 1.5 : 1)),
+    market: Math.round(MG.marketGold() * (S.domain === 'trade' ? 1.5 : 1)),
     wages: Math.ceil(soldiers * MG.WAGE_SOLDIER * (MG.perk('militia') ? 0.5 : 1) * (MG.perk('mercenary') ? 1.5 : 1) + generals * MG.WAGE_GENERAL),
     made, eat: Math.ceil(((soldiers + generals + cavalry) * (MG.perk('rations') ? 0.85 : 1) + S.pop) * MG.FOOD_PER_PERSON * (winterCold ? 1.5 : 1)), soldiers: soldiers + generals,
   };
@@ -1355,7 +1372,7 @@ MG.buildRoster = march => {
     walls: { ...S.walls }, keep: S.keep, morale: (S.starving ? MG.STARVE_MULT : 1) * (S.unpaid ? MG.UNPAID_MULT : 1) * (MG.perk('militia') ? 0.95 : 1), perks: [...(S.perks || [])],
     buildings: S.buildings.map(b => ({ ...b })), fields: S.fields.map(f => ({ ...f })),
     dirs: S.nextAttack.dirs, waveMul: (S.nextAttack.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.outpostWaveMul(),
-    faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null,
+    faction: S.nextAttack.faction || 'goblin', mix: S.nextAttack.mix || null, retaliation: S.nextAttack.retaliation || null,
     items: { ...S.items }, typeMul: MG.typeMul(), siegeMul: MG.siegeEnemyMul(S.siege || 0), wallMul: MG.wallMul(),
   };
   if (march) { roster.outpost = march.id; roster.fortMul = MG.conquestMul(march.id) * roster.diff.count; }
@@ -1520,7 +1537,7 @@ const CHRONICLES = {
     make: () => ({}),
     text: () => '광부들이 광산 깊은 곳에서 금맥을 찾았어요. 광산 하나를 금광으로 바꾸면 철 대신 골드가 나와요.',
     choices: [
-      { label: () => '금광으로 바꾸기', run: () => { const f = MG.S.fields.find(x => x.type === 'mine'); f.type = 'goldmine'; return '광산 하나가 금광이 되었어요.'; } },
+      { label: () => '금광으로 바꾸기 (그 광산의 철 수입은 사라져요)', run: () => { const f = MG.S.fields.find(x => x.type === 'mine'); f.type = 'goldmine'; return '광산 하나가 금광이 되었어요.'; } },
       { label: () => '철을 계속 캐기', run: () => '그대로 철을 캐요.' },
     ],
   },
