@@ -106,15 +106,15 @@ function returnExpeditions(rep) {
 }
 
 // ---------- 거점 정벌 ----------
-// 거점마다 정찰 여부와 실패 횟수를 기억한다
-const cq = id => (MG.S.conquest[id] = MG.S.conquest[id] || { scout: false, fails: 0 });
-MG.conquestInfo = cq;
+// 거점마다 정찰 여부와 실패 횟수. 읽기만 할 때는 저장에 남기지 않고, 바꿀 때만 만든다
+MG.conquestInfo = id => MG.S.conquest[id] || { scout: false, fails: 0 };
+const cqEdit = id => (MG.S.conquest[id] = MG.conquestInfo(id));
 MG.actConquestScout = id => {
-  if (cq(id).scout) return '이미 정찰했어요';
-  return (MG.perk('scouts') ? freeAct : act)(MG.CONQUEST_SCOUT, () => { cq(id).scout = true; }) || `${MG.josa(MG.OUTPOSTS[id].name, '을를')} 정찰했어요.`;
+  if (MG.conquestInfo(id).scout) return '이미 정찰했어요';
+  return (MG.perk('scouts') ? freeAct : act)(MG.CONQUEST_SCOUT, () => { cqEdit(id).scout = true; }) || `${MG.josa(MG.OUTPOSTS[id].name, '을를')} 정찰했어요.`;
 };
 // 진지 수비대 규모: 실패할 때마다 +20%, 포위 단계 반영
-MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * cq(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0) * (MG.perk('conqueror') ? 0.85 : 1);
+MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * MG.conquestInfo(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0) * (MG.perk('conqueror') ? 0.85 : 1);
 // 실제 진지 수비 배율 (난이도 개수 배율 포함, 정찰 표시와 전투가 같이 쓴다)
 MG.conquestFortMul = id => MG.conquestMul(id) * MG.DIFFICULTY[MG.S.difficulty || 'normal'].count;
 MG.actMarch = (id, gids, withLord) => {
@@ -194,7 +194,7 @@ function applyConquest(B) {
       sum.retaliationIn = A.month - S.month;
     }
   } else {
-    cq(M.id).fails++;
+    cqEdit(M.id).fails++;
     MG.chron(`${O.name} 정벌에 실패했어요${B.retreated ? ' (퇴각)' : ''}.`, 'battle');
   }
   // 성주 전사는 승패를 반영한 뒤에 (가문이 끊겨도 검은 성채 함락의 명성은 받는다)

@@ -6,7 +6,10 @@ window.MG_REGRESS = async (opts = {}) => {
   let a = seed;
   const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
-  const norm = s => s.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
+  // opts.html·opts.state: 일부러 바꾼 부분을 지우고 비교할 때 쓰는 거르개
+  const fHtml = opts.html || (s => s), fState = opts.state || (s => s);
+  const norm = s => fHtml(s.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim());
+  const stateHash = () => hash(JSON.stringify(fState(JSON.parse(JSON.stringify(MG.S)))));
   const keep = { random: Math.random, set: Storage.prototype.setItem, remove: Storage.prototype.removeItem, now: Date.now, fs: window.margraveFS };
   Math.random = rnd; Storage.prototype.setItem = () => {}; Storage.prototype.removeItem = () => {}; Date.now = () => 1700000000000; window.margraveFS = undefined;
   const steps = [], camp = document.getElementById('camp');
@@ -67,7 +70,7 @@ window.MG_REGRESS = async (opts = {}) => {
       MG.enterCamp();
       snapTabs(tag);
       steps.push([`${tag}:acts`, hash(out.splice(0).join('|'))]);
-      steps.push([`${tag}:state`, hash(JSON.stringify(MG.S))]);
+      steps.push([`${tag}:state`, stateHash()]);
       // 전투 또는 한 달 마치기
       if (MG.mustFight()) {
         // 명령 없이 싸우는 봇이라 습격 때마다 직할 병력을 보태 오래 버티게 한다 (전후 비교만 하면 되므로)
@@ -88,7 +91,7 @@ window.MG_REGRESS = async (opts = {}) => {
         steps.push([`${tag}:result`, hash(norm(document.getElementById('result').innerHTML))]);
         document.getElementById('contBtn').click();
       } else click('#endBtn');
-      steps.push([`${tag}:end`, hash(JSON.stringify(MG.S)) + ':' + hash(norm(camp.innerHTML))]);
+      steps.push([`${tag}:end`, stateHash() + ':' + hash(norm(camp.innerHTML))]);
     }
   } catch (e) {
     steps.push(['error', String(e && e.stack || e)]);

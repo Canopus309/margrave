@@ -346,7 +346,7 @@ function weaponBlock(g) {
 function genCard(g) {
   const cap = MG.genCap(g), need = g.level < MG.MAX_LEVEL ? MG.xpToNext(g.level) : 0;
   const refill = !MG.canRefill(g.type)
-    ? `<div class="warn small">${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 병사를 보충할 수 있어요</div>` : '';
+    ? `<div class="warn small">${MG.josa(MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name, '이가')} 있어야 병사를 보충할 수 있어요</div>` : '';
   const role = { engineer: '전투 중 근처 성벽·건물·본성을 수리해요. 성에 있으면 수리 목재 -40%', artillery: '사거리가 아주 길지만 가까운 적은 못 쏴요',
     cavalry: '움직인 뒤 첫 타격이 몇 배. 성벽 위에는 못 올라가요' }[g.type];
   if (g.dead) {
@@ -362,8 +362,8 @@ function genCard(g) {
     g.weapon && `<span title="${g.weapon.name} · ${MG.weaponDesc(g.weapon)}" style="color:${MG.WEAPON_GRADES[g.weapon.grade].color}">${MG.ic('sword')}</span>`,
     `<span title="스킬 ${K.name}: ${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''}">${MG.ic(MG.ICONS.skill[g.type])}</span>`,
     !g.deploy && !g.away && `<span class="muted" title="출전하지 않아요">${MG.ic('eye-off')}</span>`,
-    !g.away && MG.assignable(g) > 0 && `<span class="ok" title="빈자리가 있어요. 펼쳐서 직할 병사를 편제할 수 있어요">${MG.ic('users-plus')}</span>`,
-    !MG.canRefill(g.type) && `<span class="warn" title="${MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name}이 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
+    !g.away && MG.assignable(g) > 0 && `<span class="ok" title="빈자리가 있어요. 펼쳐서 같은 병종 예비군을 편제할 수 있어요">${MG.ic('users-plus')}</span>`,
+    !MG.canRefill(g.type) && `<span class="warn" title="${MG.josa(MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name, '이가')} 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
   ].filter(Boolean).join('');
   return `<div class="gen ${g.injured ? 'hurt' : ''} ${open ? 'open' : ''}">
     <div class="gtop" data-gopen="${g.id}" title="눌러서 ${open ? '접기' : '자세히'}">
