@@ -605,18 +605,54 @@ function tickTraining(rep) {
   if (list) rep.push(`훈련을 마친 병사가 예비군이 되었어요: ${list}`);
 }
 // 편제: 같은 병종 예비군을 장수 부대로 (정원까지, 행동력 없음)
-// 병원에 있는 부상병은 나으면 돌아오니 그 자리를 남겨 둔다
-MG.assignable = g => Math.min(Math.max(0, MG.genCap(g) - g.healthy - g.wounded.length), MG.S.reserve[g.type] || 0);
+// 병원에 있는 부상병 자리까지 채우면, 넘치는 부상병은 나은 뒤 예비군으로 간다
+MG.assignable = g => Math.min(Math.max(0, MG.genCap(g) - g.healthy), MG.S.reserve[g.type] || 0);
+// n명을 편제하고, 정원을 넘는 부상병(오래 걸리는 쪽부터)을 예비군 부상병으로 옮긴다. 옮긴 부상병 수를 돌려준다
+function fillSquad(g, n) {
+  const S = MG.S;
+  g.vet = MG.vetMix(g.vet, g.healthy, S.reserveVet[g.type], n);
+  S.reserve[g.type] -= n; g.healthy += n;
+  const over = Math.min(g.wounded.length, g.healthy + g.wounded.length - MG.genCap(g));
+  if (over <= 0) return 0;
+  g.wounded.sort((a, b) => b.left - a.left);
+  for (const w of g.wounded.splice(0, over)) S.garrison.wounded.push({ ...w, type: g.type, reserve: true, vet: g.vet || 0 });
+  if (!g.wounded.length) g.mobilize = false;
+  return over;
+}
 MG.assignReserve = (gid, want) => {
   const S = MG.S, g = S.generals.find(x => x.id === gid);
   if (!g || g.dead) return '장수가 없어요';
   if (g.away) return '원정·정벌에서 돌아온 뒤에 편제해요';
   const n = Math.min(want, MG.assignable(g));
   if (n <= 0) return MG.genCap(g) <= g.healthy ? '부대가 가득 찼어요' : `${MG.UNIT_TYPES[g.type].name} 예비군이 없어요. 훈련소에서 훈련시켜요`;
-  g.vet = MG.vetMix(g.vet, g.healthy, S.reserveVet[g.type], n);
-  S.reserve[g.type] -= n; g.healthy += n;
+  const moved = fillSquad(g, n);
   save();
-  return `${MG.UNIT_TYPES[g.type].name} 예비군 ${n}명을 ${g.name} 부대에 편제했어요.`;
+  return `${MG.UNIT_TYPES[g.type].name} 예비군 ${n}명을 ${g.name} 부대에 편제했어요.${moved ? ` 부상병 ${moved}명은 나으면 예비군으로 가요.` : ''}`;
+};
+// 모든 장수 부대의 빈자리를 같은 병종 예비군으로 채운다 (성에 있는 부대만, 목록 순서대로)
+MG.assignAllCount = () => {
+  const pool = { ...MG.S.reserve };
+  let n = 0;
+  for (const g of MG.S.generals) {
+    if (g.dead || g.away) continue;
+    const k = Math.min(Math.max(0, MG.genCap(g) - g.healthy), pool[g.type] || 0);
+    pool[g.type] = (pool[g.type] || 0) - k; n += k;
+  }
+  return n;
+};
+MG.assignAll = () => {
+  const S = MG.S, done = [];
+  let moved = 0;
+  for (const g of S.generals) {
+    if (g.dead || g.away) continue;
+    const n = MG.assignable(g);
+    if (n <= 0) continue;
+    moved += fillSquad(g, n);
+    done.push(`${g.name} +${n}`);
+  }
+  if (!done.length) return '채울 빈자리나 맞는 예비군이 없어요';
+  save();
+  return `빈자리를 채웠어요: ${done.join(', ')}.${moved ? ` 부상병 ${moved}명은 나으면 예비군으로 가요.` : ''}`;
 };
 // 보병·궁수 예비군과 성벽 위 직할 병력 사이를 오간다. dir: 'toGarrison' | 'toReserve'
 MG.moveGarrisonReserve = (type, n, dir) => {
@@ -1319,7 +1355,7 @@ function tickHospital() {
     if (!g.wounded.length) g.mobilize = false;
   }
   // 나은 직할 병사는 성벽으로, 나은 예비군은 예비군으로
-  for (const w of S.garrison.wounded) if (w.left <= 0) { if (w.reserve) S.reserve[w.type] = (S.reserve[w.type] || 0) + 1; else S.garrison[w.type]++; recovered++; }
+  for (const w of S.garrison.wounded) if (w.left <= 0) { if (w.reserve) addReserve(w.type, 1, w.vet != null ? w.vet : S.reserveVet[w.type]); else S.garrison[w.type]++; recovered++; }
   S.garrison.wounded = S.garrison.wounded.filter(w => w.left > 0);
   return recovered;
 }

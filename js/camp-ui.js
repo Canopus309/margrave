@@ -284,9 +284,9 @@ function classBlock(g) {
 // 편제: 같은 병종 예비군을 이 장수 부대로
 function assignRow(g) {
   if (g.away) return '';
-  const room = MG.genCap(g) - g.healthy, have = MG.S.reserve[g.type] || 0, n = MG.assignable(g);
+  const room = MG.genCap(g) - g.healthy, have = MG.S.reserve[g.type] || 0, n = MG.assignable(g), hurt = g.wounded.length;
   if (room <= 0) return '';
-  return `<div class="actRow"><span class="small">${MG.ic('users-plus')} 예비군에서 편제 <span class="muted">${MG.icUnit(g.type)} 예비군 ${have} · 빈자리 ${room}</span></span>
+  return `<div class="actRow"><span class="small">${MG.ic('users-plus')} 예비군에서 편제 <span class="muted">${MG.icUnit(g.type)} 예비군 ${have} · 빈자리 ${room}${hurt ? ` <span title="부상병 자리까지 채우면, 넘치는 부상병은 나은 뒤 예비군으로 가요">(부상 ${hurt}명 자리 포함)</span>` : ''}</span></span>
     <span>${n ? `<button class="mini" data-assign="${g.id},10">+${Math.min(10, n)}</button>
       <button class="mini" data-assign="${g.id},999">가득 +${n}</button>` : '<span class="muted small">군대 탭 훈련소에서 훈련시켜요</span>'}</span></div>`;
 }
@@ -309,6 +309,8 @@ function trainingBlock() {
       <button class="mini" data-gmove="${t},10,toReserve" ${S.garrison[t] ? '' : 'disabled'} title="성벽 위 직할 → 예비군">${MG.ic('arrow-down')} 예비군으로 10</button></span></div>`).join('');
   return `<section class="card wideCard"><h3>${MG.ic('tent')} 훈련소 <span class="muted">훈련병 <b>${S.recruits || 0}</b>명 · 훈련 중 ${now} / ${cap}명 (병영 단계 × ${MG.TRAIN_PER_BARRACKS})${MG.bLevel('training') ? ' · 훈련장: 기간 -1개월' : ''}</span></h3>
     <table class="trainTable"><tr class="muted small"><td>병종</td><td>훈련</td><td>훈련 중</td><td>예비군</td><td></td></tr>${rows}</table>
+    <div class="actRow"><span class="small">${MG.ic('users-plus')} 장수 부대 빈자리 모두 채우기 <span class="muted">같은 병종 예비군으로, 성에 있는 부대만. 넘치는 부상병은 나은 뒤 예비군으로</span></span>
+      <span><button class="mini" id="assignAll" ${MG.assignAllCount() ? '' : 'disabled'}>${MG.ic('users-plus')} 모두 채우기 +${MG.assignAllCount()}</button></span></div>
     <div class="small muted">행동의 모집으로 뽑은 주민이 훈련병이 돼요(1명당 골드 ${Math.ceil(MG.recruitGold())}). 훈련을 마친 예비군을 장수 카드에서 같은 병종 부대에 편제해요. 훈련병·예비군도 급여와 식량이 나가요 (기병은 식량 2배).</div>
     <h3 style="margin-top:8px">${MG.ic('wall')} 성벽 위 직할 ↔ 예비군</h3>${gar}
     <label class="tog"><input type="checkbox" id="mobReserve" ${S.mobilizeReserve ? 'checked' : ''}><span>예비군 동원 <span class="muted small">습격이 오면 예비군이 병종별로 지휘관 없는 부대가 되어 싸워요 (공격력 -20%, 쓰러지면 부상 판정)</span></span></label></section>`;
@@ -811,6 +813,7 @@ function bind() {
   q('[data-lstat]').forEach(b => b.onclick = () => { MG.lordSpend(b.dataset.lstat); render(); });
   q('[data-repair]').forEach(b => b.onclick = () => run(MG.actRepair(b.dataset.repair)));
   q('[data-assign]').forEach(b => b.onclick = () => { const [id, n] = b.dataset.assign.split(',').map(Number); run(MG.assignReserve(id, n)); });
+  if ($('assignAll')) $('assignAll').onclick = () => run(MG.assignAll());
   q('[data-train]').forEach(b => b.onclick = () => { const [t, n] = b.dataset.train.split(','); run(MG.startTraining(t, +n)); });
   q('[data-gmove]').forEach(b => b.onclick = () => { const [t, n, d] = b.dataset.gmove.split(','); run(MG.moveGarrisonReserve(t, +n, d)); });
   if ($('mobReserve')) $('mobReserve').onchange = ev => { S.mobilizeReserve = ev.target.checked; MG.saveCampaign(); render(); };
