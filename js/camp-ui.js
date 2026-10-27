@@ -50,8 +50,10 @@ function headerBlock() {
   // 자원 칩: 아이콘 + 값 + 달 변화. 자세한 내역은 말풍선으로
   const tip = { gold: `세금 +${eco.tax}${eco.market ? ` · 시장 +${eco.market}` : ''} · 급여 -${eco.wages} (병력 ${eco.soldiers}명)`,
     food: `생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})`, wood: '들판 벌목장', iron: '들판 광산' };
-  const chips = Object.keys(MG.RES).map(k => `<div class="chip" title="${MG.RES[k]} · ${tip[k]} · 보관 한도 ${cap}">${MG.icRes(k)}<b>${Math.floor(S.res[k])}</b>
-    <i class="${prod[k] < 0 ? 'danger' : 'ok'}">${sign(prod[k])}</i></div>`).join('');
+  // 보관 한도에 차면 숫자 색을 바꿔, 더 들어오는 몫이 버려진다는 걸 알린다
+  const chips = Object.keys(MG.RES).map(k => { const full = S.res[k] >= cap;
+    return `<div class="chip" title="${MG.RES[k]} · ${tip[k]} · 보관 한도 ${cap}${full ? ' (가득 참 — 더 들어오는 만큼 버려져요)' : ''}">${MG.icRes(k)}<b${full ? ' class="warn"' : ''}>${Math.floor(S.res[k])}</b>
+    <i class="${prod[k] < 0 ? 'danger' : 'ok'}">${sign(prod[k])}</i></div>`; }).join('');
   const warns = [
     S.starving && ['grain', '식량이 바닥났어요 — 공격력이 떨어지고 주민·병사가 떠나요', 'danger'],
     S.unpaid && ['coins', '급여가 밀렸어요 — 공격력이 떨어지고 병사가 탈영해요', 'danger'],
