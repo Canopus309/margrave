@@ -445,7 +445,6 @@ MG.MARKET_EXTRA_VOLUME = 50;  // 두 번째 시장부터 하나마다 거래 한
 MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
 MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
 MG.REPAIR_WOOD_PER_HP = 0.1;
-MG.REPAIR_PER_ACTION = 2000;  // 한 번 수리할 때 고치는 체력 총량
 MG.CRAFT_COST = { gold: 80, iron: 60 };
 MG.TEMPLE_KEEP_HEAL = 150;  // 사원 단계당 매달 본성 회복량
 MG.STARVE_MULT = 0.85;     // 식량이 바닥나면 전군 공격력

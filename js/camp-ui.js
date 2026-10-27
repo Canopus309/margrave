@@ -166,8 +166,8 @@ function recruitNote() {
 function actionsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const rows = [
-    { id: 'repair', name: '수리', note: !MG.repairDamage() ? '고칠 곳이 없어요' : !MG.repairNeed() ? '목재가 모자라요'
-        : `피해 ${Math.round(MG.damageList().reduce((a, d) => a + d.max - d.hp, 0))} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ' (목재 부족: 있는 만큼만)' : ''}`,
+    { id: 'repair', name: '수리', note: !MG.repairDamage() ? '성벽·성문·본성은 멀쩡해요' : !MG.repairNeed() ? '목재가 모자라요'
+        : `성벽·성문·본성 피해 ${MG.repairDamage()} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ' (목재 부족: 있는 만큼만)' : ''}`,
       ok: MG.repairNeed() > 0 },
     { id: 'recruit', name: '모집', note: recruitNote(), ok: MG.recruitAmount() > 0 },
     { id: 'train', name: '훈련', note: MG.bLevel('training') ? `건강한 장수 모두 경험치 +${30 * MG.bLevel('training')}` : '훈련장이 필요해요', ok: MG.bLevel('training') },
@@ -183,15 +183,24 @@ function actionsBlock() {
   return `<section class="card"><h3>${MG.ic('bolt')} 행동 <span class="muted">행동력 1씩</span></h3>
     ${rows.map(r => `<div class="actRow"><button class="actBtn" data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${MG.ic(MG.ICONS.act[r.id])} ${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
     ${S.keep < MG.KEEP_HP ? `<div class="actRow"><span class="small">${MG.ic('building-castle')} <b>본성</b> <span class="muted">${Math.round(S.keep)} / ${MG.KEEP_HP}</span></span>${repairBtn('keep', '본성 수리')}</div>` : ''}
+    ${hurtBuildings()}
     ${promote}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
 }
 
-// 골라서 수리하는 버튼: spec = 'keep' · 'side:N' · 'b:건물id' (행동력 1, 한 번에 2000까지)
+// 부서진 건물: 한 채씩 다 고친다 (행동력 1, 다 고칠 목재가 있어야)
+function hurtBuildings() {
+  const list = MG.S.buildings.filter(b => b.hp < b.max);
+  if (!list.length) return '';
+  return `<div class="actRow"><span class="small">${MG.ic('hammer')} <b>부서진 건물</b> <span class="muted">한 채씩, 다 고칠 목재가 있어야 해요</span></span>
+    <span>${list.map(b => repairBtn(`b:${b.id}`, `${MG.ic(MG.ICONS.building[b.type])} ${MG.BUILDINGS[b.type].name}${b.hp <= 0 ? ' (무너짐)' : ''}`)).join(' ')}</span></div>`;
+}
+
+// 골라서 수리하는 버튼: spec = 'keep' · 'side:N' · 'b:건물id' (행동력 1)
 function repairBtn(spec, label, small) {
-  const S = MG.S, need = MG.repairNeed(spec), cost = MG.repairCost(spec);
+  const S = MG.S, need = MG.repairNeed(spec), bld = spec.startsWith('b:'), cost = bld ? MG.repairFullCost(spec) : MG.repairCost(spec);
   return `<button class="mini" data-repair="${spec}" ${S.ap && need ? '' : 'disabled'}
-    title="${need ? `${need}만큼 고쳐요${need < MG.repairDamage(spec) ? ' (목재가 모자라 있는 만큼만)' : ''} · ${MG.costText(cost)} · 행동력 1` : '목재가 모자라요'}">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
+    title="${need ? `${need}만큼 고쳐요${need < MG.repairDamage(spec) ? ' (목재가 모자라 있는 만큼만)' : ''} · ${MG.costText(cost)} · 행동력 1` : bld ? `목재가 모자라요 (다 고치려면 ${MG.costText(cost)})` : '목재가 모자라요'}">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
 }
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1)

@@ -377,9 +377,11 @@ MG.citadelOpen = () => Object.keys(MG.OUTPOSTS).filter(k => !MG.OUTPOSTS[k].fina
 MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 // 다음 습격의 적 구성 (고블린 둥지를 소탕하면 줄어든다)
 MG.attackGroups = () => {
-  const S = MG.S, A = S.nextAttack, tm = MG.typeMul();
-  const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul();
-  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix, MG.DIFFICULTY[S.difficulty || 'normal'], A.retaliation).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
+  const S = MG.S, A = S.nextAttack, tm = MG.typeMul(), diff = MG.DIFFICULTY[S.difficulty || 'normal'];
+  // 전투(createBattle)와 같은 배율: 난이도 개수 배율, 어려움·악몽은 초반(전투 1~2) 배율도
+  const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul()
+    * diff.count * (diff.early && S.level <= 2 ? diff.early : 1);
+  return MG.buildWaves(S.level, A.dirs, A.faction, A.mix, diff, A.retaliation).groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) }));
 };
 // 정찰 전에는 ±1달 범위만 보인다
 MG.attackForecast = () => {
@@ -495,7 +497,7 @@ MG.actFort = (kind, side) => {
   }) || `${MG.SIDE_NAME[side] || ''}${side ? '쪽 ' : ''}${kind === 'wall' ? MG.WALL_LEVELS[F.wall[side]].name : kind === 'gate' ? MG.GATE_LEVELS[F.gate[side]].name : kind === 'towers' ? MG.CORNER_TOWERS.name : MG.FORT_EXTRAS[kind].name}을(를) 갖췄어요.`;
 };
 
-// 수리: 성벽·성문·본성·건물을 피해가 큰 곳부터, 한 번에 일정량까지
+// 수리: 성벽·성문·본성은 일괄(목재만큼), 건물은 한 채씩
 MG.damageList = () => {
   const S = MG.S, list = [];
   for (const [id, hp] of Object.entries(S.walls)) {
@@ -506,35 +508,45 @@ MG.damageList = () => {
   for (const b of S.buildings) if (b.hp < b.max) list.push({ kind: 'building', b, hp: b.hp, max: b.max });
   return list;
 };
-// 수리 대상: 'all'(알아서), 'keep'(본성), 'side:N'(그 면 성벽·성문), 'b:건물id'
+// 수리 대상: 'all'(성벽·성문·본성 일괄), 'keep'(본성), 'side:N'(그 면 성벽·성문), 'b:건물id'
+// 성벽·성문·본성은 목재가 모자라면 있는 만큼만, 건물은 한 채를 다 고칠 목재가 있어야 고친다
 const repairFilter = spec => {
-  if (!spec || typeof spec !== 'string' || spec === 'all') return () => true;
+  if (!spec || typeof spec !== 'string' || spec === 'all') return d => d.kind !== 'building';
   if (spec === 'keep') return d => d.kind === 'keep';
   if (spec.startsWith('side:')) return d => d.kind === 'wall' && d.id[0] === spec[5];
   return d => d.kind === 'building' && d.b.id === +spec.slice(2);
 };
-// 고를 수 있는 피해 (한 번에 2000까지)
-MG.repairDamage = spec => Math.min(MG.REPAIR_PER_ACTION, MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
+const isBuildingSpec = spec => typeof spec === 'string' && spec.startsWith('b:');
+// 고를 수 있는 피해 (양 제한 없음)
+MG.repairDamage = spec => Math.round(MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
 // 체력 1을 고치는 목재
 const repairWoodPerHp = () => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1);
-// 이번에 고치는 양: 목재가 모자라면 있는 목재만큼만
-MG.repairNeed = spec => Math.min(MG.repairDamage(spec), Math.floor(Math.floor(MG.S.res.wood) / repairWoodPerHp()));
+const woodFor = hp => Math.ceil(hp * repairWoodPerHp() - 1e-9);
+// 이번에 고치는 양: 성벽은 목재만큼만, 건물은 다 고치거나(목재 충분) 못 고치거나
+MG.repairNeed = spec => {
+  const dmg = MG.repairDamage(spec);
+  if (isBuildingSpec(spec)) return woodFor(dmg) <= Math.floor(MG.S.res.wood) ? dmg : 0;
+  return Math.min(dmg, Math.floor(Math.floor(MG.S.res.wood) / repairWoodPerHp()));
+};
 // 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.repairCost = spec => ({ wood: Math.ceil(MG.repairNeed(spec) * repairWoodPerHp() - 1e-9) });
+MG.repairCost = spec => ({ wood: woodFor(MG.repairNeed(spec)) });
+// 다 고치는 데 드는 목재 (건물 버튼 표시용)
+MG.repairFullCost = spec => ({ wood: woodFor(MG.repairDamage(spec)) });
 MG.actRepair = spec => {
   if (!MG.repairDamage(spec)) return '고칠 곳이 없어요';
   const need = MG.repairNeed(spec);
-  if (!need) return '목재가 모자라요';
+  if (!need) return isBuildingSpec(spec) ? `목재가 모자라요 (다 고치려면 목재 ${MG.repairFullCost(spec).wood})` : '목재가 모자라요';
   return act(MG.repairCost(spec), () => {
     let left = need;
-    // 고른 대상 안에서, 무너진 곳(체력 0)부터
-    for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => a.hp / a.max - b.hp / b.max)) {
+    // 무너진 성벽·성문 먼저, 그다음 본성, 그다음 많이 부서진 비율 순
+    const rank = d => (d.kind === 'wall' && d.hp <= 0 ? 0 : d.kind === 'keep' ? 1 : 2);
+    for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => rank(a) - rank(b) || a.hp / a.max - b.hp / b.max)) {
       const add = Math.min(left, d.max - d.hp);
       left -= add;
       if (d.kind === 'wall') MG.S.walls[d.id] = d.hp + add;
       else if (d.kind === 'keep') MG.S.keep = d.hp + add;
-      else d.b.hp = d.hp + add;
+      else d.b.hp = d.max;
       if (left <= 0) break;
     }
     for (const [id, hp] of Object.entries(MG.S.walls)) if (hp >= MG.wallMax(id)) delete MG.S.walls[id];
