@@ -230,6 +230,21 @@ function makeSoldier(squad, type, x, y, opts = {}) {
 }
 
 const NO_MODS = MG.combineMods([]);
+// 캠페인이 넘긴 장수 부대를 만든다. at(rs, i): 시작 자리, facing: 바라보는 쪽
+function addSquads(roster, at, facing) {
+  roster.squads.forEach((rs, i) => {
+    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls, vet: rs.vet,
+      lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
+    const { x, y } = at(rs, i);
+    if (rs.general) {
+      sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
+        weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
+    } else sq.leaderDown = true;
+    for (let k = 0; k < rs.healthy; k++) makeSoldier(sq, rs.type, x, y);
+    sq.initial = sq.soldiers.length;
+    MG.orderMove(sq, x, y, { ...facing }, true);
+  });
+}
 function makeSquad(name, type, opts = {}) {
   const sq = { id: B.nextId++, name, type, soldiers: [], general: null, focus: null, anchor: null,
     facing: { x: 0, y: -1 }, leaderDown: false, isLord: !!opts.lord, isGarrison: !!opts.garrison, initial: 0,
@@ -242,10 +257,9 @@ function makeSquad(name, type, opts = {}) {
 
 // roster: 캠페인에서 만든 출전 부대 구성 (MG.buildRoster)
 MG.createBattle = function (level, roster) {
-  const diff0 = roster.diff || MG.DIFFICULTY.normal;
-  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix, diff0, roster.retaliation);
-  // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
   const diff = roster.diff || MG.DIFFICULTY.normal;
+  const waves = MG.buildWaves(level, roster.dirs, roster.faction, roster.mix, diff, roster.retaliation);
+  // 고블린 둥지 소탕·마물 대이동·포위 단계가 적 수를 바꾼다
   // 어려움·악몽은 초반(전투 1~2) 습격이 더 크다
   const countMul = (roster.waveMul || 1) * (roster.siegeMul || 1) * diff.count * (diff.early && level <= 2 ? diff.early : 1);
   const tm = roster.typeMul || {};
@@ -286,18 +300,7 @@ MG.createBattle = function (level, roster) {
   }
   if (MG.perk('mobile')) mobileGarrison();
   if (roster.reserve) reserveSquads(roster.reserve);
-  for (const rs of roster.squads) {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls, vet: rs.vet,
-      lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
-    const x = C.x + rs.slot.x, y = C.y + rs.slot.y;
-    if (rs.general) {
-      sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
-        weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
-    } else sq.leaderDown = true;
-    for (let i = 0; i < rs.healthy; i++) makeSoldier(sq, rs.type, x, y);
-    sq.initial = sq.soldiers.length;
-    MG.orderMove(sq, x, y, { x: 0, y: -1 }, true);
-  }
+  addSquads(roster, rs => ({ x: C.x + rs.slot.x, y: C.y + rs.slot.y }), { x: 0, y: -1 });
   makeLord(roster, C.x + MG.LORD.at.x, C.y + MG.LORD.at.y, { x: 0, y: -1 });
 
   const hpScale = Math.pow(1.1, level - 1) * (roster.siegeMul || 1) * diff.hp, atkScale = MG.enemyAtkScale(level) * diff.atk;
@@ -473,18 +476,7 @@ MG.createConquest = function (roster) {
   B.stats.spawned++;
   // 아군: 왼쪽 출발 지역에 세로로 늘어선다
   const n = roster.squads.length;
-  roster.squads.forEach((rs, i) => {
-    const sq = makeSquad(`${rs.name} 부대`, rs.type, { gid: rs.gid, title: rs.title, mods: rs.mods, cls: rs.cls, vet: rs.vet,
-      lvBonus: (1 + MG.LEVEL_BONUS.squad * (rs.level - 1)) * (rs.train || 1) });
-    const x = 230, y = W.h / 2 + (i - (n - 1) / 2) * Math.min(110, (W.h - 200) / n);
-    if (rs.general) {
-      sq.general = makeSoldier(sq, rs.type, x, y, { general: true, name: rs.general.name, genLevel: rs.level,
-        weaponAtk: rs.weaponAtk, injured: rs.general.injured, ageMul: rs.general.ageMul });
-    } else sq.leaderDown = true;
-    for (let k = 0; k < rs.healthy; k++) makeSoldier(sq, rs.type, x, y);
-    sq.initial = sq.soldiers.length;
-    MG.orderMove(sq, x, y, { x: 1, y: 0 }, true);
-  });
+  addSquads(roster, (rs, i) => ({ x: 230, y: W.h / 2 + (i - (n - 1) / 2) * Math.min(110, (W.h - 200) / n) }), { x: 1, y: 0 });
   makeLord(roster, 110, W.h / 2, { x: 1, y: 0 });
   initExtras(roster);
   return B;
@@ -728,6 +720,16 @@ function buildGrid(list) {
   }
   return g;
 }
+// 건물(사각형)까지의 거리 (안에 있으면 0)
+const rectDist = (b, p) => Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.y0 - p.y, 0, p.y - b.y1));
+// 성벽 조각 가운데 줄에서 p와 가장 가까운 지점
+const wallSpot = (w, p) => wallPoint(w.side, C.R - C.T / 2, Math.max(w.a0, Math.min(w.a1, along(p, w.side))));
+// 격자에서 p로부터 r 안의 가장 가까운 것 (ok를 만족하는 것만)
+function nearest(g, p, r, ok) {
+  let best = null, bd = r;
+  nearby(g, p, r, o => { const d = dist(p, o); if (d < bd && ok(o)) { bd = d; best = o; } });
+  return best;
+}
 function nearby(g, p, r, fn) {
   const x0 = ((p.x - r) / CELL) | 0, x1 = ((p.x + r) / CELL) | 0, y0 = ((p.y - r) / CELL) | 0, y1 = ((p.y + r) / CELL) | 0;
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
@@ -824,14 +826,12 @@ function repairNear(s) {
   let best = null, bp = 1;
   for (const w of B.walls) {
     if (w.hp >= w.max) continue;
-    const a = Math.max(w.a0, Math.min(w.a1, along(s, w.side))), p = wallPoint(w.side, C.R - C.T / 2, a);
-    if (dist(s, p) - C.T / 2 > REPAIR_REACH) continue;
+    if (dist(s, wallSpot(w, s)) - C.T / 2 > REPAIR_REACH) continue;
     if (w.hp / w.max < bp) { bp = w.hp / w.max; best = { w }; }
   }
   for (const b of B.buildings) {
     if (b.hp >= b.max) continue;
-    const dx = Math.max(b.x0 - s.x, 0, s.x - b.x1), dy = Math.max(b.y0 - s.y, 0, s.y - b.y1);
-    if (Math.hypot(dx, dy) > REPAIR_REACH || b.hp / b.max >= bp) continue;
+    if (rectDist(b, s) > REPAIR_REACH || b.hp / b.max >= bp) continue;
     bp = b.hp / b.max; best = { b };
   }
   if (B.keep.hp < B.keep.max && dist(s, C) < C.keepR + REPAIR_REACH && B.keep.hp / B.keep.max < bp) best = { keep: true };
@@ -931,7 +931,7 @@ function nearestBuilding(e) {
   let best = null, bd = 260;
   for (const b of B.buildings) {
     if (b.hp <= 0) continue;
-    const dx = Math.max(b.x0 - e.x, 0, e.x - b.x1), dy = Math.max(b.y0 - e.y, 0, e.y - b.y1), d = Math.hypot(dx, dy);
+    const d = rectDist(b, e);
     if (d < bd) { bd = d; best = b; }
   }
   return best;
@@ -969,9 +969,7 @@ function updateFlyer(e, dt, fGrid, sp) {
   const T = e.T;
   if (e.retT <= 0) {
     e.retT = rand(0.3, 0.45);
-    let best = null, bd = T.aggro;
-    nearby(fGrid, e, T.aggro, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
-    e.target = best;
+    e.target = nearest(fGrid, e, T.aggro, s => !s.dead);
   }
   const fly = (tx, ty) => { const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy); if (d > 0.01) { const k = Math.min(sp, d) / d; e.x += dx * k; e.y += dy * k; } };
   const t = e.target && !e.target.dead ? e.target : null;
@@ -1044,8 +1042,7 @@ function raidBossSkill(e, dt, fGrid) {
     nearby(fGrid, e, 55, s => { if (!s.dead && dist(e, s) < 55) { damageFriendly(s, eAtk(e)); hit++; } });
     for (const b of B.buildings) {
       if (b.hp <= 0) continue;
-      const dx = Math.max(b.x0 - e.x, 0, e.x - b.x1), dy = Math.max(b.y0 - e.y, 0, e.y - b.y1);
-      if (Math.hypot(dx, dy) < 40) { b.hp -= 150; if (b.hp <= 0) { b.hp = 1; e.cdT = 0; attackBuilding(e, b); } hit++; }
+      if (rectDist(b, e) < 40) { b.hp -= 150; if (b.hp <= 0) { b.hp = 1; e.cdT = 0; attackBuilding(e, b); } hit++; }
     }
     if (hit) { B.fx.push({ kind: 'boom', x: e.x, y: e.y, r: 55, t: 0.4, max: 0.4 }); sfx('boom'); shake(4); }
     return false;
@@ -1064,8 +1061,7 @@ const eWall = e => e.T.wallDmg * (e.atkScale || 1);
 function updateStruct(e, dt, fGrid) {
   if (e.struct !== 'tower' || e.cdT > 0) return;
   const T = e.T;
-  let best = null, bd = T.range;
-  nearby(fGrid, e, T.range, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
+  const best = nearest(fGrid, e, T.range, s => !s.dead);
   if (!best) return;
   e.cdT = T.cd;
   B.projectiles.push({ x: e.x, y: e.y - 10, enemy: true, target: best, tx: best.x, ty: best.y, kind: 'earrow', dmg: T.atk, speed: 440 });
@@ -1103,11 +1099,11 @@ function updateFoe(e, dt, fGrid, sp) {
   if (e.retT <= 0) {
     e.retT = rand(0.3, 0.45);
     const r = T.ranged || e.aggro;
-    let best = null, bd = r;
+    let best = null;
     if (e.leash >= 9999) {
-      bd = Infinity;
+      let bd = Infinity;
       for (const s of B.soldiers) { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } }
-    } else nearby(fGrid, e, r, s => { const d = dist(e, s); if (!s.dead && d < bd && dist(s, e.home) <= e.leash) { bd = d; best = s; } });
+    } else best = nearest(fGrid, e, r, s => !s.dead && dist(s, e.home) <= e.leash);
     e.target = best || (e.target && dist(e, e.target) < r * 1.5 ? e.target : null);
   }
   const t = e.target;
@@ -1261,8 +1257,7 @@ function updateEnemy(e, dt, fGrid) {
   if (e.target && !reachable(e, e.target)) e.target = null;
   if (T.aggro > 0 && e.retT <= 0) {
     e.retT = rand(0.3, 0.45);
-    let best = null, bd = T.aggro;
-    nearby(fGrid, e, T.aggro, s => { const d = dist(e, s); if (d < bd && reachable(e, s)) { bd = d; best = s; } });
+    const best = nearest(fGrid, e, T.aggro, s => reachable(e, s));
     if (best) e.target = best;
     else if (e.target && dist(e, e.target) > T.aggro * 2) e.target = null;
   }
@@ -1336,9 +1331,7 @@ function updateRanged(e, dt, fGrid) {
   }
   if (e.retT <= 0) {
     e.retT = rand(0.4, 0.6);
-    let best = null, bd = T.ranged;
-    nearby(fGrid, e, T.ranged, s => { const d = dist(e, s); if (!s.dead && d < bd) { bd = d; best = s; } });
-    e.target = best;
+    e.target = nearest(fGrid, e, T.ranged, s => !s.dead);
   }
   const t = e.target && !e.target.dead && dist(e, e.target) <= T.ranged ? e.target : null;
   if (t) {
@@ -1607,7 +1600,7 @@ function quickRepair(c, amount) {
   let any = false;
   for (const w of B.walls) {
     if (w.hp >= w.max) continue;
-    const a = Math.max(w.a0, Math.min(w.a1, along(c, w.side))), p = wallPoint(w.side, C.R - C.T / 2, a);
+    const p = wallSpot(w, c);
     if (dist(c, p) > 120) continue;
     const was = w.hp;
     w.hp = Math.min(w.max, Math.max(0, w.hp) + amount); any = true;
@@ -1616,8 +1609,7 @@ function quickRepair(c, amount) {
   }
   for (const b of B.buildings) {
     if (b.hp >= b.max) continue;
-    const dx = Math.max(b.x0 - c.x, 0, c.x - b.x1), dy = Math.max(b.y0 - c.y, 0, c.y - b.y1);
-    if (Math.hypot(dx, dy) > 120) continue;
+    if (rectDist(b, c) > 120) continue;
     const was = b.hp;
     b.hp = Math.min(b.max, b.hp + amount); any = true;
     if (was <= 0) { markBuilding(b, B.buildings.indexOf(b) + 1); B.fieldDirty = true; }
@@ -1801,7 +1793,7 @@ function updateConquest(dt) {
     B.alarm = true;
     for (const e of B.enemies) if (!e.struct && !e.boss && e.leash < 9999) { e.aggro = Math.max(e.aggro, 380); e.leash = Math.max(e.leash, 460); }
     log('진지에 경보가 울렸어요! 수비대가 몰려나와요.', '#ffd36b');
-    banner('진지에 경보!', `${B.boss.T.name}과(와) 수비대가 몰려나와요`, '#ff9a6b'); sfx('horn');
+    banner('진지에 경보!', `${MG.josa(B.boss.T.name, '과와')} 수비대가 몰려나와요`, '#ff9a6b'); sfx('horn');
   }
   if (B.bossDead) return;
   if ((B.reinfT -= dt) > 0) return;
