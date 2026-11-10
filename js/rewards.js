@@ -108,7 +108,7 @@ function arriveSupport(rep) {
   } else {
     const n = k === 'food' ? 300 : 200;
     addRes('food', n);
-    rep.push(`본국이 식량 ${n}을 보냈어요.`);
+    rep.push(`본국이 식량 ${MG.josa(n, '을를')} 보냈어요.`);
   }
 }
 
@@ -127,7 +127,7 @@ const EVENTS = {
   refugees: {
     title: '난민 무리', weight: 1,
     make: () => ({ n: randInt(15, 30), food: 60 }),
-    text: e => `마물을 피해 온 난민 ${e.n}명이 성문 앞에 있어요. 받아들이면 식량 ${e.food}이 들어요. 집이 모자라면 일부는 곧 떠나요.`,
+    text: e => `마물을 피해 온 난민 ${e.n}명이 성문 앞에 있어요. 받아들이면 식량 ${MG.josa(e.food, '이가')} 들어요. 집이 모자라면 일부는 곧 떠나요.`,
     choices: [
       { label: () => '받아들이기', ok: e => MG.S.res.food >= e.food, run: e => { MG.S.res.food -= e.food; MG.S.pop += e.n; return `주민이 ${e.n}명 늘었어요.`; } },
       { label: () => '돌려보내기', run: () => '난민들이 다른 곳으로 떠났어요.' },
@@ -136,9 +136,9 @@ const EVENTS = {
   plague: {
     title: '역병', weight: 0.7, when: () => MG.S.generals.some(g => g.healthy > 10),
     make: () => ({ cost: 150 }),
-    text: e => `병영에 역병이 돌아요. 골드 ${e.cost}으로 약을 구하면 막을 수 있어요. 그냥 두면 병사 일부가 앓아누워요.`,
+    text: e => `병영에 역병이 돌아요. 골드 ${MG.josa(e.cost, '으로')} 약을 구하면 막을 수 있어요. 그냥 두면 병사 일부가 앓아누워요.`,
     choices: [
-      { label: e => `골드 ${e.cost}으로 치료`, ok: e => MG.S.res.gold >= e.cost, run: e => { MG.S.res.gold -= e.cost; return '역병을 막았어요.'; } },
+      { label: e => `골드 ${MG.josa(e.cost, '으로')} 치료`, ok: e => MG.S.res.gold >= e.cost, run: e => { MG.S.res.gold -= e.cost; return '역병을 막았어요.'; } },
       { label: () => '그냥 두기', run: () => `병사 ${sicken(0.15)}명이 앓아누웠어요 (경상).` },
     ],
   },
@@ -165,7 +165,7 @@ const EVENTS = {
   royal: {
     title: '왕실의 부탁', weight: 0.8,
     make: () => (Math.random() < 0.5 ? { res: 'iron', n: 150, reward: 250 } : { res: 'food', n: 250, reward: 200 }),
-    text: e => `왕실이 ${MG.RES[e.res]} ${MG.josa(e.n, '을를')} 보내 달래요. 들어주면 관계가 좋아지고 골드 ${e.reward}을 사례로 받아요.`,
+    text: e => `왕실이 ${MG.RES[e.res]} ${MG.josa(e.n, '을를')} 보내 달래요. 들어주면 관계가 좋아지고 골드 ${MG.josa(e.reward, '을를')} 사례로 받아요.`,
     choices: [
       { label: e => `${MG.RES[e.res]} ${e.n} 보내기`, ok: e => MG.S.res[e.res] >= e.n,
         run: e => { MG.S.res[e.res] -= e.n; MG.S.res.gold += e.reward; addCrown(10); return '왕실과의 관계가 좋아졌어요 (+10).'; } },
@@ -218,7 +218,7 @@ const CHRONICLES = {
     title: '혹한의 조짐', make: () => ({ wood: 150 }),
     text: e => `올겨울은 유난히 추울 거래요. 겨울 동안 식량을 1.5배 먹어요. 땔감(목재 ${e.wood})을 미리 마련하면 피할 수 있어요.`,
     choices: [
-      { label: e => `목재 ${e.wood}로 땔감 마련`, ok: e => MG.S.res.wood >= e.wood, run: e => { MG.S.res.wood -= e.wood; return '땔감을 마련해 두었어요.'; } },
+      { label: e => `목재 ${MG.josa(e.wood, '으로')} 땔감 마련`, ok: e => MG.S.res.wood >= e.wood, run: e => { MG.S.res.wood -= e.wood; return '땔감을 마련해 두었어요.'; } },
       { label: () => '그냥 버티기', run: () => { addEffect('harshWinter', 12); return '겨울 동안 식량 소비가 늘어요.'; } },
     ],
   },
@@ -233,21 +233,21 @@ const CHRONICLES = {
   },
   pilgrims: {
     title: '성지 순례단', make: () => ({ gold: 200 }),
-    text: e => `먼 길을 가는 순례단이 쉬어 가길 청해요. 받아들이면 헌금 골드 ${e.gold}을 받지만, 병을 옮길지도 몰라요(30%).`,
+    text: e => `먼 길을 가는 순례단이 쉬어 가길 청해요. 받아들이면 헌금 골드 ${MG.josa(e.gold, '을를')} 받지만, 병을 옮길지도 몰라요(30%).`,
     choices: [
       { label: () => '받아들이기', run: e => {
         MG.S.res.gold += e.gold;
         if (Math.random() < 0.3) return `헌금을 받았지만 병이 돌아 병사 ${sicken(0.1)}명이 앓아누웠어요.`;
-        return `헌금 골드 ${e.gold}을 받았어요.`;
+        return `헌금 골드 ${MG.josa(e.gold, '을를')} 받았어요.`;
       } },
       { label: () => '돌려보내기', run: () => '순례단이 다른 곳으로 떠났어요.' },
     ],
   },
   marriage: {
     title: '이웃 영주의 혼담', when: () => MG.S.lord.age >= 18 && MG.S.lord.age <= 45, make: () => ({ gold: 300 }),
-    text: e => `이웃 영주가 성주에게 혼담을 넣었어요. 받아들이면 혼례 비용 골드 ${e.gold}이 들지만, 3년 동안 아이가 태어날 확률이 2배가 돼요.`,
+    text: e => `이웃 영주가 성주에게 혼담을 넣었어요. 받아들이면 혼례 비용 골드 ${MG.josa(e.gold, '이가')} 들지만, 3년 동안 아이가 태어날 확률이 2배가 돼요.`,
     choices: [
-      { label: e => `골드 ${e.gold}으로 혼례 치르기`, ok: e => MG.S.res.gold >= e.gold, run: e => { MG.S.res.gold -= e.gold; addEffect('marriage', 36); return '혼례를 치렀어요.'; } },
+      { label: e => `골드 ${MG.josa(e.gold, '으로')} 혼례 치르기`, ok: e => MG.S.res.gold >= e.gold, run: e => { MG.S.res.gold -= e.gold; addEffect('marriage', 36); return '혼례를 치렀어요.'; } },
       { label: () => '정중히 거절', run: () => '혼담을 거절했어요.' },
     ],
   },

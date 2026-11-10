@@ -10,13 +10,14 @@ function scheduleAttack(gap) {
 MG.isAttackMonth = () => MG.S.nextAttack && MG.S.month >= MG.S.nextAttack.month;
 // 이번 달에 꼭 치러야 하는 전투가 있는가 (정벌군 도착 또는 습격)
 MG.mustFight = () => !!MG.S.pendingConquest || MG.isAttackMonth();
-// 정벌한 거점이 습격을 바꾼다: 고블린 소굴은 규모 -15%, 오크 야영지는 오크 -30%
-
+// 정벌한 거점이 습격을 바꾼다: 고블린 소굴은 규모 -15%, 오크 야영지는 오크 -30%.
+// also: 아직 정벌하지 않았지만 정벌했다고 치는 거점 (보복 미리 보기)
+const ownsOutpost = (id, also) => id === also || MG.hasOutpost(id);
+MG.outpostWaveMul = also => (ownsOutpost('goblin', also) ? 0.85 : 1) * MG.endlessMul();
+MG.typeMul = also => (ownsOutpost('orc', also) ? { orc: 0.7, orcThrower: 0.7 } : {});
 // 엔딩 뒤 계속 다스리면 해마다 습격이 커진다
-MG.outpostWaveMul = () => (MG.hasOutpost('goblin') ? 0.85 : 1) * MG.endlessMul();
 MG.endlessMul = () => (MG.S.endedMonth != null ? 1 + MG.ENDLESS_STEP * Math.floor((MG.S.month - MG.S.endedMonth) / 12) : 1);
 MG.citadelOpen = () => Object.keys(MG.OUTPOSTS).filter(k => !MG.OUTPOSTS[k].final).every(MG.hasOutpost);
-MG.typeMul = () => (MG.hasOutpost('orc') ? { orc: 0.7, orcThrower: 0.7 } : {});
 // 보복 습격 배율: 다음 전투가 대습격이면 절반만 (×1.5 → ×1.25)
 MG.retaliationMul = () => {
   const f = MG.perk('conqueror') ? 1.25 : MG.perk('raider') ? 2.25 : MG.RETALIATION_MUL;
@@ -30,8 +31,9 @@ MG.retaliationPreview = id => {
 // 다음 습격의 적 구성과 방향. 정찰 예보와 전투(buildRoster → createBattle)가 이것을 그대로 쓴다.
 // 고블린 둥지 소탕·마물 대이동·포위 단계·거점·난이도(어려움·악몽은 전투 1~2에 초반 배율도)가 적 수를 바꾼다
 MG.attackWaves = (A = MG.S.nextAttack) => {
-  const S = MG.S, tm = MG.typeMul(), diff = MG.DIFFICULTY[S.difficulty || 'normal'];
-  const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul()
+  // 보복 습격은 그 거점을 정벌한 뒤에 오므로, 미리 볼 때도 그 거점의 효과를 넣는다
+  const S = MG.S, tm = MG.typeMul(A.retaliation), diff = MG.DIFFICULTY[S.difficulty || 'normal'];
+  const mul = (A.mul || 1) * (MG.hasEffect('migration') ? 1.3 : 1) * MG.siegeEnemyMul(S.siege || 0) * MG.outpostWaveMul(A.retaliation)
     * diff.count * (diff.early && S.level <= 2 ? diff.early : 1);
   const w = MG.buildWaves(S.level, A.dirs, A.faction, A.mix, diff, A.retaliation);
   return { dirs: w.dirs, groups: w.groups.map(g => MG.ENEMY_TYPES[g.type].boss ? g : ({ ...g, count: Math.max(1, Math.round(g.count * mul * (tm[g.type] || 1))) })) };

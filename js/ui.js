@@ -225,7 +225,7 @@ function showResult(B) {
   $('resBody').innerHTML = `
     <table>
       <tr><th>${MG.ic('clock')} 버틴 시간</th><td>${Math.floor(r.time)}초</td></tr>
-      <tr><th>${MG.ic('skull')} 처치한 적</th><td>${B.stats.kills} / ${B.stats.spawned}</td></tr>
+      <tr><th>${MG.ic('skull')} 처치한 적</th><td>${B.stats.kills} / ${B.stats.spawned + B.spawnQueue.length}</td></tr>
       <tr><th>${MG.ic('wall')} 부서진 곳</th><td>${breached.length ? breached.join(' · ') : '없음'}</td></tr>
       <tr><th>${MG.ic('users')} 남은 병력</th><td>${left}명</td></tr>
     </table>

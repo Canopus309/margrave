@@ -363,7 +363,7 @@ function genCard(g) {
   const flags = [
     g.weapon && `<span title="${g.weapon.name} · ${MG.weaponDesc(g.weapon)}" style="color:${MG.WEAPON_GRADES[g.weapon.grade].color}">${MG.ic('sword')}</span>`,
     `<span title="스킬 ${K.name}: ${K.desc}${g.cls ? ` · 강화: ${K[g.cls]}` : ''}">${MG.ic(MG.ICONS.skill[g.type])}</span>`,
-    !g.deploy && !g.away && `<span class="muted" title="출전하지 않아요">${MG.ic('eye-off')}</span>`,
+    !g.deploy && !g.away && `<span class="muted" title="장수는 출전하지 않아요${g.healthy ? ` · 병사 ${g.healthy}명은 장수 없이 싸워요` : ''}">${MG.ic('eye-off')}</span>`,
     !g.away && MG.assignable(g) > 0 && `<span class="ok" title="빈자리가 있어요. 펼쳐서 같은 병종 예비군을 편제할 수 있어요">${MG.ic('users-plus')}</span>`,
     !MG.canRefill(g.type) && `<span class="warn" title="${MG.josa(MG.BUILDINGS[MG.REFILL_BUILDING[g.type]].name, '이가')} 있어야 보충돼요">${MG.ic('alert-triangle')}</span>`,
   ].filter(Boolean).join('');
@@ -382,7 +382,8 @@ function genCard(g) {
     ${role ? `<div class="muted small">${role}</div>` : ''}${skillLine(g)}${refill}${classBlock(g)}${weaponBlock(g)}
     ${assignRow(g)}
     ${g.away ? `<div class="warn small">${g.away.type === 'march' ? '정벌' : '원정'} 중이라 습격이 와도 성을 지킬 수 없어요.</div>` : `<label class="tog"><input type="checkbox" data-deploy="${g.id}" ${g.deploy ? 'checked' : ''}>
-      ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>`}
+      ${g.injured ? '<span class="warn">부상 중에도 출전 (체력 절반, 쓰러지면 전사)</span>' : '장수 출전'}</label>
+      ${!g.deploy && g.healthy ? `<div class="muted small">장수가 빠지면 병사 ${g.healthy}명은 장수 없이 싸워요</div>` : ''}`}
     <div class="genBtns">
       ${g.age >= 45 ? `<button class="mini" data-retire="${g.id}">${MG.ic('school')} 은퇴 (교관, 훈련 경험치 +${MG.RETIRED_TRAIN_XP})</button>` : ''}
       ${MG.canDismiss(g) ? `<button class="mini ${dismissArmed === g.id ? 'danger' : ''}" data-dismiss="${g.id}">${MG.ic('door-exit')} ${dismissArmed === g.id ? '정말 해고? 한 번 더' : '해고'}</button>` : ''}

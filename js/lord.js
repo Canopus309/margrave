@@ -124,14 +124,14 @@ MG.chooseHeir = (kind, id) => {
   const gift = 100 + 3 * S.crown;
   addRes('gold', gift);
   S.report = [`${MG.josa(S.lord.name, '이가')} ${gen}대 성주가 되었어요.${S.lord.minor ? ` 아직 ${S.lord.age}세라 ${MG.ADULT_AGE}세까지는 전투에 나가지 않아요.` : ''}`,
-    `본국이 계승을 인정하며 축하 선물로 골드 ${gift}을 보냈어요.`];
+    `본국이 계승을 인정하며 축하 선물로 골드 ${MG.josa(gift, '을를')} 보냈어요.`];
   save();
 };
 
 // 해가 바뀔 때: 나이, 출생, 성년, 노환
 function newYear(rep) {
   // 왕의 대리인: 해마다 지원병 20명, 대신 가진 골드의 10%를 공물로
-  if (MG.perk('regent')) { MG.S.garrison.archer += 10; MG.S.garrison.infantry += 10; const t = Math.floor(MG.S.res.gold * 0.1); MG.S.res.gold -= t; rep.push(`왕실이 지원병 20명을 보냈고, 공물로 골드 ${t}을 바쳤어요.`); }
+  if (MG.perk('regent')) { MG.S.garrison.archer += 10; MG.S.garrison.infantry += 10; const t = Math.floor(MG.S.res.gold * 0.1); MG.S.res.gold -= t; rep.push(`왕실이 지원병 20명을 보냈고, 공물로 골드 ${MG.josa(t, '을를')} 바쳤어요.`); }
   const S = MG.S, L = S.lord;
   L.age++;
   if (L.minor && L.age >= MG.ADULT_AGE) { L.minor = false; rep.push(`${MG.josa(L.name, '이가')} 성년이 되어 이제 전투에 나가요.`); }
