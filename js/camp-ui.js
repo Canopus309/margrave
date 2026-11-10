@@ -318,11 +318,13 @@ function trainingBlock() {
   }).join('');
   const gar = ['infantry', 'archer'].map(t => `<div class="actRow"><span class="small">${MG.icUnit(t)} ${MG.UNIT_TYPES[t].name} · 직할 ${S.garrison[t]} · 예비군 ${S.reserve[t] || 0}</span>
     <span><button class="mini" data-gmove="${t},10,toGarrison" ${S.reserve[t] ? '' : 'disabled'} title="예비군 → 성벽 위 직할">${MG.ic('arrow-up')} 성벽으로 10</button>
+      <button class="mini" data-gmove="${t},999,toGarrison" ${S.reserve[t] ? '' : 'disabled'} title="예비군 전부 → 성벽 위 직할">전부</button>
       <button class="mini" data-gmove="${t},10,toReserve" ${S.garrison[t] ? '' : 'disabled'} title="성벽 위 직할 → 예비군">${MG.ic('arrow-down')} 예비군으로 10</button></span></div>`).join('');
   return `<section class="card wideCard"><h3>${MG.ic('tent')} 훈련소 <span class="muted">훈련병 <b>${S.recruits || 0}</b>명 · 훈련 중 ${now} / ${cap}명 (병영 단계 × ${MG.TRAIN_PER_BARRACKS})${MG.bLevel('training') ? ' · 훈련장: 기간 -1개월' : ''}</span></h3>
     <table class="trainTable"><tr class="muted small"><td>병종</td><td>훈련</td><td>훈련 중</td><td>예비군</td><td></td></tr>${rows}</table>
     <div class="actRow"><span class="small">${MG.ic('users-plus')} 장수 부대 빈자리 모두 채우기 <span class="muted">같은 병종 예비군으로, 성에 있는 부대만</span></span>
-      <span><button class="mini" id="assignAll" ${MG.assignAllCount() ? '' : 'disabled'}>${MG.ic('users-plus')} 모두 채우기 +${MG.assignAllCount()}</button></span></div>
+      <span><button class="mini" id="assignAll" ${MG.assignAllCount() ? '' : 'disabled'}>${MG.ic('users-plus')} 모두 채우기 +${MG.assignAllCount()}</button>
+        <button class="mini" id="deployAll" ${MG.deployAllCount() ? '' : 'disabled'} title="빈자리를 모두 채우고, 남은 보병·궁수 예비군은 성벽 위 직할로 올려요">${MG.ic('arrow-up')} 채우고 남은 보병·궁수는 성벽으로 +${MG.deployAllCount()}</button></span></div>
     <div class="small muted">행동의 모집으로 뽑은 주민이 훈련병이 돼요(1명당 골드 ${Math.ceil(MG.recruitGold())}). 훈련을 마친 예비군을 장수 카드에서 같은 병종 부대에 편제해요. 훈련병·예비군도 급여와 식량이 나가요 (기병은 식량 2배).</div>
     <h3 style="margin-top:8px">${MG.ic('wall')} 성벽 위 직할 ↔ 예비군</h3>${gar}
     <label class="tog"><input type="checkbox" id="mobReserve" ${S.mobilizeReserve ? 'checked' : ''}><span>예비군 동원 <span class="muted small">습격이 오면 예비군이 병종별로 지휘관 없는 부대가 되어 싸워요 (공격력 -20%, 쓰러지면 부상 판정)</span></span></label></section>`;
@@ -449,7 +451,17 @@ function retaliationLine(id, scouted) {
     const total = Object.values(sum).reduce((a, n) => a + n, 0);
     detail = `<div class="muted small">보복 예상: 약 ${total}명 (${Object.entries(sum).map(([t, n]) => `${MG.ENEMY_TYPES[t].name} ${n}`).join(' · ')}) · 방향은 정벌 뒤 정찰로</div>`;
   }
-  return `<div class="warn small" title="정벌에 성공하면 거점을 잃은 마물이 복수하러 와요">${MG.ic('flame')} 정벌하면 보복: ${MG.FACTIONS[fac].name} · 규모 ×${Math.round(f * 100) / 100} · 정벌 뒤 늦어도 ${MG.RETALIATION_MONTHS}개월 안${scouted ? '' : ' · 정찰하면 규모가 보여요'}</div>${detail}`;
+  return `<div class="warn small" title="정벌에 성공하면 거점을 잃은 마물이 복수하러 와요">${MG.ic('flame')} 정벌하면 보복: ${MG.FACTIONS[fac].name} · 규모 ×${Math.round(f * 100) / 100} · ${retaliationWhen(id)}${scouted ? '' : ' · 정찰하면 규모가 보여요'}</div>${detail}`;
+}
+// 지금 출정하면 보복이 언제 오는지: 전투는 다음 달, 보복은 그 뒤 늦어도 RETALIATION_MONTHS개월 안 (원래 습격이 더 빠르면 그날)
+function retaliationWhen(id) {
+  const S = MG.S;
+  if (S.march) return `정벌 뒤 늦어도 ${MG.RETALIATION_MONTHS}개월 안`;
+  const fight = S.month + 1, back = S.month + MG.marchMonths(id), ret = Math.min(S.nextAttack.month, fight + MG.RETALIATION_MONTHS);
+  const when = `지금 출정하면 <b>${MG.monthLabel(ret)}</b>${ret === S.nextAttack.month ? ' (원래 습격 날)' : ''}`;
+  if (ret < back) return `${when} · 정벌군이 돌아오기 전이에요`;
+  if (ret === back) return `${when} · 정벌군이 돌아온 그달이라 쉴 틈이 없어요`;
+  return `${when} · 정벌군은 ${ret - back}개월 먼저 돌아와요`;
 }
 // 거점 3곳(순서 자유)과 검은 성채. 장수 부대를 2개 이상 골라 출정한다.
 function conquestBlock() {
@@ -458,7 +470,7 @@ function conquestBlock() {
   const rows = Object.entries(MG.OUTPOSTS).map(([id, O]) => {
     const info = MG.conquestInfo(id), done = MG.hasOutpost(id), boss = MG.ENEMY_TYPES[O.boss];
     const head = `<b>${MG.ic(O.final ? 'building-fortress' : 'tent')} ${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
-      <span class="muted small">${MG.BIOME_NAME[O.biome]} · 성을 ${O.months}개월 비움${info.fails ? ` · 실패 ${info.fails}번 (수비 +${Math.round(info.fails * MG.CONQUEST_FAIL_MUL * 100)}%)` : ''}</span>`;
+      <span class="muted small">${MG.BIOME_NAME[O.biome]} · 성을 ${MG.marchMonths(id)}개월 비움${info.fails ? ` · 실패 ${info.fails}번 (수비 +${Math.round(info.fails * MG.CONQUEST_FAIL_MUL * 100)}%)` : ''}</span>`;
     if (done) return `<div class="siteRow"><div>${head}<div class="ok small">${O.final ? '함락함' : '정벌함'} · ${O.reward}</div></div></div>`;
     if (O.final && !MG.citadelOpen()) return `<div class="siteRow"><div><b>${O.name}</b> <span class="warn">${'★'.repeat(O.stars)}</span>
       <div class="muted small">거점 3곳을 모두 정벌하면 열려요. 이곳을 무너뜨리면 엔딩이에요.</div></div></div>`;
@@ -827,6 +839,7 @@ const ON_ID = {
   skipBtn: skipMonths,
   resetBtn: () => { if (armedTwice(resetArmed, true, k => { resetArmed = !!k; })) MG.openSetup(); },
   assignAll: () => run(MG.assignAll()),
+  deployAll: () => run(MG.deployAll()),
   continueBtn: () => { MG.continueReign(); render(); },
   finishBtn: () => { MG.finishStory(); render(); },
   newCampBtn: () => MG.openSetup(),

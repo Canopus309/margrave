@@ -98,6 +98,31 @@ MG.assignAll = () => {
   save();
   return `빈자리를 채웠어요: ${done.join(', ')}.`;
 };
+// 모두 채우기 + 남은 보병·궁수 예비군을 성벽 위 직할로 (모집 → 훈련 → 이 버튼 하나로 배치가 끝난다)
+const WALL_TYPES = ['infantry', 'archer'];
+MG.deployAllCount = () => {
+  const pool = { ...MG.S.reserve };
+  let n = 0;
+  for (const g of MG.S.generals) {
+    if (g.dead || g.away) continue;
+    const k = Math.min(Math.max(0, MG.genCap(g) - g.healthy), pool[g.type] || 0);
+    pool[g.type] = (pool[g.type] || 0) - k; n += k;
+  }
+  return n + WALL_TYPES.reduce((a, t) => a + (pool[t] || 0), 0);
+};
+MG.deployAll = () => {
+  const S = MG.S, done = [];
+  const filled = MG.assignAllCount() ? MG.assignAll() : '';
+  for (const t of WALL_TYPES) {
+    const k = S.reserve[t] || 0;
+    if (k <= 0) continue;
+    MG.moveGarrisonReserve(t, k, 'toGarrison');
+    done.push(`${MG.UNIT_TYPES[t].name} ${k}명`);
+  }
+  if (!filled && !done.length) return '배치할 예비군이 없어요';
+  save();
+  return [filled, done.length ? `성벽 위 직할로 올렸어요: ${done.join(', ')}.` : ''].filter(Boolean).join(' ');
+};
 // 보병·궁수 예비군과 성벽 위 직할 병력 사이를 오간다. dir: 'toGarrison' | 'toReserve'
 MG.moveGarrisonReserve = (type, n, dir) => {
   const S = MG.S, from = dir === 'toGarrison' ? S.reserve : S.garrison, to = dir === 'toGarrison' ? S.garrison : S.reserve;

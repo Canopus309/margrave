@@ -119,6 +119,8 @@ MG.actConquestScout = id => {
 MG.conquestMul = id => (1 + MG.CONQUEST_FAIL_MUL * MG.conquestInfo(id).fails) * MG.siegeEnemyMul(MG.S.siege || 0) * (MG.perk('conqueror') ? 0.85 : 1);
 // 실제 진지 수비 배율 (난이도 개수 배율 포함, 정찰 표시와 전투가 같이 쓴다)
 MG.conquestFortMul = id => MG.conquestMul(id) * MG.DIFFICULTY[MG.S.difficulty || 'normal'].count;
+// 행군 기간: 철벽 농성 +1, 빠른 행군·정복자 -1 (최소 1개월)
+MG.marchMonths = id => Math.max(1, MG.OUTPOSTS[id].months + (MG.perk('siegehold') ? 1 : 0) - (MG.perk('forcedmarch') ? 1 : 0) - (MG.perk('conqueror') ? 1 : 0));
 MG.actMarch = (id, gids, withLord) => {
   const S = MG.S, O = MG.OUTPOSTS[id];
   if (!O || MG.hasOutpost(id)) return '정벌할 수 없는 곳이에요';
@@ -132,8 +134,7 @@ MG.actMarch = (id, gids, withLord) => {
   if (S.res.food < MG.MARCH_FOOD) return `식량이 ${MG.MARCH_FOOD} 필요해요`;
   S.res.food -= MG.MARCH_FOOD;
   S.ap -= MG.MARCH_AP;
-  // 행군 기간: 철벽 농성 +1, 빠른 행군·정복자 -1 (최소 1개월)
-  const months = Math.max(1, O.months + (MG.perk('siegehold') ? 1 : 0) - (MG.perk('forcedmarch') ? 1 : 0) - (MG.perk('conqueror') ? 1 : 0));
+  const months = MG.marchMonths(id);
   for (const g of gens) g.away = { type: 'march', months };
   // 다음 달 도착해서 싸우고, 남은 달 동안 돌아온다
   S.march = { id, gids: gens.map(g => g.id), lord: !!withLord, left: months, fought: false };
