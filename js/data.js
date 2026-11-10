@@ -282,6 +282,7 @@ MG.BUILDINGS = {
   workshop: { name: '공방',   w: 2, h: 2, hp: 600, color: '#8a6a3a', cost: { gold: 100, wood: 120, iron: 40 }, max: 3, desc: l => `공병·포병 보충 가능, 포병 공격력 +${10 * l}%` },
   stable:   { name: '마구간', w: 2, h: 2, hp: 500, color: '#9a7a50', cost: { gold: 120, wood: 100 },          max: 3, desc: l => `기병 보충 가능, 기병 체력 +${10 * l}%` },
   tavern:   { name: '주점',   w: 1, h: 1, hp: 400, color: '#a0603a', cost: { gold: 80, wood: 60 },           max: 3, desc: l => `떠돌이 장수가 찾아와요 (최대 ${l + 1}명, 레벨 최대 ${l * 2 + 1})` },
+  guild:    { name: '건설 길드', w: 2, h: 2, hp: 600, color: '#a08860', cost: { gold: 120, wood: 100 },        max: 3, desc: l => `매달 말 부서진 건물을 ${MG.GUILD_PER_LEVEL * l}채까지 고쳐요 (목재는 들고 행동력은 안 들어요)` },
   watch:    { name: '감시탑', w: 1, h: 1, hp: 400, color: '#6a8aa0', cost: { gold: 50, wood: 60 },           max: 3, desc: l => l >= 2 ? '매달 습격 날짜·방향·구성을 알아냄' : '매달 습격 날짜·방향을 알아냄' },
 };
 MG.HOUSE_POP = 20;
@@ -292,14 +293,15 @@ MG.HOSPITAL_PER_LEVEL = 20;
 MG.FIELDS = {
   farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 25 } },
   lumber: { name: '벌목장', color: '#6a8a4a', cost: { gold: 40 },            max: 3, prod: { wood: 25 } },
+  quarry: { name: '채석장', color: '#8a8478', cost: { gold: 40 },            max: 3, prod: { stone: 20 } },
   mine:   { name: '광산',   color: '#7a7a7a', cost: { gold: 60, wood: 40 },  max: 3, prod: { iron: 15 } },
   // 연대기 사건(황금 광맥)으로만 생긴다. 들판에 새로 지을 수는 없다
   goldmine: { name: '금광', color: '#d8b040', cost: { gold: 60, wood: 40 }, max: 3, prod: { gold: 40 }, hidden: true },
 };
 MG.FIELD_SLOTS = 8;
 
-MG.RES = { gold: '골드', food: '식량', wood: '목재', iron: '철' };
-MG.START_RES = { gold: 300, food: 400, wood: 200, iron: 100 };
+MG.RES = { gold: '골드', food: '식량', wood: '목재', stone: '석재', iron: '철' };
+MG.START_RES = { gold: 300, food: 400, wood: 200, stone: 0, iron: 100 };
 MG.STORAGE_BASE = 1000;
 MG.AP_PER_MONTH = 3;
 MG.TAX_PER_POP = 1;
@@ -437,7 +439,7 @@ MG.conquestGold = stars => 200 * stars;
 
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {
-  base: { food: 1.0, wood: 1.5, iron: 3.0 },       // 사는 값 기준 (1개당 골드)
+  base: { food: 1.0, wood: 1.5, stone: 2.0, iron: 3.0 },     // 사는 값 기준 (1개당 골드)
   drift: 0.12, pull: 0.3, min: 0.4, max: 2.5,       // 매달 ±12%, 기준값으로 30% 복귀, 기준의 0.4~2.5배
   season: { food: { 봄: 1.2, 여름: 1.0, 가을: 0.7, 겨울: 1.4 } },
   sellRate: l => 0.65 + 0.05 * l,                   // 파는 값 = 사는 값 × (70% / 75% / 80%)
@@ -448,7 +450,10 @@ MG.MARKET_EXTRA_GOLD = 12;    // 나머지 시장 단계마다 매달 골드 (�
 MG.MARKET_EXTRA_VOLUME = 50;  // 두 번째 시장부터 하나마다 거래 한도
 MG.POP_GROWTH = 0.05;      // 매달 빈자리 쪽으로 늘어나는 비율
 MG.RECRUIT_GOLD = 5;       // 신병 1명 비용
-MG.REPAIR_WOOD_PER_HP = 0.1;
+MG.REPAIR_WOOD_PER_HP = 0.1;  // 기본 성벽 체력 1을 고치는 목재. 강화한 성벽·성문은 체력이 커진 만큼 1당 값이 싸져, 같은 비율로 부서지면 같은 양이 든다. 석벽은 석재로
+MG.GUILD_PER_LEVEL = 2;      // 건설 길드 단계마다 매달 고치는 건물 수
+// 건설 길드가 고치는 순서 (없는 종류는 맨 뒤)
+MG.GUILD_ORDER = ['guild', 'hospital', 'barracks', 'training', 'market', 'house'];
 MG.CRAFT_COST = { gold: 80, iron: 60 };
 MG.TEMPLE_KEEP_HEAL = 150;  // 사원 단계당 매달 본성 회복량
 MG.STARVE_MULT = 0.85;     // 식량이 바닥나면 전군 공격력
@@ -567,8 +572,8 @@ MG.DIFFICULTY = {
 // ---------- 성벽·성문 강화와 부가 시설 (면별) ----------
 MG.WALL_LEVELS = [
   { name: '기본 성벽', mul: 1 },
-  { name: '석벽', mul: 1.4, cost: { gold: 150, wood: 250, iron: 40 } },
-  { name: '강화 석벽', mul: 1.8, cost: { gold: 300, wood: 400, iron: 120 }, desc: '성벽 위 궁수 사거리 +10%' },
+  { name: '석벽', mul: 1.4, cost: { gold: 150, stone: 200, iron: 40 } },
+  { name: '강화 석벽', mul: 1.8, cost: { gold: 300, stone: 350, iron: 120 }, desc: '성벽 위 궁수 사거리 +10%' },
 ];
 MG.GATE_LEVELS = [
   { name: '나무 성문', mul: 1 },

@@ -1,6 +1,6 @@
 // 캠페인 시작과 진행: 새 캠페인, 예전 저장 이관, 한 달 마치기, 저장 슬롯.
 (() => {
-const { KEY, store, pick, randInt, addRes, save, nextChronicleMonth, newGeneral, lordGrowth, newYear, refreshTavern, placeBuilding, placeAnywhere, moveMarket, tickTraining, tickHospital, woundToReserve, arriveSupport, rollEvent, CHRONICLES, rollChronicle, scheduleAttack, rollSites, returnExpeditions, advanceMarch, rollEra } = MG.lib;
+const { KEY, store, pick, randInt, addRes, save, nextChronicleMonth, newGeneral, lordGrowth, newYear, refreshTavern, placeBuilding, placeAnywhere, moveMarket, guildRepair, tickTraining, tickHospital, woundToReserve, arriveSupport, rollEvent, CHRONICLES, rollChronicle, scheduleAttack, rollSites, returnExpeditions, advanceMarch, rollEra } = MG.lib;
 
 MG.loadCampaign = () => {
   try {
@@ -36,6 +36,7 @@ function migrate(s) {
   if (!s.difficulty) s.difficulty = 'normal';
   if (!s.relics) s.relics = [];
   if (!s.fort) s.fort = MG.newFort();
+  if (s.res.stone == null) s.res.stone = 0;
   if (!s.perks) s.perks = [];
   if (s.recruits == null) s.recruits = 0;
   if (!s.training) s.training = [];
@@ -114,7 +115,9 @@ MG.endMonth = () => {
   const prod = MG.production(), eco = MG.economy();
   for (const k of Object.keys(prod)) addRes(k, prod[k]);
   rep.push(`골드 ${prod.gold >= 0 ? '+' : ''}${prod.gold} (세금 ${eco.tax}${eco.market ? ` · 시장 ${eco.market}` : ''} · 급여 -${eco.wages})`
-    + ` · 식량 ${prod.food >= 0 ? '+' : ''}${Math.round(prod.food)} · 목재 +${Math.round(prod.wood)} · 철 +${Math.round(prod.iron)}`);
+    + ` · 식량 ${prod.food >= 0 ? '+' : ''}${Math.round(prod.food)} · 목재 +${Math.round(prod.wood)}${prod.stone ? ` · 석재 +${Math.round(prod.stone)}` : ''} · 철 +${Math.round(prod.iron)}`);
+  const guild = guildRepair();
+  if (guild) rep.push(guild);
   // 병사 일부가 탈영한다 (굶주림·급여 체불)
   const desert = rate => {
     let n = 0;

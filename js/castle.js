@@ -115,39 +115,67 @@ const repairFilter = spec => {
 const isBuildingSpec = spec => typeof spec === 'string' && spec.startsWith('b:');
 // 고를 수 있는 피해 (양 제한 없음)
 MG.repairDamage = spec => Math.round(MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
-// 체력 1을 고치는 목재
-const repairWoodPerHp = () => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1);
-const woodFor = hp => Math.ceil(hp * repairWoodPerHp() - 1e-9);
-// 이번에 고치는 양: 성벽은 목재만큼만, 건물은 다 고치거나(목재 충분) 못 고치거나
-MG.repairNeed = spec => {
-  const dmg = MG.repairDamage(spec);
-  if (isBuildingSpec(spec)) return woodFor(dmg) <= Math.floor(MG.S.res.wood) ? dmg : 0;
-  return Math.min(dmg, Math.floor(Math.floor(MG.S.res.wood) / repairWoodPerHp()));
-};
-// 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 목재가 40% 줄어든다
+// 재료: 석벽으로 올린 면의 성벽 조각은 석재, 나머지(기본 성벽·성문·본성·건물)는 목재
+const repairRes = d => (d.kind === 'wall' && d.id[1] !== '2' && MG.S.fort.wall[d.id[0]] > 0 ? 'stone' : 'wood');
+// 체력 1을 고치는 재료. 강화한 성벽·성문은 체력 배율만큼 싸서, 같은 비율로 부서지면 기본과 같은 양이 든다
+const perHp = d => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)
+  / (d.kind === 'wall' ? MG.fortLevelMul(MG.S.fort, d.id) : 1);
+const fullCost = d => Math.ceil((d.max - d.hp) * perHp(d) - 1e-9);
+// 무너진 성벽·성문 먼저, 그다음 본성, 그다음 많이 부서진 비율 순
+const rank = d => (d.kind === 'wall' && d.hp <= 0 ? 0 : d.kind === 'keep' ? 1 : 2);
+// 수리 계획: 순서대로, 성벽·본성은 재료가 되는 만큼, 건물은 통째로만. full이면 재료 제한 없이
+function repairPlan(spec, full) {
+  const S = MG.S, have = { wood: Math.floor(S.res.wood), stone: Math.floor(S.res.stone || 0) }, used = { wood: 0, stone: 0 }, fixes = [];
+  for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => rank(a) - rank(b) || a.hp / a.max - b.hp / b.max)) {
+    const r = repairRes(d), p = perHp(d), dmg = d.max - d.hp, room = have[r] - used[r];
+    const add = full ? dmg : d.kind === 'building' ? (dmg * p <= room + 1e-9 ? dmg : 0) : Math.min(dmg, Math.floor(room / p + 1e-9));
+    if (add <= 0) continue;
+    used[r] += add * p; fixes.push([d, add]);
+  }
+  const cost = {};
+  for (const r of ['wood', 'stone']) if (used[r] > 0) cost[r] = Math.ceil(used[r] - 1e-9);
+  return { fixes, cost, hp: Math.round(fixes.reduce((a, f) => a + f[1], 0)) };
+}
+// 이번에 고치는 양과 재료
+MG.repairNeed = spec => repairPlan(spec).hp;
+MG.repairCost = spec => repairPlan(spec).cost;
+// 다 고치는 데 드는 재료 (건물 버튼 표시용)
+MG.repairFullCost = spec => repairPlan(spec, true).cost;
+// 다 고치기에 모자란 재료 이름 ('목재', '석재 · 목재' …)
+MG.repairLack = spec => Object.entries(MG.repairFullCost(spec)).filter(([r, n]) => n > Math.floor(MG.S.res[r] || 0)).map(([r]) => MG.RES[r]).join(' · ');
+// 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 재료가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.repairCost = spec => ({ wood: woodFor(MG.repairNeed(spec)) });
-// 다 고치는 데 드는 목재 (건물 버튼 표시용)
-MG.repairFullCost = spec => ({ wood: woodFor(MG.repairDamage(spec)) });
 MG.actRepair = spec => {
   if (!MG.repairDamage(spec)) return '고칠 곳이 없어요';
-  const need = MG.repairNeed(spec);
-  if (!need) return isBuildingSpec(spec) ? `목재가 모자라요 (다 고치려면 목재 ${MG.repairFullCost(spec).wood})` : '목재가 모자라요';
-  return act(MG.repairCost(spec), () => {
-    let left = need;
-    // 무너진 성벽·성문 먼저, 그다음 본성, 그다음 많이 부서진 비율 순
-    const rank = d => (d.kind === 'wall' && d.hp <= 0 ? 0 : d.kind === 'keep' ? 1 : 2);
-    for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => rank(a) - rank(b) || a.hp / a.max - b.hp / b.max)) {
-      const add = Math.min(left, d.max - d.hp);
-      left -= add;
+  const plan = repairPlan(spec);
+  if (!plan.hp) return `${MG.josa(MG.repairLack(spec), '이가')} 모자라요${isBuildingSpec(spec) ? ` (다 고치려면 ${MG.costText(MG.repairFullCost(spec))})` : ''}`;
+  return act(plan.cost, () => {
+    for (const [d, add] of plan.fixes) {
       if (d.kind === 'wall') MG.S.walls[d.id] = d.hp + add;
       else if (d.kind === 'keep') MG.S.keep = d.hp + add;
       else d.b.hp = d.max;
-      if (left <= 0) break;
     }
     for (const [id, hp] of Object.entries(MG.S.walls)) if (hp >= MG.wallMax(id)) delete MG.S.walls[id];
   });
 };
+// 건설 길드: 매달 말 부서진 건물을 정해진 순서로 한 채씩 통째로 고친다 (목재는 들고 행동력은 안 든다).
+// 다 고칠 목재가 없는 건물에서 멈춘다. 고친 것을 소식 한 줄로 돌려준다
+const guildOrder = b => { const i = MG.GUILD_ORDER.indexOf(b.type); return i < 0 ? MG.GUILD_ORDER.length : i; };
+MG.guildRepairs = () => MG.GUILD_PER_LEVEL * MG.bLevel('guild');
+function guildRepair() {
+  const S = MG.S, n = MG.guildRepairs();
+  if (!n) return null;
+  const done = [];
+  let wood = 0, stuck = null;
+  for (const d of MG.damageList().filter(d => d.kind === 'building').sort((a, b) => guildOrder(a.b) - guildOrder(b.b) || a.hp / a.max - b.hp / b.max)) {
+    if (done.length >= n) break;
+    const c = fullCost(d);
+    if (c > Math.floor(S.res.wood)) { stuck = d.b; break; }
+    S.res.wood -= c; wood += c; d.b.hp = d.max; done.push(MG.BUILDINGS[d.b.type].name);
+  }
+  if (!done.length) return stuck ? `건설 길드: 목재가 모자라 ${MG.josa(MG.BUILDINGS[stuck.type].name, '을를')} 못 고쳤어요.` : null;
+  return `건설 길드가 ${MG.josa(done.join('·'), '을를')} 고쳤어요 (목재 ${wood}).${stuck ? ` ${MG.BUILDINGS[stuck.type].name}: 목재가 모자라요.` : ''}`;
+}
 
 MG.actCraft = () => {
   const l = MG.bLevel('smithy');
@@ -159,10 +187,11 @@ MG.actCraft = () => {
 };
 
 // ---------- 시장 ----------
-// 예전 저장에는 시세가 없으니 처음 볼 때 만든다
+// 예전 저장에는 시세가 없으니 처음 볼 때 만든다 (나중에 생긴 자원도)
 MG.ensureMarket = () => {
   const S = MG.S;
   if (!S.prices) { S.prices = { ...MG.MARKET.base }; S.prevPrices = { ...S.prices }; S.traded = 0; }
+  for (const r of Object.keys(MG.MARKET.base)) if (S.prices[r] == null) S.prices[r] = S.prevPrices[r] = MG.MARKET.base[r];
 };
 MG.buyPrice = r => MG.S.prices[r] * (MG.hasRelic('scales') ? 0.9 : 1);
 MG.sellPrice = r => MG.S.prices[r] * MG.MARKET.sellRate(MG.bLevel('market')) * (MG.hasRelic('scales') ? 1.1 : 1);
@@ -218,7 +247,7 @@ function moveMarket() {
 // 매달 수입·지출 내역. 식량은 병사와 주민이 똑같이 먹고, 병사에게는 급여가 나간다.
 MG.economy = () => {
   const S = MG.S, season = MG.SEASON(S.month), mul = MG.SEASON_PROD[season];
-  const made = { gold: 0, food: 0, wood: 0, iron: 0 };
+  const made = { gold: 0, food: 0, wood: 0, stone: 0, iron: 0 };
   for (const f of S.fields) for (const [k, v] of Object.entries(MG.FIELDS[f.type].prod)) made[k] += v * f.level * (mul[k] != null ? mul[k] : 1);
   // 영지 특성
   if (S.domain === 'mine') made.iron *= 1.5;
@@ -245,8 +274,8 @@ MG.economy = () => {
 };
 MG.production = () => {
   const e = MG.economy();
-  return { gold: Math.round(e.tax + e.market + e.made.gold - e.wages), food: e.made.food - e.eat, wood: e.made.wood, iron: e.made.iron };
+  return { gold: Math.round(e.tax + e.market + e.made.gold - e.wages), food: e.made.food - e.eat, wood: e.made.wood, stone: e.made.stone, iron: e.made.iron };
 };
 
-Object.assign(MG.lib, { placeBuilding, placeAnywhere, moveMarket });
+Object.assign(MG.lib, { placeBuilding, placeAnywhere, moveMarket, guildRepair });
 })();

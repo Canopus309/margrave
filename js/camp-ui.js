@@ -49,7 +49,7 @@ function headerBlock() {
   const I = MG.ICONS, season = MG.SEASON(S.month);
   // 자원 칩: 아이콘 + 값 + 달 변화. 자세한 내역은 말풍선으로
   const tip = { gold: `세금 +${eco.tax}${eco.market ? ` · 시장 +${eco.market}` : ''} · 급여 -${eco.wages} (병력 ${eco.soldiers}명)`,
-    food: `생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})`, wood: '들판 벌목장', iron: '들판 광산' };
+    food: `생산 +${Math.round(eco.made.food)} · 소비 -${eco.eat} (병사·주민 1인당 ${MG.FOOD_PER_PERSON})`, wood: '들판 벌목장', stone: '들판 채석장 · 석벽을 짓고 고칠 때', iron: '들판 광산' };
   // 보관 한도에 차면 숫자 색을 바꿔, 더 들어오는 몫이 버려진다는 걸 알린다
   const chips = Object.keys(MG.RES).map(k => { const full = S.res[k] >= cap;
     return `<div class="chip" title="${MG.RES[k]} · ${tip[k]} · 보관 한도 ${cap}${full ? ' (가득 참 — 더 들어오는 만큼 버려져요)' : ''}">${MG.icRes(k)}<b${full ? ' class="warn"' : ''}>${Math.floor(S.res[k])}</b>
@@ -168,8 +168,8 @@ function recruitNote() {
 function actionsBlock() {
   const S = MG.S, ap = S.ap > 0;
   const rows = [
-    { id: 'repair', name: '수리', note: !MG.repairDamage() ? '성벽·성문·본성은 멀쩡해요' : !MG.repairNeed() ? '목재가 모자라요'
-        : `성벽·성문·본성 피해 ${MG.repairDamage()} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ' (목재 부족: 있는 만큼만)' : ''}`,
+    { id: 'repair', name: '수리', note: !MG.repairDamage() ? '성벽·성문·본성은 멀쩡해요' : !MG.repairNeed() ? `${MG.josa(MG.repairLack(), '이가')} 모자라요`
+        : `성벽·성문·본성 피해 ${MG.repairDamage()} 중 ${MG.repairNeed()} 복구 · ${MG.costText(MG.repairCost())}${MG.repairNeed() < MG.repairDamage() ? ` (${MG.repairLack()} 부족: 있는 만큼만)` : ''}`,
       ok: MG.repairNeed() > 0 },
     { id: 'recruit', name: '모집', note: recruitNote(), ok: MG.recruitAmount() > 0 },
     { id: 'train', name: '훈련', note: !MG.bLevel('training') ? '훈련장이 필요해요' : !MG.trainees().length ? '성에 훈련할 장수가 없어요'
@@ -195,7 +195,7 @@ function actionsBlock() {
 function hurtBuildings() {
   const list = MG.S.buildings.filter(b => b.hp < b.max);
   if (!list.length) return '';
-  return `<div class="actRow"><span class="small">${MG.ic('hammer')} <b>부서진 건물</b> <span class="muted">한 채씩, 다 고칠 목재가 있어야 해요</span></span>
+  return `<div class="actRow"><span class="small">${MG.ic('hammer')} <b>부서진 건물</b> <span class="muted">한 채씩, 다 고칠 목재가 있어야 해요${MG.guildRepairs() ? ` · 건설 길드가 매달 말 ${MG.guildRepairs()}채까지 고쳐요` : ''}</span></span>
     <span>${list.map(b => repairBtn(`b:${b.id}`, `${MG.ic(MG.ICONS.building[b.type])} ${MG.BUILDINGS[b.type].name}${b.hp <= 0 ? ' (무너짐)' : ''}`)).join(' ')}</span></div>`;
 }
 
@@ -203,7 +203,7 @@ function hurtBuildings() {
 function repairBtn(spec, label, small) {
   const S = MG.S, need = MG.repairNeed(spec), bld = spec.startsWith('b:'), cost = bld ? MG.repairFullCost(spec) : MG.repairCost(spec);
   return `<button class="mini" data-repair="${spec}" ${S.ap && need ? '' : 'disabled'}
-    title="${need ? `${need}만큼 고쳐요${need < MG.repairDamage(spec) ? ' (목재가 모자라 있는 만큼만)' : ''} · ${MG.costText(cost)} · 행동력 1` : bld ? `목재가 모자라요 (다 고치려면 ${MG.costText(cost)})` : '목재가 모자라요'}">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
+    title="${need ? `${need}만큼 고쳐요${need < MG.repairDamage(spec) ? ` (${MG.repairLack(spec)} 부족: 있는 만큼만)` : ''} · ${MG.costText(cost)} · 행동력 1` : `${MG.josa(MG.repairLack(spec), '이가')} 모자라요${bld ? ` (다 고치려면 ${MG.costText(cost)})` : ''}`}">${MG.ic('hammer')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
 }
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1)
@@ -228,7 +228,7 @@ function fortBlock() {
     <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td><td>수리</td></tr>${rows}</table>
     <div class="actRow"><span class="small">${MG.ic('building-lighthouse')} ${MG.CORNER_TOWERS.name} <span class="muted">${MG.CORNER_TOWERS.desc}</span></span>
       ${btn('towers', null, F.towers ? '있음' : MG.costText(MG.CORNER_TOWERS.cost), MG.CORNER_TOWERS.desc)}</div>
-    <div class="muted small">버튼에 마우스를 올리면 효과와 비용이 보여요. 석벽 ×1.4 → 강화 석벽 ×1.8(성벽 위 궁수 사거리 +10%), 철 성문 ×1.6 → 쇠창살 ×2.2(성문 앞 적 이동 -30%)</div></section>`;
+    <div class="muted small">버튼에 마우스를 올리면 효과와 비용이 보여요. 석벽 ×1.4 → 강화 석벽 ×1.8(성벽 위 궁수 사거리 +10%) — 석벽부터는 석재로 짓고 고쳐요, 철 성문 ×1.6 → 쇠창살 ×2.2(성문 앞 적 이동 -30%)</div></section>`;
 }
 
 // 전투 소모품: 보유 수와 사기 (시장이 있어야)
@@ -254,14 +254,14 @@ function fieldsBlock() {
     `<button class="mini" data-field="${k}" ${ap && MG.canPay(MG.costOf(d.cost, 1)) ? '' : 'disabled'} title="${MG.costText(MG.costOf(d.cost, 1))}">${MG.ic('plus')} ${MG.ic(MG.ICONS.field[k])} ${d.name}</button>`).join(' ') : '<span class="muted small">빈자리 없음</span>';
   return `<section class="card"><h3>${MG.ic('plant-2')} 성 밖 들판 ${S.fields.length} / ${MG.FIELD_SLOTS} <span class="muted">적이 부수지 않아요</span></h3>
     ${list}<div class="fieldAdd">${add}</div>
-    <div class="muted small">가을엔 식량 2배, 겨울엔 식량 0·목재 절반</div></section>`;
+    <div class="muted small">가을엔 식량 2배, 겨울엔 식량 0·목재 절반 (석재는 늘 그대로)</div></section>`;
 }
 
 function marketBlock() {
   const S = MG.S;
   MG.ensureMarket();
   const l = MG.bLevel('market');
-  if (!l) return `<section class="card"><h3>${MG.ic('building-store')} 시장</h3><div class="muted small">시장을 지으면 식량·목재·철을 골드로 사고팔고, 전투 소모품도 살 수 있어요. 시세는 매달 바뀌어요.</div>${itemShop()}</section>`;
+  if (!l) return `<section class="card"><h3>${MG.ic('building-store')} 시장</h3><div class="muted small">시장을 지으면 식량·목재·석재·철을 골드로 사고팔고, 전투 소모품도 살 수 있어요. 시세는 매달 바뀌어요.</div>${itemShop()}</section>`;
   const arrow = r => {
     const d = S.prices[r] - S.prevPrices[r];
     return Math.abs(d) < 0.01 ? `<span class="muted">${MG.ic('minus')}</span>` : d > 0 ? `<span class="danger">${MG.ic('trending-up')}</span>` : `<span class="ok">${MG.ic('trending-down')}</span>`;
