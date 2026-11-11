@@ -369,7 +369,8 @@ function drawEnemies(B) {
     } else if (e.buffT > 0) { ctx.fillStyle = 'rgba(255,120,40,0.35)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 3, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = e.hitT > 0 ? '#fff' : e.T.color;
     ctx.beginPath();
-    if (e.type === 'wolf') ctx.ellipse(e.x, e.y, e.r + 2, e.r - 1, 0, 0, Math.PI * 2);
+    if (e.T.engine) ctx.rect(e.x - e.r, e.y - e.r * 0.75, e.r * 2, e.r * 1.5);  // 공성병기는 네모
+    else if (e.type === 'wolf') ctx.ellipse(e.x, e.y, e.r + 2, e.r - 1, 0, 0, Math.PI * 2);
     else if (e.T.ranged) { ctx.moveTo(e.x, e.y - e.r - 2); ctx.lineTo(e.x + e.r + 1, e.y + e.r); ctx.lineTo(e.x - e.r - 1, e.y + e.r); ctx.closePath(); }  // 원거리 적은 세모
     else ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
     ctx.fill();

@@ -18,7 +18,7 @@ MG.CASTLE = { x: 1000, y: 700, R: 320, T: 30, gateHalf: 30, keepR: 60 };
 MG.WALL_SEG_HP = 1200;
 MG.GATE_HP = 900;
 MG.GATE_TARGET = { goblin: 0.2, wolf: 0.1, orc: 0.6, goblinArcher: 0, orcThrower: 0.3,
-  skeleton: 0.2, ghoul: 0.1, necro: 0, harpy: 0, wyvern: 0, goblinChief: 0.3, orcChampion: 1, lich: 0, wyvernQueen: 0 };  // 성문을 노리는 비율
+  skeleton: 0.2, ghoul: 0.1, necro: 0, harpy: 0, wyvern: 0, goblinChief: 0.3, orcChampion: 1, lich: 0, wyvernQueen: 0, catapult: 0, ram: 1 };  // 성문을 노리는 비율
 MG.KEEP_HP = 3000;  // 성벽이 뚫린 뒤 병력을 돌릴 시간을 준다
 
 MG.SIDES = ['N', 'E', 'S', 'W'];
@@ -48,6 +48,11 @@ MG.ENEMY_TYPES = {
   goblinArcher: { name: '고블린 궁수',  color: '#b4d050', hp: 28, atk: 6,  cd: 1.6, speed: 42, r: 5, wallDmg: 2,  aggro: 0, ranged: 170 },
   orcThrower:   { name: '오크 투석병',  color: '#6a8a40', hp: 90, atk: 10, cd: 3.5, speed: 30, r: 7, wallDmg: 40, aggro: 0, ranged: 220, siege: true },
   // 정벌 전투에만 나온다. regen: 1초에 최대 체력의 비율만큼 회복
+  // 공성병기 (engine): 6번째 전투부터 어느 시대든 끌고 온다. 병사는 공격하지 않는다
+  // 투석기: 성벽 위 궁수 사거리 밖(260)에서 성벽을 치고, 3발 중 1발은 성 안 건물로 넘긴다
+  catapult: { name: '투석기',     color: '#9a7a52', hp: 400, atk: 0,  cd: 5,   speed: 18, r: 11, wallDmg: 90,  aggro: 0, ranged: 260, siege: true, engine: true },
+  // 공성 망치: 성문으로 곧장 가서 부순다
+  ram:      { name: '공성 망치',   color: '#6e5232', hp: 900, atk: 0,  cd: 2.5, speed: 22, r: 12, wallDmg: 150, aggro: 0, engine: true },
   troll:        { name: '늪 트롤',      color: '#5f8a7a', hp: 260, atk: 18, cd: 1.6, speed: 32, r: 9, wallDmg: 20, aggro: 60, regen: 0.01 },
   goblinKing:   { name: '고블린 왕',     color: '#d8c040', hp: 2700, atk: 22, cd: 1.0, speed: 50, r: 12, wallDmg: 0, aggro: 220, boss: true },
   orcWarlord:   { name: '오크 대족장',   color: '#2f6a2a', hp: 4800, atk: 35, cd: 1.3, speed: 40, r: 14, wallDmg: 0, aggro: 220, boss: true },
@@ -90,7 +95,7 @@ MG.GARRISON = { archer: 24, infantry: 24 };  // 성주 직할 병력 (성벽 위
 
 // ---------- 2단계: 병력 성장 ----------
 MG.ENEMY_XP = { goblin: 2, wolf: 3, orc: 8, goblinArcher: 3, orcThrower: 7, troll: 12, goblinKing: 120, orcWarlord: 160, trollChief: 200, ancientDragon: 400, tower: 6, hq: 40,
-  skeleton: 2, ghoul: 3, necro: 6, harpy: 3, wyvern: 12, goblinChief: 100, orcChampion: 120, lich: 120, wyvernQueen: 120 };
+  skeleton: 2, ghoul: 3, necro: 6, harpy: 3, wyvern: 12, goblinChief: 100, orcChampion: 120, lich: 120, wyvernQueen: 120, catapult: 15, ram: 20 };
 MG.MAX_LEVEL = 15;
 MG.xpToNext = L => Math.round(60 * Math.pow(L, 1.4));
 MG.SURVIVE_XP = 20;
@@ -239,6 +244,12 @@ MG.buildWaves = function (level, dirs, faction, mix, diff, retaliation) {
     for (const g of groups) g.count = Math.round(g.count * 1.2);
     groups.push({ wave: 3, t: 95, dir: a, type: 'orc', count: 3 + Math.round(L / 2) });
   }
+  // 공성병기: 투석기는 6번째 전투부터 주력 두 면에 (2전투마다 +1, 면마다 최대 4), 공성 망치는 7번째부터 주력 면 성문에
+  if (L >= 6) {
+    const cat = Math.min(4, 1 + Math.floor((L - 6) / 2));
+    groups.push({ wave: 2, t: 48, dir: a, type: 'catapult', count: cat }, { wave: 2, t: 50, dir: b, type: 'catapult', count: cat });
+  }
+  if (L >= 7) groups.push({ wave: 3, t: 96, dir: a, type: 'ram', count: 1 + (L >= 10 ? 1 : 0) + (L >= 13 ? 1 : 0) });
   // 초반(전투 1~3)은 적을 더 보내고(+30% → +15%), 파 사이 쉬는 시간을 줄인다
   const early = L <= 3 ? 1.3 - 0.075 * (L - 1) : 1;
   for (const g of groups) { g.count = Math.round(g.count * early); if (g.wave === 2) g.t -= 10; if (g.wave === 3) g.t -= 20; }

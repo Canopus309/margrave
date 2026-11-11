@@ -305,7 +305,7 @@ MG.createBattle = function (level, roster) {
       const l = atGate ? rand(-C.gateHalf * 0.7, C.gateHalf * 0.7) : lane + rand(-C.R * 0.5, C.R * 0.5);
       B.spawnQueue.push({ t: g.t + i * 0.35 + rand(0, 0.3), type: g.type, dir: g.dir, wave: g.wave,
         lane: Math.max(-C.R * 0.92, Math.min(C.R * 0.92, l)), hpScale, atkScale,
-        raider: g.type !== 'orc' && Math.random() < MG.RAIDER_SHARE });
+        raider: g.type !== 'orc' && !MG.ENEMY_TYPES[g.type].engine && Math.random() < MG.RAIDER_SHARE });
     }
   }
   B.spawnQueue.sort((a, b) => a.t - b.t);
@@ -910,9 +910,12 @@ function attackWall(e, w) {
 function attackBuilding(e, b) {
   if (e.cdT > 0) return;
   e.cdT = e.T.cd;
-  if (b.hp <= 0) return;
-  b.hp -= eWall(e);
   if (Math.random() < 0.3) B.fx.push({ kind: 'dust', x: e.x + rand(-4, 4), y: e.y + rand(-4, 4), t: 0.4, max: 0.4 });
+  damageBuilding(b, eWall(e));
+}
+function damageBuilding(b, dmg) {
+  if (b.hp <= 0) return;
+  b.hp -= dmg;
   if (b.hp > 0) return;
   b.hp = 0;
   markBuilding(b, 0);
@@ -1316,6 +1319,7 @@ function updateEnemy(e, dt, fGrid) {
 function updateRanged(e, dt, fGrid) {
   const T = e.T;
   const fire = p => { e.cdT = T.cd; e.idleT = 0; B.projectiles.push({ x: e.x, y: e.y, enemy: true, ...p }); };
+  if (T.engine) return updateCatapult(e, fire);
   if (T.siege && cls(e) === 'out') {
     const wp = wallPoint(e.dir, C.R - C.T / 2, e.lane), w = segAt(wp);
     if (w.hp > 0 && dist(e, wp) <= T.ranged) {
@@ -1344,6 +1348,31 @@ function updateRanged(e, dt, fGrid) {
     if (cheb(e) - C.R <= T.ranged * 0.7 && e.idleT < 12) return true;
   }
   return false;
+}
+
+// 투석기: 자기 진로의 성벽을 친다 (3발 중 1발은 성 안 건물로). 그 성벽이 무너졌으면 같은 면의 남은 성벽 → 건물 → 본성.
+// 성 안으로는 들어가지 않고, 쏠 것이 사거리 밖이면 성벽 앞까지만 다가간다.
+function updateCatapult(e, fire) {
+  const T = e.T, R2 = T.ranged, mid = b => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
+  const inRange = p => dist(e, p) <= R2;
+  const lobRange = p => dist(e, p) <= R2 + 200;  // 성벽 너머로 넘기는 돌은 더 멀리 날아간다
+  const lob = () => {
+    const bs = B.buildings.filter(b => b.hp > 0 && lobRange(mid(b)));
+    if (bs.length) { const b = bs[(Math.random() * bs.length) | 0], m = mid(b); return { tx: m.x, ty: m.y, building: b }; }
+    return lobRange(C) ? { tx: C.x, ty: C.y, keep: true } : null;
+  };
+  let shot = null;
+  const wp = wallPoint(e.dir, C.R - C.T / 2, e.lane), w = segAt(wp);
+  if (w.hp > 0 && inRange(wp)) shot = (e.shots || 0) % 3 === 2 ? (lob() || { tx: wp.x, ty: wp.y, wall: w }) : { tx: wp.x, ty: wp.y, wall: w };
+  else if (w.hp <= 0) {
+    const other = B.wallBySide[e.dir].filter(x => x.hp > 0).map(x => ({ x, p: wallPoint(e.dir, C.R - C.T / 2, (x.a0 + x.a1) / 2) })).find(o => inRange(o.p));
+    shot = other ? { tx: other.p.x, ty: other.p.y, wall: other.x } : lob();
+  }
+  if (shot) {
+    if (e.cdT <= 0) { e.shots = (e.shots || 0) + 1; fire({ ...shot, kind: 'rock', dmg: eWall(e), speed: 200 }); }
+    return true;
+  }
+  return cheb(e) - C.R <= 30;  // 성벽 앞에서 멈춘다 (아니면 근접 적처럼 성벽 쪽으로 다가간다)
 }
 
 // 성벽 위 직할 수비대가 맞으면 피해가 쌓여 한 명씩 쓰러진다
@@ -1415,6 +1444,10 @@ function updateProjectiles(dt) {
         // 적의 화살·돌
         if (p.wall) {
           if (p.wall.hp > 0) { p.wall.hp -= p.dmg; B.fx.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0.5, max: 0.5 }); if (p.wall.hp <= 0) breach(p.wall); }
+        } else if (p.building) {
+          B.fx.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0.5, max: 0.5 }); damageBuilding(p.building, p.dmg);
+        } else if (p.keep) {
+          B.fx.push({ kind: 'dust', x: p.tx, y: p.ty, t: 0.5, max: 0.5 }); B.keep.hp -= p.dmg;
         } else if (p.garrison) {
           if (Math.random() < MG.UPHILL_HIT) hitGarrison(p.garrison, p.dmg);
         } else if (p.target && !p.target.dead && (!p.uphill || Math.random() < MG.UPHILL_HIT)) damageFriendly(p.target, p.dmg);
