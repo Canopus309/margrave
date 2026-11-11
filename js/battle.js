@@ -1379,12 +1379,15 @@ function updateGarrison(dt) {
     g.archT -= dt; g.infT -= dt;
     const reach = fortWall(s) >= 2 ? 220 : 200;
     const zone = B.enemies.filter(e => !e.dead && cls(e) === 'out' && side(e) === s && cheb(e) - C.R < reach);
-    if (!zone.length) continue;
+    // 성벽을 넘어 들어온 적(뚫고 들어온 적, 날아온 적)은 뒤돌아 먼저 쏜다
+    const inside = g.archer > 0 ? B.enemies.filter(e => !e.dead && !e.struct && cls(e) === 'in' && side(e) === s && C.R - cheb(e) < reach) : [];
+    if (!zone.length && !inside.length) continue;
     const mult = B.lordDead ? MG.LORD_DEAD_MULT : 1;
     if (g.archT <= 0 && g.archer > 0) {
       g.archT = MG.UNIT_TYPES.archer.cd;
+      const pool = inside.length ? inside : zone;
       for (let i = 0; i < g.archer; i++) {
-        const e = zone[(Math.random() * zone.length) | 0], w = live[i % live.length];
+        const e = pool[(Math.random() * pool.length) | 0], w = live[i % live.length];
         const p = wallPoint(s, C.R - 6, (w.a0 + w.a1) / 2 + rand(-0.4, 0.4) * (w.a1 - w.a0));
         B.projectiles.push({ x: p.x, y: p.y,
           target: e, tx: e.x, ty: e.y, dmg: MG.UNIT_TYPES.archer.atk * mult * garVet() * (relic('arrowheads') ? 1.15 : 1) * (MG.perk('wallwatch') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.2 : 1), kind: 'arrow', speed: 520, splash: 0 });
