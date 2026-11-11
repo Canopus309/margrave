@@ -642,14 +642,16 @@ function endingPanel() {
     <div class="row"><button class="main" id="continueBtn">계속 다스리기</button><button class="main alt" id="finishBtn">여기서 이야기를 마치기</button></div></div></div>`;
 }
 
+// 개월 수 → "6년 2개월" / "8개월"
+const spanText = m => (m >= 12 ? `${Math.floor(m / 12)}년${m % 12 ? ` ${m % 12}개월` : ''}` : `${Math.max(0, m)}개월`);
 function overPanel() {
   const S = MG.S, r = S.renown || MG.renownOf(S), m = MG.meta();
   const title = S.overReason === '평정' ? '변경백 가문의 이야기가 끝났어요' : S.overReason === '가문 단절' ? '가문이 끊겼어요' : '변경 기지가 무너졌어요';
   return `<div class="overlay"><div class="panel wide"><h1>${MG.ic('flag-off')} ${title}</h1>
-    <p>${S.lord.gen}대에 걸쳐 ${MG.year()}년 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}.</p>
+    <p>${S.lord.gen}대에 걸쳐 ${spanText(S.month - 2)} 동안 변경을 지켰어요. 치른 전투 ${S.stats.battles}(승리 ${S.stats.wins}), 처치한 적 ${S.stats.kills}.</p>
     <h3>${MG.ic('crown')} 성주 계보</h3>${lineageTable()}
     <h3>얻은 명성 <b class="warn">+${r.total}</b></h3>
-    <div class="small muted">버틴 햇수 ${r.parts.years} · 승리 ${r.parts.wins} · 거점 ${r.parts.outposts} · 이어진 대 ${r.parts.gens}${r.parts.ending ? ` · 엔딩 ${r.parts.ending}` : ''}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
+    <div class="small muted">버틴 햇수 +${r.parts.years} · 승리 +${r.parts.wins} · 거점 +${r.parts.outposts} · 이어진 대 +${r.parts.gens}${r.parts.ending ? ` · 엔딩 +${r.parts.ending}` : ''}${S.siege ? ` · 포위 ${S.siege}단계 ×${MG.siegeRenownMul(S.siege)}` : ''}</div>
     <p>모아 둔 명성: <b class="warn">${m.renown}</b> — 새 캠페인을 준비할 때 해금에 써요.</p>
     <div class="row"><button class="main" id="newCampBtn">새 캠페인 준비</button><button class="main alt" id="chronBtn2">연대기 보기</button><button class="main alt" id="saveMenuBtn2">저장 불러오기</button></div></div></div>`;
 }

@@ -100,8 +100,9 @@ function arriveSupport(rep) {
   S.support = null;
   if (k === 'general') {
     const g = newGeneral({ type: pick(Object.keys(MG.WEAPON_KINDS)), level: randInt(2, 4), age: randInt(25, 40), healthy: 10 });
+    g.healthy = Math.min(g.healthy, MG.genCap(g));  // 통솔 한도를 넘지 않게
     S.generals.push(g);
-    rep.push(`본국이 장수 ${g.name}(${MG.UNIT_TYPES[g.type].name} Lv.${g.level})과 병사 10명을 보냈어요.`);
+    rep.push(`본국이 ${MG.UNIT_TYPES[g.type].name} Lv.${g.level} 장수 ${MG.josa(g.name, '과와')} 병사 ${g.healthy}명을 보냈어요.`);
   } else if (k === 'soldiers') {
     S.garrison.infantry += 10; S.garrison.archer += 10;
     rep.push('본국이 병사 20명을 보냈어요 (직할).');

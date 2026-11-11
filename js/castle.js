@@ -223,8 +223,10 @@ MG.trade = (r, qty) => {
     if (k <= 0) return room <= 0 ? '창고가 가득 찼어요' : '골드가 모자라요';
     S.res.gold -= Math.ceil(k * MG.buyPrice(r)); S.res[r] += k; S.traded += k;
   } else {
-    const k = Math.min(n, Math.floor(S.res[r]));
-    if (k <= 0) return `팔 ${MG.josa(MG.RES[r], '이가')} 없어요`;
+    // 판 골드가 창고 한도를 넘지 않는 만큼만 판다 (넘친 골드가 버려지지 않게)
+    const goldRoom = MG.storageCap() - S.res.gold, k = Math.min(n, Math.floor(S.res[r]), Math.floor(goldRoom / MG.sellPrice(r)));
+    if (Math.floor(S.res[r]) <= 0) return `팔 ${MG.josa(MG.RES[r], '이가')} 없어요`;
+    if (k <= 0) return '골드 창고가 가득 찼어요';
     S.res[r] -= k; addRes('gold', Math.floor(k * MG.sellPrice(r))); S.traded += k;
   }
   save();
