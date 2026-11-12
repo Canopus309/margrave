@@ -304,7 +304,7 @@ MG.HOSPITAL_PER_LEVEL = 20;
 MG.FIELDS = {
   farm:   { name: '농장',   color: '#b8b04a', cost: { gold: 40, wood: 30 },  max: 3, prod: { food: 25 } },
   lumber: { name: '벌목장', color: '#6a8a4a', cost: { gold: 40 },            max: 3, prod: { wood: 25 } },
-  quarry: { name: '채석장', color: '#8a8478', cost: { gold: 40 },            max: 3, prod: { stone: 20 } },
+  quarry: { name: '채석장', color: '#8a8478', cost: { gold: 40 },            max: 3, prod: { stone: 12 }, only: 1 },  // 하나만 지을 수 있다 (예전 저장의 여러 개는 그대로)
   mine:   { name: '광산',   color: '#7a7a7a', cost: { gold: 60, wood: 40 },  max: 3, prod: { iron: 15 } },
   // 연대기 사건(황금 광맥)으로만 생긴다. 들판에 새로 지을 수는 없다
   goldmine: { name: '금광', color: '#d8b040', cost: { gold: 60, wood: 40 }, max: 3, prod: { gold: 40 }, hidden: true },
@@ -450,7 +450,7 @@ MG.conquestGold = stars => 200 * stars;
 
 // 시장 거래: 골드로 사고판다. 시세는 매달 랜덤하게 움직이고 기준값으로 천천히 돌아온다.
 MG.MARKET = {
-  base: { food: 1.0, wood: 1.5, stone: 2.0, iron: 3.0 },     // 사는 값 기준 (1개당 골드)
+  base: { food: 1.0, wood: 1.5, stone: 3.5, iron: 3.0 },     // 사는 값 기준 (1개당 골드)
   drift: 0.12, pull: 0.3, min: 0.4, max: 2.5,       // 매달 ±12%, 기준값으로 30% 복귀, 기준의 0.4~2.5배
   season: { food: { 봄: 1.2, 여름: 1.0, 가을: 0.7, 겨울: 1.4 } },
   sellRate: l => 0.65 + 0.05 * l,                   // 파는 값 = 사는 값 × (70% / 75% / 80%)
@@ -600,8 +600,9 @@ MG.newFort = () => {
   const side = v => Object.fromEntries(MG.SIDES.map(s => [s, v]));
   return { wall: side(0), gate: side(0), moat: side(false), oil: side(false), towers: false };
 };
-// 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율
-MG.fortLevelMul = (fort, id) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]] : MG.WALL_LEVELS[fort.wall[id[0]]]).mul : 1);
+// 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율. 목재로 임시 보수한 석벽 조각은 기본 성벽 체력까지만
+MG.isPatched = (fort, id) => !!(fort && fort.patched && fort.patched[id]);
+MG.fortLevelMul = (fort, id, full) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]].mul : !full && MG.isPatched(fort, id) ? 1 : MG.WALL_LEVELS[fort.wall[id[0]]].mul) : 1);
 
 // ---------- 훈련소와 예비군 ----------
 // 모집(1명당 골드 5) 뒤에 병종별로 드는 훈련 기간과 비용(1명당). 필요 건물은 MG.REFILL_BUILDING과 같다.

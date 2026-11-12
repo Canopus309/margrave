@@ -36,7 +36,8 @@ MG.actUpgrade = b => {
   if (b.hp <= 0) return '먼저 수리해야 해요';
   return act(MG.upgradeCost(b), () => { b.level++; b.max = Math.round(MG.BUILDINGS[b.type].hp * (1 + 0.3 * (b.level - 1))); b.hp = b.max; });
 };
-MG.actField = type => act(MG.costOf(MG.FIELDS[type].cost, 1), () => (MG.S.fields.length < MG.FIELD_SLOTS ? (MG.S.fields.push({ type, level: 1 }), null) : '들판에 빈자리가 없어요'));
+MG.fieldLimited = type => { const d = MG.FIELDS[type]; return d.only && MG.S.fields.filter(f => f.type === type).length >= d.only; };
+MG.actField = type => MG.fieldLimited(type) ? `${MG.josa(MG.FIELDS[type].name, '은는')} 하나만 지을 수 있어요` : act(MG.costOf(MG.FIELDS[type].cost, 1), () => (MG.S.fields.length < MG.FIELD_SLOTS ? (MG.S.fields.push({ type, level: 1 }), null) : '들판에 빈자리가 없어요'));
 MG.fieldUpgradeCost = f => MG.costOf(MG.FIELDS[f.type].cost, f.level + 1);
 MG.actFieldUpgrade = f => (f.level >= MG.FIELDS[f.type].max ? '최고 단계예요' : act(MG.fieldUpgradeCost(f), () => { f.level++; }));
 
@@ -68,7 +69,10 @@ MG.demolishField = idx => {
 
 // 성벽 조각 최대 체력 (국경 요새 영지면 +30%). id의 두 번째 글자 2는 성문
 MG.wallMul = () => (MG.S && MG.S.domain === 'fortress' ? MG.WALL_DOMAIN_MUL : 1) * (MG.S && MG.hasRelic('crest') ? 1.15 : 1) * (MG.perk('siegehold') ? 1.5 : 1);
-MG.wallMax = id => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul() * MG.fortLevelMul(MG.S && MG.S.fort, id));
+// full: 임시 보수 표시를 무시한 원래 최대 체력
+MG.wallMax = (id, full) => Math.round((id[1] === '2' ? MG.GATE_HP : MG.WALL_SEG_HP) * MG.wallMul() * MG.fortLevelMul(MG.S && MG.S.fort, id, full));
+// 목재로 임시 보수한 조각 수
+MG.patchedCount = side => Object.keys((MG.S.fort && MG.S.fort.patched) || {}).filter(id => !side || id[0] === side).length;
 
 // 성벽·성문 강화와 부가 시설 (면별, 행동력 1). kind: wall gate moat oil towers
 MG.fortCost = (kind, side) => {
@@ -96,9 +100,9 @@ MG.actFort = (kind, side) => {
 // 수리: 성벽·성문·본성은 일괄(목재만큼), 건물은 한 채씩
 MG.damageList = () => {
   const S = MG.S, list = [];
-  for (const [id, hp] of Object.entries(S.walls)) {
-    const max = MG.wallMax(id);
-    if (hp < max) list.push({ kind: 'wall', id, hp, max });
+  for (const id of MG.SIDES.flatMap(s => [0, 1, 2, 3, 4].map(i => s + i))) {
+    const patched = MG.isPatched(S.fort, id), hp = S.walls[id] != null ? S.walls[id] : MG.wallMax(id), max = MG.wallMax(id, true);
+    if (hp < max) list.push({ kind: 'wall', id, hp, max, patched });
   }
   if (S.keep < MG.KEEP_HP) list.push({ kind: 'keep', hp: S.keep, max: MG.KEEP_HP });
   for (const b of S.buildings) if (b.hp < b.max) list.push({ kind: 'building', b, hp: b.hp, max: b.max });
@@ -115,43 +119,61 @@ const repairFilter = spec => {
 const isBuildingSpec = spec => typeof spec === 'string' && spec.startsWith('b:');
 // 고를 수 있는 피해 (양 제한 없음)
 MG.repairDamage = spec => Math.round(MG.damageList().filter(repairFilter(spec)).reduce((a, d) => a + d.max - d.hp, 0));
-// 재료: 석벽으로 올린 면의 성벽 조각은 석재, 나머지(기본 성벽·성문·본성·건물)는 목재
-const repairRes = d => (d.kind === 'wall' && d.id[1] !== '2' && MG.S.fort.wall[d.id[0]] > 0 ? 'stone' : 'wood');
+// 석벽으로 올린 면의 성벽 조각 (성문 제외)
+const stoneSeg = d => d.kind === 'wall' && d.id[1] !== '2' && MG.S.fort.wall[d.id[0]] > 0;
+// 재료: 석벽 조각은 석재, 나머지(기본 성벽·성문·본성·건물)는 목재. 임시 보수(patch)면 석벽 조각도 목재로
+const repairRes = (d, patch) => (stoneSeg(d) && !patch ? 'stone' : 'wood');
 // 체력 1을 고치는 재료. 강화한 성벽·성문은 체력 배율만큼 싸서, 같은 비율로 부서지면 기본과 같은 양이 든다
-const perHp = d => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)
-  / (d.kind === 'wall' ? MG.fortLevelMul(MG.S.fort, d.id) : 1);
+// 임시 보수는 기본 성벽과 같은 비율
+const perHp = (d, patch) => MG.REPAIR_WOOD_PER_HP * (MG.hasEngineers() ? 0.6 : 1) * (MG.hasRelic('chisel') ? 0.7 : 1) * (MG.perk('siegehold') ? 0.5 : 1)
+  / (d.kind === 'wall' && !(patch && stoneSeg(d)) ? MG.fortLevelMul(MG.S.fort, d.id, true) : 1);
+// 임시 보수: 석벽 조각은 기본 성벽 체력까지만 목재로 채운다
+const patchMax = d => Math.round(MG.WALL_SEG_HP * MG.wallMul());
 const fullCost = d => Math.ceil((d.max - d.hp) * perHp(d) - 1e-9);
 // 무너진 성벽·성문 먼저, 그다음 본성, 그다음 많이 부서진 비율 순
 const rank = d => (d.kind === 'wall' && d.hp <= 0 ? 0 : d.kind === 'keep' ? 1 : 2);
-// 수리 계획: 순서대로, 성벽·본성은 재료가 되는 만큼, 건물은 통째로만. full이면 재료 제한 없이
-function repairPlan(spec, full) {
+// 수리 계획: 순서대로, 성벽·본성은 재료가 되는 만큼, 건물은 통째로만. full이면 재료 제한 없이.
+// patch(임시 보수)면 석재를 쓰지 않고 석벽 조각을 목재로 기본 성벽 체력까지만 채운다
+function repairPlan(spec, full, patch) {
   const S = MG.S, have = { wood: Math.floor(S.res.wood), stone: Math.floor(S.res.stone || 0) }, used = { wood: 0, stone: 0 }, fixes = [];
   for (const d of MG.damageList().filter(repairFilter(spec)).sort((a, b) => rank(a) - rank(b) || a.hp / a.max - b.hp / b.max)) {
-    const r = repairRes(d), p = perHp(d), dmg = d.max - d.hp, room = have[r] - used[r];
+    const pt = patch && stoneSeg(d), r = repairRes(d, patch), p = perHp(d, patch), dmg = (pt ? patchMax(d) : d.max) - d.hp, room = have[r] - used[r];
+    if (pt && dmg <= 0) continue;
     const add = full ? dmg : d.kind === 'building' ? (dmg * p <= room + 1e-9 ? dmg : 0) : Math.min(dmg, Math.floor(room / p + 1e-9));
     if (add <= 0) continue;
-    used[r] += add * p; fixes.push([d, add]);
+    used[r] += add * p; fixes.push([d, add, pt]);
   }
   const cost = {};
   for (const r of ['wood', 'stone']) if (used[r] > 0) cost[r] = Math.ceil(used[r] - 1e-9);
   return { fixes, cost, hp: Math.round(fixes.reduce((a, f) => a + f[1], 0)) };
 }
 // 이번에 고치는 양과 재료
-MG.repairNeed = spec => repairPlan(spec).hp;
-MG.repairCost = spec => repairPlan(spec).cost;
+MG.repairNeed = (spec, patch) => repairPlan(spec, false, patch).hp;
+MG.repairCost = (spec, patch) => repairPlan(spec, false, patch).cost;
+// 임시 보수로 채울 수 있는 피해 (석벽 조각이 기본 성벽 체력 아래로 부서진 만큼)
+MG.patchDamage = spec => Math.round(MG.damageList().filter(repairFilter(spec)).filter(stoneSeg).reduce((a, d) => a + Math.max(0, patchMax(d) - d.hp), 0));
+// 임시 보수 버튼을 켤지: 석재로는 다 못 고치고, 기본 성벽 체력 아래로 부서진 석벽 조각이 있을 때
+MG.canPatch = spec => MG.patchDamage(spec) > 0 && (MG.repairFullCost(spec).stone || 0) > Math.floor(MG.S.res.stone || 0) && MG.repairNeed(spec, true) > 0;
 // 다 고치는 데 드는 재료 (건물 버튼 표시용)
 MG.repairFullCost = spec => repairPlan(spec, true).cost;
 // 다 고치기에 모자란 재료 이름 ('목재', '석재 · 목재' …)
 MG.repairLack = spec => Object.entries(MG.repairFullCost(spec)).filter(([r, n]) => n > Math.floor(MG.S.res[r] || 0)).map(([r]) => MG.RES[r]).join(' · ');
 // 공병 부대가 성에 있으면(원정 중 아님, 병사 있음) 수리 재료가 40% 줄어든다
 MG.hasEngineers = () => MG.S.generals.some(g => g.type === 'engineer' && !g.dead && !g.away && g.healthy > 0);
-MG.actRepair = spec => {
+MG.actRepair = (spec, patch) => {
   if (!MG.repairDamage(spec)) return '고칠 곳이 없어요';
-  const plan = repairPlan(spec);
-  if (!plan.hp) return `${MG.josa(MG.repairLack(spec), '이가')} 모자라요${isBuildingSpec(spec) ? ` (다 고치려면 ${MG.costText(MG.repairFullCost(spec))})` : ''}`;
+  if (patch && !MG.patchDamage(spec)) return '임시 보수할 석벽이 없어요';
+  const plan = repairPlan(spec, false, patch);
+  if (!plan.hp) return `${MG.josa(patch ? '목재' : MG.repairLack(spec), '이가')} 모자라요${isBuildingSpec(spec) ? ` (다 고치려면 ${MG.costText(MG.repairFullCost(spec))})` : ''}`;
   return act(plan.cost, () => {
-    for (const [d, add] of plan.fixes) {
-      if (d.kind === 'wall') MG.S.walls[d.id] = d.hp + add;
+    const F = MG.S.fort;
+    for (const [d, add, pt] of plan.fixes) {
+      if (d.kind === 'wall') {
+        // 임시 보수: 표시를 남긴다. 석재로 고치면 표시가 사라지고 원래 체력까지 찬다
+        if (pt) (F.patched = F.patched || {})[d.id] = true;
+        else if (F.patched) delete F.patched[d.id];
+        MG.S.walls[d.id] = d.hp + add;
+      }
       else if (d.kind === 'keep') MG.S.keep = d.hp + add;
       else d.b.hp = d.max;
     }
