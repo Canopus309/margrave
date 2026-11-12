@@ -36,6 +36,11 @@ function migrate(s) {
   if (!s.difficulty) s.difficulty = 'normal';
   if (!s.relics) s.relics = [];
   if (!s.fort) s.fort = MG.newFort();
+  if (s.fort.patched) {  // 예전 '임시 보수' 표시: 목재 속(기본 성벽 체력)까지 찬 조각으로 바꾼다
+    const prev = MG.S; MG.S = s;
+    for (const id of Object.keys(s.fort.patched)) if (s.walls[id] == null) s.walls[id] = MG.wallCore();
+    MG.S = prev; delete s.fort.patched;
+  }
   if (s.res.stone == null) s.res.stone = 0;
   if (!s.perks) s.perks = [];
   if (s.recruits == null) s.recruits = 0;

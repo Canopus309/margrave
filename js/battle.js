@@ -273,7 +273,7 @@ MG.createBattle = function (level, roster) {
   for (const s of MG.SIDES) {
     B.wallBySide[s] = spans.map(([a0, a1], i) => {
       const gate = i === 2, id = s + i, max = Math.round((gate ? MG.GATE_HP : MG.WALL_SEG_HP) * (roster.wallMul || 1) * MG.fortLevelMul(roster.fort, id));
-      const w = { id, side: s, a0, a1, gate, hp: prevWalls[id] != null ? prevWalls[id] : max, max, patched: MG.isPatched(roster.fort, id) };
+      const w = { id, side: s, a0, a1, gate, hp: prevWalls[id] != null ? prevWalls[id] : max, max, core: Math.round(MG.WALL_SEG_HP * (roster.wallMul || 1)) };
       B.walls.push(w);
       return w;
     });

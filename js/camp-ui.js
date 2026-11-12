@@ -185,24 +185,10 @@ function actionsBlock() {
     : '<div class="actRow"><span class="small muted">발탁: 훈련장 2단계가 있으면 직할 병사를 장수로 키울 수 있어요</span></div>';
   return `<section class="card"><h3>${MG.ic('bolt')} 행동 <span class="muted">행동력 1씩</span></h3>
     ${rows.map(r => `<div class="actRow"><button class="actBtn" data-act="${r.id}" ${ap && r.ok ? '' : 'disabled'}>${MG.ic(MG.ICONS.act[r.id])} ${r.name}</button><span class="small muted">${r.note}</span></div>`).join('')}
-    ${patchRow()}
     ${S.keep < MG.KEEP_HP ? `<div class="actRow"><span class="small">${MG.ic('building-castle')} <b>본성</b> <span class="muted">${Math.round(S.keep)} / ${MG.KEEP_HP}</span></span>${repairBtn('keep', '본성 수리')}</div>` : ''}
     ${hurtBuildings()}
     ${promote}
     ${msg ? `<div class="msg small">${msg}</div>` : ''}</section>`;
-}
-
-// 임시 보수: 석재가 모자랄 때 석벽 조각을 목재로 기본 성벽 체력까지만 채운다 (행동력 1)
-function patchRow() {
-  const n = MG.patchedCount(), can = MG.canPatch('all');
-  if (!can && !n) return '';
-  const tip = `석재 대신 목재로, 석벽 조각을 기본 성벽 체력(${Math.round(MG.WALL_SEG_HP * MG.wallMul())})까지만 채워요. 석재로 수리하면 원래 체력으로 돌아가요`;
-  return `<div class="actRow"><span class="small" title="${tip}">${MG.ic('tree')} <b>임시 보수</b> <span class="muted">${can ? `석재가 모자라요 · 석벽을 목재로 기본 성벽 체력까지만 · ${MG.repairNeed('all', true)} 복구` : '석재로 수리하면 원래 체력으로 돌아가요'}${n ? ` · 임시 보수한 조각 ${n}개` : ''}</span></span>
-    ${can ? patchBtn('all', '임시 보수') : ''}</div>`;
-}
-function patchBtn(spec, label, small) {
-  const S = MG.S, need = MG.repairNeed(spec, true), cost = MG.repairCost(spec, true);
-  return `<button class="mini" data-patch="${spec}" ${S.ap && need ? '' : 'disabled'} title="임시 보수: 목재로 ${need}만큼 (석벽은 기본 성벽 체력까지만) · ${MG.costText(cost)} · 행동력 1">${MG.ic('tree')}${small ? '' : ` ${label} · ${MG.costText(cost)}`}</button>`;
 }
 
 // 부서진 건물: 한 채씩 다 고친다 (행동력 1, 다 고칠 목재가 있어야)
@@ -232,11 +218,11 @@ function fortBlock() {
   const rows = MG.SIDES.map(s => {
     const wn = MG.WALL_LEVELS[F.wall[s] + 1], gn = MG.GATE_LEVELS[F.gate[s] + 1];
     return `<tr><td><b>${MG.SIDE_NAME[s]}</b></td>
-      <td title="${MG.WALL_LEVELS[F.wall[s]].name}${MG.patchedCount(s) ? ` · 목재로 임시 보수한 조각 ${MG.patchedCount(s)}개` : ''}">${MG.ic('wall')} ${lvl(MG.WALL_LEVELS, F.wall[s])}${MG.patchedCount(s) ? ` <span class="warn small">${MG.ic('tree')}${MG.patchedCount(s)}</span>` : ''} ${wn ? btn('wall', s, MG.ic('arrow-up'), `${wn.name}: 체력 ×${wn.mul}${wn.desc ? ' · ' + wn.desc : ''}`) : ''}</td>
+      <td title="${MG.WALL_LEVELS[F.wall[s]].name}${MG.bareCount(s) ? ` · 석재 겉이 벗겨져 목재 속만 남은 조각 ${MG.bareCount(s)}개 (석재로 수리하면 원래대로)` : ''}">${MG.ic('wall')} ${lvl(MG.WALL_LEVELS, F.wall[s])}${MG.bareCount(s) ? ` <span class="warn small">${MG.ic('tree')}목재 ${MG.bareCount(s)}</span>` : ''} ${wn ? btn('wall', s, MG.ic('arrow-up'), `${wn.name}: 체력 ×${wn.mul}${wn.desc ? ' · ' + wn.desc : ''}`) : ''}</td>
       <td title="${MG.GATE_LEVELS[F.gate[s]].name}">${MG.ic('door')} ${lvl(MG.GATE_LEVELS, F.gate[s])} ${gn ? btn('gate', s, MG.ic('arrow-up'), `${gn.name}: 체력 ×${gn.mul}${gn.desc ? ' · ' + gn.desc : ''}`) : ''}</td>
       <td>${btn('moat', s, MG.ic('ripple'), `해자 · ${MG.FORT_EXTRAS.moat.desc}`)}</td>
       <td>${btn('oil', s, MG.ic('flame'), `기름 구멍 · ${MG.FORT_EXTRAS.oil.desc}`)}</td>
-      <td>${MG.repairDamage('side:' + s) ? repairBtn('side:' + s, '', true) : ''}${MG.canPatch('side:' + s) ? ' ' + patchBtn('side:' + s, '', true) : ''}</td></tr>`;
+      <td>${MG.repairDamage('side:' + s) ? repairBtn('side:' + s, '', true) : ''}</td></tr>`;
   }).join('');
   return `<section class="card"><h3>${MG.ic('wall')} 성벽과 성문 <span class="muted">면마다 강화 · 행동력 1</span></h3>
     <table class="fortTable"><tr class="muted small"><td></td><td>성벽</td><td>성문</td><td>해자</td><td>기름</td><td>수리</td></tr>${rows}</table>
@@ -897,7 +883,6 @@ const ON_DATA = {
   // 행동·수리·성벽
   act: v => run(ACTS[v]()),
   repair: v => run(MG.actRepair(v)),
-  patch: v => run(MG.actRepair(v, true)),
   fort: v => { const [k, s] = v.split(','); run(MG.actFort(k, s || null)); },
   promote: v => run(MG.actPromote(v)),
   // 시장

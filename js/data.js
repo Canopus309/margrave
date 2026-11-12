@@ -600,9 +600,10 @@ MG.newFort = () => {
   const side = v => Object.fromEntries(MG.SIDES.map(s => [s, v]));
   return { wall: side(0), gate: side(0), moat: side(false), oil: side(false), towers: false };
 };
-// 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율. 목재로 임시 보수한 석벽 조각은 기본 성벽 체력까지만
-MG.isPatched = (fort, id) => !!(fort && fort.patched && fort.patched[id]);
-MG.fortLevelMul = (fort, id, full) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]].mul : !full && MG.isPatched(fort, id) ? 1 : MG.WALL_LEVELS[fort.wall[id[0]]].mul) : 1);
+// 성벽 조각 id('N0'~'W4', 가운데 2가 성문)의 강화 배율
+MG.fortLevelMul = (fort, id) => (fort ? (id[1] === '2' ? MG.GATE_LEVELS[fort.gate[id[0]]] : MG.WALL_LEVELS[fort.wall[id[0]]]).mul : 1);
+// 석벽 조각 = 목재 속(기본 성벽 체력까지, 목재로 수리) + 석재 겉(그 위, 석재로 수리). 석재 겉은 체력 1당 목재 단가의 이 비율만큼
+MG.STONE_REPAIR_RATE = 0.5;
 
 // ---------- 훈련소와 예비군 ----------
 // 모집(1명당 골드 5) 뒤에 병종별로 드는 훈련 기간과 비용(1명당). 필요 건물은 MG.REFILL_BUILDING과 같다.

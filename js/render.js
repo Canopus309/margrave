@@ -177,7 +177,7 @@ function drawWalls(B) {
       for (let i = 0; i < (w.gate ? 10 : 22); i++) ctx.fillRect(x + rnd() * ww - 3, y + rnd() * hh - 3, 4 + rnd() * 6, 4 + rnd() * 6);
       continue;
     }
-    const tint = w.gate ? GATE_TINT[F ? F.gate[w.side] : 0] : WALL_TINT[F && !w.patched ? F.wall[w.side] : 0];  // 임시 보수한 조각은 나무 색
+    const tint = w.gate ? GATE_TINT[F ? F.gate[w.side] : 0] : WALL_TINT[F && w.hp > w.core ? F.wall[w.side] : 0];  // 석재 겉이 벗겨진 조각은 나무 색
     ctx.fillStyle = lerpColor(tint[0], tint[1], p);
     ctx.fillRect(x, y, ww, hh);
     ctx.strokeStyle = w.gate ? '#24160a' : '#3a332b'; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, ww, hh);
